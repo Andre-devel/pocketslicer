@@ -16,6 +16,23 @@ if (NOT ANDROID)
     message(FATAL_ERROR "Este projeto é só para Android (use o toolchain do NDK).")
 endif ()
 
+# Limita a compilação paralela pela RAM: cada clang++ de libslic3r passa de 1 GB,
+# e o ninja usa todos os núcleos + 2. Com 16 núcleos e as duas ABIs do Gradle o
+# pico chegou a 25 GB e o systemd-oomd matou o terminal, o IntelliJ e o Chrome.
+# 4 GB por job deixa folga para as duas ABIs ao mesmo tempo e para o resto do PC.
+cmake_host_system_information(RESULT _total_mem_mb QUERY TOTAL_PHYSICAL_MEMORY)
+cmake_host_system_information(RESULT _cores QUERY NUMBER_OF_LOGICAL_CORES)
+math(EXPR _jobs "${_total_mem_mb} / 4096")
+if (_jobs LESS 1)
+    set(_jobs 1)
+elseif (_jobs GREATER _cores)
+    set(_jobs ${_cores})
+endif ()
+set(SLICER_COMPILE_JOBS ${_jobs} CACHE STRING "Compilações paralelas (padrão: RAM / 4 GB)")
+set_property(GLOBAL PROPERTY JOB_POOLS compile=${SLICER_COMPILE_JOBS} link=1)
+set(CMAKE_JOB_POOL_COMPILE compile)
+set(CMAKE_JOB_POOL_LINK link)
+
 set(ORCA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/OrcaSlicer")
 get_filename_component(ORCA_DIR "${ORCA_DIR}" ABSOLUTE)
 set(DEPS_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/deps/out-android-${ANDROID_ABI}" CACHE PATH "Prefixo das deps compiladas")
