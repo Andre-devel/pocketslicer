@@ -37,6 +37,13 @@ jobjectArray to_array(JNIEnv *env, const std::vector<std::string> &values)
     return out;
 }
 
+jfloatArray to_float_array(JNIEnv *env, const std::vector<jfloat> &values)
+{
+    jfloatArray out = env->NewFloatArray(jsize(values.size()));
+    env->SetFloatArrayRegion(out, 0, jsize(values.size()), values.data());
+    return out;
+}
+
 Engine *engine(jlong handle) { return reinterpret_cast<Engine *>(handle); }
 
 // Executa f convertendo exceções C++ em exceções Java pendentes.
@@ -107,6 +114,44 @@ JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeLoadModel(JNIEnv *env, jclass, jlong handle, jstring path)
 {
     guarded(env, [&] { engine(handle)->load_model(to_string(env, path)); });
+}
+
+// Bed(shape: FloatArray com x, y intercalados, maxHeight: Float).
+JNIEXPORT jobject JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeBed(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&]() -> jobject {
+        const slicer::Bed bed = engine(handle)->bed();
+        std::vector<jfloat> shape;
+        for (const auto &p : bed.shape)
+            shape.insert(shape.end(), {jfloat(p[0]), jfloat(p[1])});
+        jclass cls = env->FindClass("io/github/andredevel/slicer/core/Bed");
+        jmethodID init = env->GetMethodID(cls, "<init>", "([FF)V");
+        return env->NewObject(cls, init, to_float_array(env, shape), jfloat(bed.max_height));
+    });
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&]() -> jobjectArray {
+        const std::vector<slicer::ObjectMesh> meshes = engine(handle)->objects();
+        jclass cls = env->FindClass("io/github/andredevel/slicer/core/ObjectMesh");
+        jmethodID init = env->GetMethodID(cls, "<init>", "([F[I[F)V");
+        jobjectArray out = env->NewObjectArray(jsize(meshes.size()), cls, nullptr);
+        for (size_t i = 0; i < meshes.size(); ++i) {
+            const slicer::ObjectMesh &mesh = meshes[i];
+            jfloatArray positions = to_float_array(env, mesh.positions);
+            jintArray indices = env->NewIntArray(jsize(mesh.indices.size()));
+            env->SetIntArrayRegion(indices, 0, jsize(mesh.indices.size()), reinterpret_cast<const jint *>(mesh.indices.data()));
+            jfloatArray transform = to_float_array(env, std::vector<jfloat>(mesh.transform.begin(), mesh.transform.end()));
+            jobject object = env->NewObject(cls, init, positions, indices, transform);
+            env->SetObjectArrayElement(out, jsize(i), object);
+            for (jobject ref : {jobject(positions), jobject(indices), jobject(transform), object})
+                env->DeleteLocalRef(ref);
+        }
+        return out;
+    });
 }
 
 // Retorna {tempo estimado em s, volume de filamento em mm³}.

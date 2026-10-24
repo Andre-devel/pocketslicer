@@ -14,6 +14,15 @@ enum class PresetKind { PRINTER, FILAMENT, PROCESS }
 
 data class SliceStats(val printTimeSeconds: Double, val filamentMm3: Double)
 
+/** Área de impressão em mm: contorno com x, y intercalados e altura máxima. */
+class Bed(val shape: FloatArray, val maxHeight: Float)
+
+/**
+ * Malha de um objeto em coordenadas locais (x, y, z por vértice; 3 índices por
+ * triângulo) e a transformação para a mesa, 4x4 em ordem de coluna (OpenGL).
+ */
+class ObjectMesh(val positions: FloatArray, val indices: IntArray, val transform: FloatArray)
+
 fun interface SliceProgressListener {
     fun onProgress(percent: Int, text: String)
 }
@@ -46,10 +55,18 @@ class SlicerEngine private constructor(
     /** Trocar a impressora seleciona o processo e o filamento padrão dela. */
     suspend fun select(kind: PresetKind, name: String) = call { nativeSelect(handle, kind.ordinal, name) }
 
-    /** STL, OBJ ou 3MF; o formato vem da extensão do arquivo. */
+    /** Mesa da impressora selecionada. */
+    suspend fun bed(): Bed = call { nativeBed(handle) }
+
+    /**
+     * STL, OBJ ou 3MF; o formato vem da extensão do arquivo. O modelo é centralizado na
+     * mesa, e trocar a impressora o recentraliza.
+     */
     suspend fun loadModel(file: File) = call { nativeLoadModel(handle, file.absolutePath) }
 
-    /** Fatia o modelo carregado e grava o G-code em [gcode]. [listener] roda na thread do motor. */
+    suspend fun objects(): List<ObjectMesh> = call { nativeObjects(handle).asList() }
+
+    /** Fatia o modelo carregado, na posição atual, e grava o G-code em [gcode]. [listener] roda na thread do motor. */
     suspend fun slice(gcode: File, listener: SliceProgressListener): SliceStats = coroutineScope {
         val job = async(dispatcher) { nativeSlice(handle, gcode.absolutePath, listener) }
         val result = try {
@@ -102,6 +119,8 @@ private external fun nativeLoadVendor(handle: Long, vendor: String)
 private external fun nativePresets(handle: Long, kind: Int): Array<String>
 private external fun nativeSelected(handle: Long, kind: Int): String
 private external fun nativeSelect(handle: Long, kind: Int, name: String)
+private external fun nativeBed(handle: Long): Bed
 private external fun nativeLoadModel(handle: Long, path: String)
+private external fun nativeObjects(handle: Long): Array<ObjectMesh>
 private external fun nativeSlice(handle: Long, gcodePath: String, listener: SliceProgressListener): DoubleArray
 private external fun nativeCancel(handle: Long)

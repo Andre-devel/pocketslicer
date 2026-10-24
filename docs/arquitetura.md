@@ -89,7 +89,9 @@ class Engine {
     std::vector<std::string> presets(PresetKind) const;   // filamento/processo: só os compatíveis
     std::string selected(PresetKind) const;
     void select(PresetKind, name);               // trocar impressora aplica os padrões dela
-    void load_model(path);                       // STL/OBJ/3MF (geometria)
+    Bed bed() const;                             // printable_area + printable_height
+    void load_model(path);                       // STL/OBJ/3MF; centraliza na mesa
+    std::vector<ObjectMesh> objects() const;     // malha indexada + transformação da instância
     SliceStats slice(gcode_path, ProgressFn);    // Print::process() + export_gcode()
     void cancel();                               // de qualquer thread
 };
@@ -104,7 +106,9 @@ class Engine {
   `PresetBundle::is_bbl_vendor()`, como no Plater da GUI.
 - Erros são exceções C++; o JNI converte em `SlicerException` e o cancelamento em
   `CancellationException`.
-- A crescer nas próximas fases: transformações/arranjo, opções avulsas, `PrintConfigDef` serializado,
+- O `Model` do libslic3r é a fonte de verdade da cena: o app só recebe malhas e transformações
+  para desenhar. Fatiar usa as posições atuais (sem recentralizar).
+- A crescer nas próximas fases: edição de transformações/arranjo, opções avulsas, `PrintConfigDef` serializado,
   toolpaths como buffers planos (`float* positions`, `uint8* feature_type`...) para VBOs, 3MF.
 
 ### 2.6 Threading
@@ -124,7 +128,7 @@ class Engine {
 - Tudo em `StateFlow`; Compose observa. Mudança em `SceneState`/`PresetState` invalida `SliceState`.
 
 ### 3.3 Render (OpenGL ES 3.0)
-- `SceneRenderer`: mesa (grid + contorno do perfil), modelos (shader Phong simples, highlight de seleção, vermelho fora da mesa), gizmo de transformação.
+- `SceneRenderer` (`app/.../render/`, num `GLSurfaceView` dentro do Compose): mesa (grid + contorno do perfil), modelos (normal de face por `dFdx/dFdy` no fragment shader, sobre a malha indexada, highlight de seleção, vermelho fora da mesa), gizmo de transformação.
 - `PreviewRenderer`: toolpaths como triângulos extrudados por GPU (geometry via instancing de segmentos) com corte por intervalo de camada/movimento via uniforms, sem rebuild de VBO ao arrastar a barra.
 - Câmera orbital; picking por ray-cast em CPU sobre a bounding box e depois triângulos (Kotlin) — suficiente para seleção.
 

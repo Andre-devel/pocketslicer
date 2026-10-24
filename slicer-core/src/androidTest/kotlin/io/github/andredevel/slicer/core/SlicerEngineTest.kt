@@ -46,6 +46,26 @@ class SlicerEngineTest {
         assertTrue(engine.presets(PresetKind.FILAMENT).all { "@BBL X1" !in it })
     }
 
+    @Test
+    fun modelIsCenteredOnBed() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        val bed = engine.bed()
+        assertEquals(256f, bed.shape.filterIndexed { i, _ -> i % 2 == 0 }.max(), 0.01f)
+        assertEquals(256f, bed.maxHeight, 0.01f)
+
+        engine.loadModel(testAsset("cube20.stl"))
+        val mesh = engine.objects().single()
+        assertEquals(12, mesh.indices.size / 3)
+        // Transforma os vértices para a mesa: cubo de 20 mm apoiado em z = 0 no centro.
+        val world = (0 until mesh.positions.size / 3).map { v ->
+            FloatArray(3) { row -> (0 until 3).sumOf { col -> (mesh.transform[col * 4 + row] * mesh.positions[v * 3 + col]).toDouble() }.toFloat() + mesh.transform[12 + row] }
+        }
+        assertEquals(118f, world.minOf { it[0] }, 0.01f)
+        assertEquals(138f, world.maxOf { it[1] }, 0.01f)
+        assertEquals(0f, world.minOf { it[2] }, 0.01f)
+    }
+
     // Mesmo caso "cube20" de testdata/cases.tsv (comparado camada a camada por scripts/test-device.sh).
     @Test
     fun slicesCubeLikeDesktopOrca() = runBlocking {

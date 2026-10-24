@@ -11,6 +11,7 @@ import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.core.SlicerEngine
 import io.github.andredevel.slicer.core.SlicerException
 import io.github.andredevel.slicer.profiles.OrcaResources
+import io.github.andredevel.slicer.render.Scene
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -38,6 +39,7 @@ data class SlicerUiState(
     val vendors: PresetChoice = PresetChoice(),
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
     val modelName: String? = null,
+    val scene: Scene? = null,
     val slice: SliceState = SliceState.Idle,
 ) {
     val canSlice get() = busy == null && modelName != null && slice !is SliceState.Running
@@ -70,6 +72,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun selectPreset(kind: PresetKind, name: String) = launchEngine(null) { engine ->
         engine.select(kind, name)
         refreshPresets(engine)
+        // A mesa muda com a impressora, e o modelo é recentralizado nela.
+        if (kind == PresetKind.PRINTER) refreshScene(engine)
     }
 
     fun openModel(uri: Uri) = launchEngine(R.string.busy_loading_model) { engine ->
@@ -83,6 +87,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
         engine.loadModel(file)
         _state.update { it.copy(modelName = name, slice = SliceState.Idle) }
+        refreshScene(engine)
     }
 
     fun slice() {
@@ -119,6 +124,12 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.loadVendor(vendor)
         _state.update { it.copy(vendors = it.vendors.copy(selected = vendor)) }
         refreshPresets(engine)
+        refreshScene(engine)
+    }
+
+    private suspend fun refreshScene(engine: SlicerEngine) {
+        val scene = Scene(engine.bed(), engine.objects())
+        _state.update { it.copy(scene = scene) }
     }
 
     private suspend fun refreshPresets(engine: SlicerEngine) {

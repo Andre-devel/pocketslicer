@@ -30,6 +30,9 @@ passam. Falta repetir num tablet arm64 real. Ver README para build e testes.
 **Saída:** APK que fatia e exporta G-code, sem visualização 3D.
 
 ## Fase 2 — Viewport 3D e preparo (3–5 semanas)
+**Status:** item 1 implementado em 2026-10-24 e visto no emulador: mesa do perfil (contorno + grade),
+malha do modelo centralizada nela, câmera orbital (1 dedo gira, 2 dedos pan/pinça) e layout
+viewport + painel (paisagem/retrato). Pinça/pan ainda não testados com toque real.
 1. `SceneRenderer` GL ES 3: mesa do perfil, malha do modelo, câmera orbital, gestos.
 2. Seleção por toque, gizmo mover/rotacionar/escalar, campos numéricos, lay-on-face.
 3. Múltiplos objetos, duplicar/excluir, arranjo automático, aviso fora da mesa.

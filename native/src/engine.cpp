@@ -62,6 +62,18 @@ struct Engine::Impl {
             compatible(bundle->filaments.find_preset(filaments->values.front())))
             select_filament(filaments->values.front());
     }
+
+    // Sem PartPlate: os objetos ficam apoiados na mesa e centralizados nela.
+    void place_on_bed()
+    {
+        if (!bundle || model.objects.empty())
+            return;
+        for (ModelObject *object : model.objects)
+            object->ensure_on_bed();
+        const auto *area = bundle->printers.get_edited_preset().config.opt<ConfigOptionPoints>("printable_area");
+        if (area != nullptr && !area->values.empty())
+            model.center_instances_around_point(BoundingBoxf(area->values).center());
+    }
 };
 
 Engine::Engine(const std::string &resources_dir, const std::string &data_dir) : m(new Impl)
@@ -160,6 +172,7 @@ void Engine::select(PresetKind kind, const std::string &name)
         // recusa filamentos sem temperatura para a mesa escolhida).
         m->bundle->project_config.set_key_value("curr_bed_type",
             new ConfigOptionEnum<BedType>(m->bundle->printers.get_selected_preset().get_default_bed_type(m->bundle.get())));
+        m->place_on_bed();
         break;
     case PresetKind::Filament:
         m->select_filament(name);
@@ -172,6 +185,20 @@ void Engine::select(PresetKind kind, const std::string &name)
     }
 }
 
+Bed Engine::bed() const
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    const DynamicPrintConfig &config = m->bundle->printers.get_edited_preset().config;
+    Bed bed;
+    if (const auto *area = config.opt<ConfigOptionPoints>("printable_area"))
+        for (const Vec2d &p : area->values)
+            bed.shape.push_back({p.x(), p.y()});
+    if (const auto *height = config.opt<ConfigOptionFloat>("printable_height"))
+        bed.max_height = height->value;
+    return bed;
+}
+
 void Engine::load_model(const std::string &path)
 {
     DynamicPrintConfig        config;
@@ -181,6 +208,26 @@ void Engine::load_model(const std::string &path)
     if (model.objects.empty())
         throw std::runtime_error("no objects in " + path);
     m->model = std::move(model);
+    m->place_on_bed();
+}
+
+std::vector<ObjectMesh> Engine::objects() const
+{
+    std::vector<ObjectMesh> out;
+    for (const ModelObject *object : m->model.objects) {
+        const indexed_triangle_set its = object->raw_indexed_triangle_set();
+        ObjectMesh mesh;
+        mesh.positions.reserve(its.vertices.size() * 3);
+        for (const stl_vertex &v : its.vertices)
+            mesh.positions.insert(mesh.positions.end(), {v.x(), v.y(), v.z()});
+        mesh.indices.reserve(its.indices.size() * 3);
+        for (const stl_triangle_vertex_indices &t : its.indices)
+            mesh.indices.insert(mesh.indices.end(), {uint32_t(t[0]), uint32_t(t[1]), uint32_t(t[2])});
+        const Eigen::Matrix4f matrix = object->instances.front()->get_matrix().matrix().cast<float>();
+        std::copy(matrix.data(), matrix.data() + 16, mesh.transform.begin());
+        out.push_back(std::move(mesh));
+    }
+    return out;
 }
 
 SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progress)
@@ -191,13 +238,6 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
         throw std::runtime_error("no model loaded");
 
     DynamicPrintConfig config = m->bundle->full_config();
-
-    // Sem PartPlate: o modelo vai para o centro da mesa.
-    for (ModelObject *object : m->model.objects)
-        object->ensure_on_bed();
-    const auto *area = config.opt<ConfigOptionPoints>("printable_area");
-    if (area != nullptr && !area->values.empty())
-        m->model.center_instances_around_point(BoundingBoxf(area->values).center());
 
     Print &print = m->print;
     // Igual à GUI (Plater): firmware Bambu pula validações/ajustes feitos para Marlin.

@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -23,6 +25,20 @@ enum class PresetKind { Printer = 0, Filament = 1, Process = 2 };
 struct SliceStats {
     double print_time_s = 0.0;   // estimativa do modo normal
     double filament_mm3 = 0.0;   // volume total extrudado
+};
+
+// Área de impressão da impressora selecionada, em mm.
+struct Bed {
+    std::vector<std::array<double, 2>> shape; // contorno (printable_area), anti-horário
+    double max_height = 0.0;                  // printable_height
+};
+
+// Malha de um objeto em coordenadas locais (volumes já transformados) mais a
+// transformação da instância para a mesa: matriz 4x4 em ordem de coluna (OpenGL).
+struct ObjectMesh {
+    std::vector<float>    positions; // x, y, z por vértice
+    std::vector<uint32_t> indices;   // 3 por triângulo
+    std::array<float, 16> transform{};
 };
 
 struct Canceled : std::runtime_error {
@@ -53,10 +69,14 @@ public:
     // Trocar a impressora reaplica o processo e o filamento padrão dela quando compatíveis.
     void select(PresetKind kind, const std::string &name);
 
-    // STL, OBJ ou 3MF (só a geometria). Substitui o modelo anterior.
-    void load_model(const std::string &path);
+    Bed bed() const;
 
-    // Fatia o modelo com os perfis selecionados e grava o G-code em gcode_path.
+    // STL, OBJ ou 3MF (só a geometria). Substitui o modelo anterior e o centraliza
+    // na mesa da impressora selecionada; trocar a impressora o recentraliza.
+    void load_model(const std::string &path);
+    std::vector<ObjectMesh> objects() const;
+
+    // Fatia o modelo na posição atual com os perfis selecionados e grava o G-code em gcode_path.
     SliceStats slice(const std::string &gcode_path, const ProgressFn &progress);
     // Pode ser chamado de outra thread durante slice().
     void cancel();
