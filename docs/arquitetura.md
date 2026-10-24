@@ -90,9 +90,11 @@ class Engine {
     std::string selected(PresetKind) const;
     void select(PresetKind, name);               // trocar impressora aplica os padrões dela
     Bed bed() const;                             // printable_area + printable_height
-    void load_model(path);                       // STL/OBJ/3MF; centraliza na mesa
+    void load_model(path);                       // STL/OBJ/3MF; substitui e centraliza na mesa
+    void add_model(path);                        // acrescenta; rearranja se a mesa já tinha objetos
+    void duplicate(i); void remove(i); void arrange();
     std::vector<ObjectMesh> objects() const;     // malha indexada, em coordenadas locais
-    std::vector<Placement> placements() const;   // matriz da instância + offset/rotação/escala
+    std::vector<Placement> placements() const;   // matriz da instância + offset/rotação/escala + fora do volume
     void set_transform(i, matrix);               // fim de um arraste no viewport
     void set_placement(i, offset, rotation, scale); // campos numéricos
     void lay_on_face(i, triangle);               // triângulo tocado vira a base
@@ -113,6 +115,9 @@ class Engine {
 - O `Model` do libslic3r é a fonte de verdade da cena: o app só recebe malhas e transformações
   para desenhar. Fatiar usa as posições atuais (sem recentralizar). Como na GUI do Orca, a origem
   de cada objeto é o centro da malha (`center_around_origin`) e toda alteração o apoia na mesa.
+  Uma instância por objeto (duplicar cria outro objeto). "Fora do volume" vem de
+  `ModelInstance::calc_print_volume_state()` com o `BuildVolume` da impressora; `slice()` recusa
+  fatiar nesse caso (o `Print` ignoraria a instância em silêncio).
 - A crescer nas próximas fases: edição de transformações/arranjo, opções avulsas, `PrintConfigDef` serializado,
   toolpaths como buffers planos (`float* positions`, `uint8* feature_type`...) para VBOs, 3MF.
 

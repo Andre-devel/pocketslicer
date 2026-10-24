@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Android Slicer</string>
-    <string name="open_model">Abrir modelo</string>
+    <string name="add_model">Adicionar modelo</string>
     <string name="no_model">Nenhum modelo (STL, 3MF, OBJ)</string>
     <string name="vendor">Fabricante</string>
     <string name="printer">Impressora</string>
@@ -26,4 +26,12 @@
     <string name="rotation_deg">Rotação (°)</string>
     <string name="scale_percent">Escala (%)</string>
     <string name="uniform_scale">Escala uniforme</string>
+    <string name="arrange">Arranjar</string>
+    <string name="duplicate">Duplicar</string>
+    <string name="delete">Excluir</string>
+    <string name="outside_warning">Há objetos fora da área de impressão (em vermelho). Mova-os ou use \"Arranjar\" para poder fatiar.</string>
+    <plurals name="object_count">
+        <item quantity="one">%d objeto na mesa</item>
+        <item quantity="other">%d objetos na mesa</item>
+    </plurals>
 </resources>

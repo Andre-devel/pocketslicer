@@ -132,6 +132,30 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeBed(JNIEnv *env, jcla
     });
 }
 
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeAddModel(JNIEnv *env, jclass, jlong handle, jstring path)
+{
+    guarded(env, [&] { engine(handle)->add_model(to_string(env, path)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeDuplicate(JNIEnv *env, jclass, jlong handle, jint object)
+{
+    guarded(env, [&] { engine(handle)->duplicate(size_t(object)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemove(JNIEnv *env, jclass, jlong handle, jint object)
+{
+    guarded(env, [&] { engine(handle)->remove(size_t(object)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeArrange(JNIEnv *env, jclass, jlong handle)
+{
+    guarded(env, [&] { engine(handle)->arrange(); });
+}
+
 JNIEXPORT jobjectArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, jclass, jlong handle)
 {
@@ -154,7 +178,8 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, 
     });
 }
 
-// Por objeto, 25 valores: matriz 4x4 (coluna), offset, rotação (graus), escala.
+// Por objeto, 26 valores: matriz 4x4 (coluna), offset, rotação (graus), escala e
+// 1 se estiver fora do volume de impressão (senão 0).
 JNIEXPORT jdoubleArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePlacements(JNIEnv *env, jclass, jlong handle)
 {
@@ -164,6 +189,7 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePlacements(JNIEnv *en
             values.insert(values.end(), p.transform.begin(), p.transform.end());
             for (const slicer::Vec3 *v : {&p.offset, &p.rotation, &p.scale})
                 values.insert(values.end(), v->begin(), v->end());
+            values.push_back(p.outside ? 1.0 : 0.0);
         }
         jdoubleArray out = env->NewDoubleArray(jsize(values.size()));
         env->SetDoubleArrayRegion(out, 0, jsize(values.size()), values.data());

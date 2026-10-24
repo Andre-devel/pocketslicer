@@ -23,8 +23,15 @@ class ObjectMesh(val positions: FloatArray, val indices: IntArray)
 /**
  * Posição de um objeto na mesa: [transform] é a matriz 4x4 em ordem de coluna (OpenGL),
  * decomposta em [offset] (mm), [rotation] (graus, Euler XYZ como no Orca) e [scale] (1 = 100%).
+ * [outside]: fora, total ou parcialmente, do volume de impressão (impede o fatiamento).
  */
-class Placement(val transform: FloatArray, val offset: FloatArray, val rotation: FloatArray, val scale: FloatArray)
+class Placement(
+    val transform: FloatArray,
+    val offset: FloatArray,
+    val rotation: FloatArray,
+    val scale: FloatArray,
+    val outside: Boolean,
+)
 
 fun interface SliceProgressListener {
     fun onProgress(percent: Int, text: String)
@@ -67,14 +74,25 @@ class SlicerEngine private constructor(
      */
     suspend fun loadModel(file: File) = call { nativeLoadModel(handle, file.absolutePath) }
 
+    /** Acrescenta os objetos do arquivo; se a mesa já tinha objetos, todos são rearranjados. */
+    suspend fun addModel(file: File) = call { nativeAddModel(handle, file.absolutePath) }
+
+    /** Cópia do objeto, ao fim da lista; rearranja todos como em [addModel]. */
+    suspend fun duplicate(objectIndex: Int) = call { nativeDuplicate(handle, objectIndex) }
+
+    suspend fun remove(objectIndex: Int) = call { nativeRemove(handle, objectIndex) }
+
+    /** Arranjo automático de todos os objetos na mesa. */
+    suspend fun arrange() = call { nativeArrange(handle) }
+
     /** Malhas dos objetos, na mesma ordem de [placements]. */
     suspend fun objects(): List<ObjectMesh> = call { nativeObjects(handle).asList() }
 
     suspend fun placements(): List<Placement> = call {
         val v = nativePlacements(handle)
-        List(v.size / 25) { i ->
-            fun part(from: Int, size: Int) = FloatArray(size) { v[i * 25 + from + it].toFloat() }
-            Placement(part(0, 16), part(16, 3), part(19, 3), part(22, 3))
+        List(v.size / 26) { i ->
+            fun part(from: Int, size: Int) = FloatArray(size) { v[i * 26 + from + it].toFloat() }
+            Placement(part(0, 16), part(16, 3), part(19, 3), part(22, 3), outside = v[i * 26 + 25] != 0.0)
         }
     }
 
@@ -89,7 +107,7 @@ class SlicerEngine private constructor(
     /** Gira o objeto para apoiar na mesa o triângulo [triangle] da malha de [objects]. */
     suspend fun layOnFace(objectIndex: Int, triangle: Int) = call { nativeLayOnFace(handle, objectIndex, triangle) }
 
-    /** Fatia o modelo carregado, na posição atual, e grava o G-code em [gcode]. [listener] roda na thread do motor. */
+    /** Fatia os objetos na posição atual (todos dentro do volume de impressão) e grava o G-code em [gcode]. [listener] roda na thread do motor. */
     suspend fun slice(gcode: File, listener: SliceProgressListener): SliceStats = coroutineScope {
         val job = async(dispatcher) { nativeSlice(handle, gcode.absolutePath, listener) }
         val result = try {
@@ -144,6 +162,10 @@ private external fun nativeSelected(handle: Long, kind: Int): String
 private external fun nativeSelect(handle: Long, kind: Int, name: String)
 private external fun nativeBed(handle: Long): Bed
 private external fun nativeLoadModel(handle: Long, path: String)
+private external fun nativeAddModel(handle: Long, path: String)
+private external fun nativeDuplicate(handle: Long, objectIndex: Int)
+private external fun nativeRemove(handle: Long, objectIndex: Int)
+private external fun nativeArrange(handle: Long)
 private external fun nativeObjects(handle: Long): Array<ObjectMesh>
 private external fun nativePlacements(handle: Long): DoubleArray
 private external fun nativeSetTransform(handle: Long, objectIndex: Int, transform: DoubleArray)

@@ -20,11 +20,14 @@ interface ViewportListener {
     fun onTransform(objectIndex: Int, transform: FloatArray)
     /** Toque numa face do objeto selecionado com [Tool.LAY_ON_FACE]. */
     fun onLayOnFace(objectIndex: Int, triangle: Int)
+    /** Toque longo num objeto, em (x, y) pixels do viewport. */
+    fun onLongPress(objectIndex: Int, x: Float, y: Float)
 }
 
 /**
- * Viewport 3D. Gestos: toque seleciona; 1 dedo gira a câmera, ou aplica [tool] se o
- * arraste começar sobre o objeto selecionado; 2 dedos movem (pan) e aproximam (pinça).
+ * Viewport 3D. Gestos: toque seleciona; toque longo abre o menu do objeto; 1 dedo gira a
+ * câmera, ou aplica [tool] se o arraste começar sobre o objeto selecionado; 2 dedos movem
+ * (pan) e aproximam (pinça).
  *
  * Os eventos de toque são interpretados na thread GL (queueEvent), onde estão a
  * câmera e a cena; o estado do arraste (campos "drag*") só é usado nela.
@@ -45,6 +48,19 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     private var downX = 0f
     private var downY = 0f
     private var moved = false
+    private var longPressed = false
+    private val longPress = Runnable {
+        longPressed = true
+        val x = downX
+        val y = downY
+        onGlThread {
+            // O dedo parado sobre o objeto não deve virar um arraste.
+            dragObject = null
+            renderer.preview = null
+            val hit = pickAt(x, y) ?: return@onGlThread
+            post { listener?.onLongPress(hit.objectIndex, x, y) }
+        }
+    }
 
     // Thread GL: arraste de objeto em andamento.
     private var dragObject: Int? = null
@@ -83,16 +99,22 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                 downX = x
                 downY = y
                 moved = false
+                longPressed = false
+                postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                 val tool = tool
                 onGlThread { startDrag(x, y, tool) }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 moved = true
+                removeCallbacks(longPress)
                 onGlThread { endDrag() } // dois dedos sempre controlam a câmera
             }
             MotionEvent.ACTION_MOVE -> {
-                if (hypot(x - downX, y - downY) > touchSlop) moved = true
-                if (moved && pointers == lastPointers) {
+                if (hypot(x - downX, y - downY) > touchSlop && !moved) {
+                    moved = true
+                    removeCallbacks(longPress)
+                }
+                if (moved && !longPressed && pointers == lastPointers) {
                     val dx = x - lastX
                     val dy = y - lastY
                     val zoom = if (pointers == 2 && lastSpan > 0f && span > 0f) span / lastSpan else 1f
@@ -110,11 +132,16 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
-                val tap = !moved
+                removeCallbacks(longPress)
+                val tap = !moved && !longPressed
                 val tool = tool
-                onGlThread { if (tap) tap(x, y, tool) else endDrag() }
+                val held = longPressed
+                onGlThread { if (tap) tap(x, y, tool) else if (!held) endDrag() }
             }
-            MotionEvent.ACTION_CANCEL -> onGlThread { endDrag() }
+            MotionEvent.ACTION_CANCEL -> {
+                removeCallbacks(longPress)
+                onGlThread { endDrag() }
+            }
         }
         lastX = x
         lastY = y

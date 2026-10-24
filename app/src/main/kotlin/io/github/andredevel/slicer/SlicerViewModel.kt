@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.core.SlicerEngine
@@ -39,12 +40,15 @@ data class SlicerUiState(
     val error: String? = null,
     val vendors: PresetChoice = PresetChoice(),
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
+    /** Nome do primeiro modelo adicionado; dá nome ao G-code. */
     val modelName: String? = null,
     val scene: Scene? = null,
     val tool: Tool = Tool.MOVE,
     val slice: SliceState = SliceState.Idle,
 ) {
-    val canSlice get() = busy == null && modelName != null && slice !is SliceState.Running
+    val objectCount get() = scene?.placements?.size ?: 0
+    val anyOutside get() = scene?.placements?.any { it.outside } == true
+    val canSlice get() = busy == null && objectCount > 0 && !anyOutside && slice !is SliceState.Running
     val selectedPlacement get() = scene?.selected?.let { scene.placements.getOrNull(it) }
 }
 
@@ -76,7 +80,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.select(kind, name)
         refreshPresets(engine)
         // A mesa muda com a impressora, e o modelo é recentralizado nela.
-        if (kind == PresetKind.PRINTER) refreshScene(engine, meshes = false)
+        if (kind == PresetKind.PRINTER) refreshScene(engine)
     }
 
     fun openModel(uri: Uri) = launchEngine(R.string.busy_loading_model) { engine ->
@@ -88,9 +92,27 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             val input = app.contentResolver.openInputStream(uri) ?: throw IOException("cannot open $uri")
             input.use { file.outputStream().use(it::copyTo) }
         }
-        engine.loadModel(file)
-        _state.update { it.copy(modelName = name, slice = SliceState.Idle) }
-        refreshScene(engine, meshes = true)
+        engine.addModel(file)
+        _state.update { it.copy(modelName = it.modelName ?: name, slice = SliceState.Idle) }
+        refreshScene(engine, engine.objects())
+    }
+
+    fun duplicate(objectIndex: Int) = editScene { engine ->
+        engine.duplicate(objectIndex)
+        // A cópia vai para o fim, com a mesma malha.
+        _state.value.scene?.meshes?.let { it + it[objectIndex] }
+    }
+
+    fun remove(objectIndex: Int) = editScene { engine ->
+        engine.remove(objectIndex)
+        val meshes = _state.value.scene?.meshes?.filterIndexed { i, _ -> i != objectIndex }
+        if (meshes.isNullOrEmpty()) _state.update { it.copy(modelName = null) }
+        meshes
+    }
+
+    fun arrange() = editScene { engine ->
+        engine.arrange()
+        null
     }
 
     fun select(objectIndex: Int?) = _state.update { state ->
@@ -99,12 +121,12 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun selectTool(tool: Tool) = _state.update { it.copy(tool = tool) }
 
-    fun setTransform(objectIndex: Int, transform: FloatArray) = editPlacement { it.setTransform(objectIndex, transform) }
+    fun setTransform(objectIndex: Int, transform: FloatArray) = editScene { it.setTransform(objectIndex, transform); null }
 
-    fun layOnFace(objectIndex: Int, triangle: Int) = editPlacement { it.layOnFace(objectIndex, triangle) }
+    fun layOnFace(objectIndex: Int, triangle: Int) = editScene { it.layOnFace(objectIndex, triangle); null }
 
     fun setPlacement(objectIndex: Int, offset: FloatArray, rotation: FloatArray, scale: FloatArray) =
-        editPlacement { it.setPlacement(objectIndex, offset, rotation, scale) }
+        editScene { it.setPlacement(objectIndex, offset, rotation, scale); null }
 
     fun slice() {
         sliceJob = launchEngine(null) { engine ->
@@ -140,34 +162,38 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.loadVendor(vendor)
         _state.update { it.copy(vendors = it.vendors.copy(selected = vendor)) }
         refreshPresets(engine)
-        refreshScene(engine, meshes = false)
-    }
-
-    /** [meshes]: recarregar as malhas (modelo novo); senão só mesa e posições mudaram. */
-    private suspend fun refreshScene(engine: SlicerEngine, meshes: Boolean) {
-        val bed = engine.bed()
-        val loaded = if (meshes) engine.objects() else _state.value.scene?.meshes.orEmpty()
-        val placements = engine.placements()
-        _state.update { state ->
-            val selected = state.scene?.selected?.takeIf { !meshes && it < placements.size }
-            state.copy(scene = Scene(bed, loaded, placements, selected))
-        }
-    }
-
-    private fun editPlacement(edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
-        try {
-            edit(engine)
-            _state.update { it.copy(slice = SliceState.Idle) }
-        } finally {
-            // Também em caso de erro: descarta a pré-visualização do viewport.
-            refreshScene(engine, meshes = false)
-        }
+        refreshScene(engine)
     }
 
     private suspend fun refreshPresets(engine: SlicerEngine) {
         val presets = PresetKind.entries.associateWith { PresetChoice(engine.presets(it), engine.selected(it)) }
         // Perfis mudaram: o G-code anterior não corresponde mais à seleção.
         _state.update { it.copy(presets = presets, slice = SliceState.Idle) }
+    }
+
+    /**
+     * Relê mesa e posições do motor. [meshes]: nova lista de malhas quando os objetos
+     * mudaram (a seleção é limpa); null mantém as atuais.
+     */
+    private suspend fun refreshScene(engine: SlicerEngine, meshes: List<ObjectMesh>? = null) {
+        val bed = engine.bed()
+        val placements = engine.placements()
+        _state.update { state ->
+            val selected = state.scene?.selected?.takeIf { meshes == null && it < placements.size }
+            state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected))
+        }
+    }
+
+    /** Altera a cena no motor; [edit] devolve as malhas novas, ou null se só posições mudaram. */
+    private fun editScene(edit: suspend (SlicerEngine) -> List<ObjectMesh>?) = launchEngine(null) { engine ->
+        var meshes: List<ObjectMesh>? = null
+        try {
+            meshes = edit(engine)
+            _state.update { it.copy(slice = SliceState.Idle) }
+        } finally {
+            // Também em caso de erro: descarta a pré-visualização do viewport.
+            refreshScene(engine, meshes)
+        }
     }
 
     private fun displayName(uri: Uri): String =

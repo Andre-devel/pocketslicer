@@ -36,6 +36,10 @@ viewport + painel (paisagem/retrato). Pinça/pan ainda não testados com toque r
 Item 2 implementado em 2026-10-24 e visto no emulador: toque seleciona; ferramentas Mover/Girar/Escalar
 agem arrastando sobre o objeto selecionado (no lugar de um gizmo 3D com alças, mais adequado ao toque);
 campos de posição, rotação e escala (uniforme ou por eixo); "Apoiar face" pelo triângulo tocado.
+Item 3 implementado em 2026-10-24 e visto no emulador: "Adicionar modelo" acumula objetos; duplicar e
+excluir pelo toque longo ou pelo painel; "Arranjar" (libnest2d do Orca); objeto fora do volume em
+vermelho, com aviso, e fatiamento recusado. Adicionar/duplicar rearranja todos os objetos, como o
+"Clonar" do Orca (o arranjo com objetos fixos do FirstFit do Orca os sobrepõe quando falha a 1ª tentativa).
 1. `SceneRenderer` GL ES 3: mesa do perfil, malha do modelo, câmera orbital, gestos.
 2. Seleção por toque, gizmo mover/rotacionar/escalar, campos numéricos, lay-on-face.
 3. Múltiplos objetos, duplicar/excluir, arranjo automático, aviso fora da mesa.

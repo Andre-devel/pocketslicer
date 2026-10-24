@@ -99,6 +99,44 @@ class SlicerEngineTest {
         assertEquals(0f, world.minOf { it[2] }, 0.01f)
     }
 
+    @Test
+    fun multipleObjectsAreArrangedAndCheckedAgainstBed() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        // Mesma sequência do app: adicionar dois modelos e duplicar o segundo.
+        engine.addModel(testAsset("voron_cube_v7.stl"))
+        engine.addModel(testAsset("cube20.stl"))
+        engine.duplicate(1)
+        assertEquals(3, engine.objects().size)
+
+        assertArrangedWithoutOverlap()
+
+        engine.remove(1)
+        assertEquals(2, engine.objects().size)
+
+        // Fora da mesa: aviso e fatiamento recusado; o arranjo traz de volta.
+        val p = engine.placements()[1]
+        engine.setPlacement(1, floatArrayOf(300f, 128f, 0f), p.rotation, p.scale)
+        assertTrue(engine.placements()[1].outside)
+        assertTrue(runCatching { engine.slice(File(work, "out.gcode")) { _, _ -> } }.exceptionOrNull() is SlicerException)
+        engine.arrange()
+        assertArrangedWithoutOverlap()
+    }
+
+    /** Caixas XY sem sobreposição e todos os objetos dentro da mesa. */
+    private suspend fun assertArrangedWithoutOverlap() {
+        val boxes = engine.objects().zip(engine.placements()).map { (mesh, placement) ->
+            val world = worldVertices(mesh, placement)
+            floatArrayOf(world.minOf { it[0] }, world.minOf { it[1] }, world.maxOf { it[0] }, world.maxOf { it[1] })
+        }
+        for (i in boxes.indices) for (j in i + 1 until boxes.size) {
+            val a = boxes[i]
+            val b = boxes[j]
+            assertTrue("objetos $i e $j se sobrepõem: ${boxes.map { it.toList() }}", a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1])
+        }
+        assertTrue(engine.placements().none { it.outside })
+    }
+
     // Mesmo caso "cube20" de testdata/cases.tsv (comparado camada a camada por scripts/test-device.sh).
     @Test
     fun slicesCubeLikeDesktopOrca() = runBlocking {

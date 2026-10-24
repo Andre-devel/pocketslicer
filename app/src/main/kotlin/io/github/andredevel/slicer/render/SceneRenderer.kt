@@ -112,7 +112,13 @@ class SceneRenderer : GLSurfaceView.Renderer {
             Matrix.multiplyMM(mvp, 0, camera.projection, 0, modelView, 0)
             glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
-            gpu.objects[i].draw(colorLocation, if (i == scene.selected) SELECTED else OBJECT)
+            val outside = scene.placements[i].outside
+            val color = when {
+                i == scene.selected -> if (outside) SELECTED_OUTSIDE else SELECTED
+                outside -> OUTSIDE
+                else -> OBJECT
+            }
+            gpu.objects[i].draw(colorLocation, color)
         }
     }
 
@@ -192,6 +198,8 @@ class SceneRenderer : GLSurfaceView.Renderer {
         val BED_OUTLINE = floatArrayOf(0.75f, 0.77f, 0.80f, 1f)
         val OBJECT = floatArrayOf(0.20f, 0.68f, 0.38f, 1f)
         val SELECTED = floatArrayOf(0.96f, 0.58f, 0.16f, 1f)
+        val OUTSIDE = floatArrayOf(0.80f, 0.18f, 0.18f, 1f)
+        val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
 
         /** Linhas a cada [GRID_STEP] mm recortadas pelo contorno da mesa (que pode ser circular). */
         fun gridLines(outline: FloatArray): FloatArray {

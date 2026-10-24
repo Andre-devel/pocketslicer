@@ -10,6 +10,8 @@
 
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/AppConfig.hpp"
+#include "libslic3r/Arrange.hpp"
+#include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -64,6 +66,53 @@ struct Engine::Impl {
     }
 
     ModelObject &object(size_t index);
+    void add(Model &&objects, bool keep_layout = true);
+
+    const DynamicPrintConfig &printer() const { return bundle->printers.get_edited_preset().config; }
+
+    std::vector<Vec2d> printable_area() const
+    {
+        const auto *area = printer().opt<ConfigOptionPoints>("printable_area");
+        return area != nullptr ? area->values : std::vector<Vec2d>{};
+    }
+
+    BuildVolume build_volume() const
+    {
+        const auto *height = printer().opt<ConfigOptionFloat>("printable_height");
+        return BuildVolume(printable_area(), height != nullptr ? height->value : 0.0, {}, {});
+    }
+
+    // Arranjo automático de todos os objetos (libnest2d). Sem objetos fixos: com eles,
+    // o FirstFit do Orca, ao não achar lugar na 1ª tentativa, os descarta e sobrepõe.
+    void arrange_all()
+    {
+        arrangement::ArrangePolygons items;
+        for (ModelObject *object : model.objects) {
+            arrangement::ArrangePolygon ap;
+            object->instances.front()->get_arrange_polygon(&ap);
+            // Placa 0: no libnest2d do Orca, UNARRANGED (-1) coincide com
+            // BIN_ID_UNFIT e o item seria descartado.
+            ap.bed_idx = 0;
+            // Distância entre objetos via polígono inflado (update_selected_items_inflation na GUI).
+            ap.inflation = scaled(ARRANGE_SPACING_MM / 2);
+            items.push_back(std::move(ap));
+        }
+        Points bed;
+        for (const Vec2d &p : printable_area())
+            bed.push_back(Point::new_scale(p.x(), p.y()));
+        arrangement::ArrangeParams params;
+        params.progressind = {}; // o padrão escreve no stdout
+        arrangement::arrange(items, bed, params);
+        for (size_t i = 0; i < items.size(); ++i) {
+            ModelObject *object = model.objects[i];
+            // Sem espaço na mesa (bed_idx != 0): fica onde está e aparece como fora dela.
+            if (items[i].bed_idx == 0)
+                object->instances.front()->apply_arrange_result(items[i].translation.cast<double>(), items[i].rotation);
+            object->ensure_on_bed();
+        }
+    }
+
+    static constexpr double ARRANGE_SPACING_MM = 5.0;
 
     // Sem PartPlate: os objetos ficam apoiados na mesa e centralizados nela.
     void place_on_bed()
@@ -72,9 +121,9 @@ struct Engine::Impl {
             return;
         for (ModelObject *object : model.objects)
             object->ensure_on_bed();
-        const auto *area = bundle->printers.get_edited_preset().config.opt<ConfigOptionPoints>("printable_area");
-        if (area != nullptr && !area->values.empty())
-            model.center_instances_around_point(BoundingBoxf(area->values).center());
+        const std::vector<Vec2d> area = printable_area();
+        if (!area.empty())
+            model.center_instances_around_point(BoundingBoxf(area).center());
     }
 };
 
@@ -187,6 +236,25 @@ void Engine::select(PresetKind kind, const std::string &name)
     }
 }
 
+namespace {
+
+Model read_model(const std::string &path)
+{
+    DynamicPrintConfig        config;
+    ConfigSubstitutionContext substitutions(ForwardCompatibilitySubstitutionRule::EnableSilent);
+    Model model = Model::read_from_file(path, &config, &substitutions,
+                                        LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
+    if (model.objects.empty())
+        throw std::runtime_error("no objects in " + path);
+    // Como a GUI do Orca: a origem de cada objeto passa a ser o centro da sua malha,
+    // então a posição exibida é a do centro e girar/escalar usa esse pivô.
+    for (ModelObject *object : model.objects)
+        object->center_around_origin();
+    return model;
+}
+
+} // namespace
+
 Bed Engine::bed() const
 {
     if (!m->bundle)
@@ -203,18 +271,36 @@ Bed Engine::bed() const
 
 void Engine::load_model(const std::string &path)
 {
-    DynamicPrintConfig        config;
-    ConfigSubstitutionContext substitutions(ForwardCompatibilitySubstitutionRule::EnableSilent);
-    Model model = Model::read_from_file(path, &config, &substitutions,
-                                        LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
-    if (model.objects.empty())
-        throw std::runtime_error("no objects in " + path);
-    // Como a GUI do Orca: a origem de cada objeto passa a ser o centro da sua malha,
-    // então a posição exibida é a do centro e girar/escalar usa esse pivô.
-    for (ModelObject *object : model.objects)
-        object->center_around_origin();
-    m->model = std::move(model);
-    m->place_on_bed();
+    // Lê antes de limpar: se o arquivo for inválido, a mesa continua como estava.
+    Model model = read_model(path);
+    m->model.clear_objects();
+    m->model.clear_materials();
+    m->add(std::move(model));
+}
+
+void Engine::add_model(const std::string &path)
+{
+    m->add(read_model(path));
+}
+
+void Engine::duplicate(size_t object)
+{
+    Model copy;
+    copy.add_object(m->object(object));
+    m->add(std::move(copy), false);
+}
+
+void Engine::remove(size_t object)
+{
+    m->object(object);
+    m->model.delete_object(object);
+}
+
+void Engine::arrange()
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    m->arrange_all();
 }
 
 std::vector<ObjectMesh> Engine::objects() const
@@ -237,8 +323,10 @@ std::vector<ObjectMesh> Engine::objects() const
 std::vector<Placement> Engine::placements() const
 {
     std::vector<Placement> out;
+    const BuildVolume volume = m->bundle ? m->build_volume() : BuildVolume();
     for (const ModelObject *object : m->model.objects) {
-        const Geometry::Transformation &t = object->instances.front()->get_transformation();
+        const ModelInstance &instance = *object->instances.front();
+        const Geometry::Transformation &t = instance.get_transformation();
         Placement p;
         std::copy(t.get_matrix().data(), t.get_matrix().data() + 16, p.transform.begin());
         const Vec3d offset = t.get_offset(), rotation = t.get_rotation(), scale = t.get_scaling_factor();
@@ -247,9 +335,28 @@ std::vector<Placement> Engine::placements() const
             p.rotation[i] = Geometry::rad2deg(rotation[i]);
             p.scale[i] = scale[i];
         }
+        p.outside = m->bundle && instance.calc_print_volume_state(volume) != ModelInstancePVS_Inside;
         out.push_back(p);
     }
     return out;
+}
+
+void Engine::Impl::add(Model &&objects, bool keep_layout)
+{
+    const size_t first_new = model.objects.size();
+    for (const ModelObject *object : objects.objects) {
+        ModelObject *added = model.add_object(*object);
+        // Uma instância por objeto: cópias são objetos (duplicate()).
+        while (added->instances.size() > 1)
+            added->delete_instance(added->instances.size() - 1);
+    }
+    if (first_new == 0 && keep_layout) {
+        // Mesa vazia: mantém o arranjo do arquivo (3MF) e centraliza o conjunto.
+        place_on_bed();
+        return;
+    }
+    if (bundle)
+        arrange_all();
 }
 
 ModelObject &Engine::Impl::object(size_t index)
@@ -313,6 +420,12 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
         throw std::runtime_error("no vendor loaded");
     if (m->model.objects.empty())
         throw std::runtime_error("no model loaded");
+
+    // Print ignoraria em silêncio as instâncias fora do volume; a GUI do Orca recusa fatiar.
+    const BuildVolume volume = m->build_volume();
+    for (const ModelObject *object : m->model.objects)
+        if (object->instances.front()->calc_print_volume_state(volume) != ModelInstancePVS_Inside)
+            throw std::runtime_error("object outside the printable volume: " + object->name);
 
     DynamicPrintConfig config = m->bundle->full_config();
 

@@ -48,6 +48,7 @@ struct Placement {
     Vec3 offset{};       // mm
     Vec3 rotation{};     // graus, ângulos de Euler XYZ como no Orca
     Vec3 scale{};        // fator (1 = 100%)
+    bool outside = false; // fora (total ou parcialmente) do volume de impressão
 };
 
 struct Canceled : std::runtime_error {
@@ -80,9 +81,17 @@ public:
 
     Bed bed() const;
 
-    // STL, OBJ ou 3MF (só a geometria). Substitui o modelo anterior e o centraliza
-    // na mesa da impressora selecionada; trocar a impressora o recentraliza.
+    // STL, OBJ ou 3MF (só a geometria). Substitui os objetos anteriores e os centraliza
+    // na mesa da impressora selecionada; trocar a impressora os recentraliza.
     void load_model(const std::string &path);
+    // Como load_model(), mas acrescenta os objetos do arquivo. Se a mesa já tinha
+    // objetos, todos são rearranjados (como o "Clonar" da GUI do Orca).
+    void add_model(const std::string &path);
+    // Cópia do objeto, ao fim da lista; rearranja todos como em add_model().
+    void duplicate(size_t object);
+    void remove(size_t object);
+    // Arranjo automático de todos os objetos na mesa (libnest2d).
+    void arrange();
     std::vector<ObjectMesh> objects() const;
     std::vector<Placement> placements() const;
 
@@ -93,7 +102,8 @@ public:
     // virado para baixo, apoiado na mesa.
     void lay_on_face(size_t object, size_t triangle);
 
-    // Fatia o modelo na posição atual com os perfis selecionados e grava o G-code em gcode_path.
+    // Fatia o modelo na posição atual com os perfis selecionados (falha se algum
+    // objeto estiver fora do volume de impressão) e grava o G-code em gcode_path.
     SliceStats slice(const std::string &gcode_path, const ProgressFn &progress);
     // Pode ser chamado de outra thread durante slice().
     void cancel();

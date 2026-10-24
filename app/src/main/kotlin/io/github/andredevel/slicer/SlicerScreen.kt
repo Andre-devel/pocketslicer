@@ -1,6 +1,14 @@
 package io.github.andredevel.slicer
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.text.KeyboardActions
@@ -114,6 +122,8 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
 private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var view by remember { mutableStateOf<ViewportView?>(null) }
+    // Menu do toque longo: objeto e posição do toque (px).
+    var menu by remember { mutableStateOf<Pair<Int, Offset>?>(null) }
     // GLSurfaceView precisa acompanhar onPause/onResume da tela.
     DisposableEffect(lifecycle, view) {
         val target = view ?: return@DisposableEffect onDispose {}
@@ -135,6 +145,10 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
                         override fun onSelect(objectIndex: Int?) = viewModel.select(objectIndex)
                         override fun onTransform(objectIndex: Int, transform: FloatArray) { viewModel.setTransform(objectIndex, transform) }
                         override fun onLayOnFace(objectIndex: Int, triangle: Int) { viewModel.layOnFace(objectIndex, triangle) }
+                        override fun onLongPress(objectIndex: Int, x: Float, y: Float) {
+                            viewModel.select(objectIndex)
+                            menu = objectIndex to Offset(x, y)
+                        }
                     }
                     view = created
                 }
@@ -145,8 +159,15 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
                 it.tool = state.tool
             },
         )
-        if (state.scene?.selected != null) {
-            Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (state.objectCount > 0) {
+                AssistChip(
+                    onClick = viewModel::arrange,
+                    label = { Text(stringResource(R.string.arrange)) },
+                    colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surface),
+                )
+            }
+            if (state.scene?.selected != null) {
                 for ((tool, label) in TOOLS) {
                     FilterChip(
                         selected = state.tool == tool,
@@ -154,6 +175,20 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
                         label = { Text(stringResource(label)) },
                         colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface),
                     )
+                }
+            }
+        }
+        menu?.let { (objectIndex, position) ->
+            Box(Modifier.offset { IntOffset(position.x.roundToInt(), position.y.roundToInt()) }) {
+                DropdownMenu(expanded = true, onDismissRequest = { menu = null }) {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.duplicate)) }, onClick = {
+                        menu = null
+                        viewModel.duplicate(objectIndex)
+                    })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.delete)) }, onClick = {
+                        menu = null
+                        viewModel.remove(objectIndex)
+                    })
                 }
             }
         }
@@ -176,6 +211,10 @@ private fun PlacementFields(objectIndex: Int, placement: Placement, viewModel: S
 
     Text(stringResource(R.string.object_title), style = MaterialTheme.typography.titleMedium)
     Text(stringResource(R.string.object_hint), style = MaterialTheme.typography.bodySmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { viewModel.duplicate(objectIndex) }) { Text(stringResource(R.string.duplicate)) }
+        OutlinedButton(onClick = { viewModel.remove(objectIndex) }) { Text(stringResource(R.string.delete)) }
+    }
     AxisRow(R.string.position_mm, placement.offset, axes = 2) { axis, value ->
         commit(offset = placement.offset.copyOf().also { it[axis] = value })
     }
@@ -256,9 +295,15 @@ private fun ControlPanel(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // STL/3MF chegam com MIME variado (model/stl, application/octet-stream...).
             Button(onClick = { openModel(arrayOf("*/*")) }, enabled = enabled) {
-                Text(stringResource(R.string.open_model))
+                Text(stringResource(R.string.add_model))
             }
-            Text(state.modelName ?: stringResource(R.string.no_model))
+            Text(
+                if (state.objectCount == 0) stringResource(R.string.no_model)
+                else pluralStringResource(R.plurals.object_count, state.objectCount, state.objectCount)
+            )
+        }
+        if (state.anyOutside) {
+            Text(stringResource(R.string.outside_warning), color = MaterialTheme.colorScheme.error)
         }
 
         val selected = state.scene?.selected
