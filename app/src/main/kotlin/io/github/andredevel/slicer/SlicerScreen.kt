@@ -1,6 +1,9 @@
 package io.github.andredevel.slicer
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.TextButton
@@ -39,8 +42,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -312,64 +313,89 @@ private fun ControlPanel(
 ) {
     val slicing = state.slice is SliceState.Running
     val enabled = state.busy == null && !slicing
-    Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+    var filter by rememberSaveable(stateSaver = ParameterFilterSaver) { mutableStateOf(ParameterFilter()) }
+    // Lista preguiçosa: no modo avançado são centenas de parâmetros.
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            if (state.objectCount == 0) stringResource(R.string.no_model)
-            else pluralStringResource(R.plurals.object_count, state.objectCount, state.objectCount),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        if (state.anyOutside) {
-            Text(stringResource(R.string.outside_warning), color = MaterialTheme.colorScheme.error)
-        }
-        state.busy?.let {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-            Text(stringResource(it))
-        }
-
-        when (val slice = state.slice) {
-            SliceState.Idle -> Button(onClick = viewModel::slice, enabled = state.canSlice) {
-                Text(stringResource(R.string.slice))
-            }
-            is SliceState.Running -> {
-                LinearProgressIndicator(progress = { slice.percent / 100f }, modifier = Modifier.fillMaxWidth())
-                Text("${slice.percent}% ${slice.text}")
-                OutlinedButton(onClick = viewModel::cancelSlice) { Text(stringResource(R.string.cancel)) }
-            }
-            is SliceState.Done -> {
-                Text(stats(slice.stats), style = MaterialTheme.typography.bodyLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Button(onClick = { saveGcode(viewModel.gcodeName()) }, enabled = enabled) {
-                        Text(stringResource(R.string.save_gcode))
-                    }
-                    OutlinedButton(onClick = viewModel::slice, enabled = state.canSlice) {
-                        Text(stringResource(R.string.slice_again))
-                    }
+        item(key = "slice") {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    if (state.objectCount == 0) stringResource(R.string.no_model)
+                    else pluralStringResource(R.plurals.object_count, state.objectCount, state.objectCount),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (state.anyOutside) {
+                    Text(stringResource(R.string.outside_warning), color = MaterialTheme.colorScheme.error)
                 }
+                state.busy?.let {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(stringResource(it))
+                }
+                SliceControls(state, viewModel, enabled, saveGcode)
+                HorizontalDivider()
             }
         }
-        HorizontalDivider()
 
         val selected = state.scene?.selected
         val placement = state.selectedPlacement
         if (selected != null && placement != null) {
-            PlacementFields(selected, placement, viewModel)
-            HorizontalDivider()
+            item(key = "object") {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    PlacementFields(selected, placement, viewModel)
+                    HorizontalDivider()
+                }
+            }
         }
 
-        Dropdown(R.string.vendor, state.vendors, enabled, viewModel::selectVendor)
-        Dropdown(R.string.printer, state.presets[PresetKind.PRINTER], enabled) { viewModel.selectPreset(PresetKind.PRINTER, it) }
-        Dropdown(R.string.process, state.presets[PresetKind.PROCESS], enabled) { viewModel.selectPreset(PresetKind.PROCESS, it) }
-        Dropdown(R.string.filament, state.presets[PresetKind.FILAMENT], enabled) { viewModel.selectPreset(PresetKind.FILAMENT, it) }
+        item(key = "presets") {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Dropdown(R.string.vendor, state.vendors, enabled, viewModel::selectVendor)
+                Dropdown(R.string.printer, state.presets[PresetKind.PRINTER], enabled) { viewModel.selectPreset(PresetKind.PRINTER, it) }
+                Dropdown(R.string.process, state.presets[PresetKind.PROCESS], enabled) { viewModel.selectPreset(PresetKind.PROCESS, it) }
+                Dropdown(R.string.filament, state.presets[PresetKind.FILAMENT], enabled) { viewModel.selectPreset(PresetKind.FILAMENT, it) }
+                HorizontalDivider()
+            }
+        }
+
+        parameterItems(state, viewModel, filter, { filter = it }, enabled)
+    }
+}
+
+@Composable
+private fun SliceControls(state: SlicerUiState, viewModel: SlicerViewModel, enabled: Boolean, saveGcode: (String) -> Unit) {
+    when (val slice = state.slice) {
+        SliceState.Idle -> Button(onClick = viewModel::slice, enabled = state.canSlice) {
+            Text(stringResource(R.string.slice))
+        }
+        is SliceState.Running -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LinearProgressIndicator(progress = { slice.percent / 100f }, modifier = Modifier.fillMaxWidth())
+            Text("${slice.percent}% ${slice.text}")
+            OutlinedButton(onClick = viewModel::cancelSlice) { Text(stringResource(R.string.cancel)) }
+        }
+        is SliceState.Done -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stats(slice.stats), style = MaterialTheme.typography.bodyLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Button(onClick = { saveGcode(viewModel.gcodeName()) }, enabled = enabled) {
+                    Text(stringResource(R.string.save_gcode))
+                }
+                OutlinedButton(onClick = viewModel::slice, enabled = state.canSlice) {
+                    Text(stringResource(R.string.slice_again))
+                }
+            }
+        }
     }
 }
 
 private val PANEL_WIDTH = 360.dp
 private val SHEET_PEEK_HEIGHT = 160.dp
+
+private val ParameterFilterSaver = listSaver<ParameterFilter, Any>(
+    save = { listOf(it.kind.ordinal, it.advanced, it.query) },
+    restore = { ParameterFilter(PresetKind.entries[it[0] as Int], it[1] as Boolean, it[2] as String) },
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -378,7 +404,8 @@ private fun Dropdown(label: Int, choice: PresetChoice?, enabled: Boolean, onSele
     val options = choice?.options.orEmpty()
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it && enabled && options.isNotEmpty() }) {
         OutlinedTextField(
-            value = choice?.selected.orEmpty(),
+            // Nomes longos são cortados no fim; o "*" de alterado fica visível no começo.
+            value = (if (choice?.dirty == true) "* " else "") + choice?.selected.orEmpty(),
             onValueChange = {},
             readOnly = true,
             enabled = enabled,

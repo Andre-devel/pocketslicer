@@ -36,4 +36,16 @@
     </plurals>
     <string name="hide_panel">Ocultar painel</string>
     <string name="show_panel">Mostrar painel</string>
+    <string name="parameters">Parâmetros</string>
+    <string name="modified">(modificado)</string>
+    <string name="save_preset">Salvar preset</string>
+    <string name="discard_changes">Descartar alterações</string>
+    <string name="import_preset">Importar</string>
+    <string name="export_preset">Exportar</string>
+    <string name="advanced_mode">Modo avançado (todos os parâmetros)</string>
+    <string name="search_parameters">Buscar parâmetro</string>
+    <string name="preset_name">Nome do preset</string>
+    <string name="preset_copy_name">%1$s - cópia</string>
+    <string name="save">Salvar</string>
+    <string name="delete_preset_title">Excluir preset de usuário?</string>
 </resources>

@@ -7,6 +7,8 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.andredevel.slicer.core.ObjectMesh
+import io.github.andredevel.slicer.core.OptionDef
+import io.github.andredevel.slicer.core.PresetValues
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.core.SlicerEngine
@@ -26,7 +28,19 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 
-data class PresetChoice(val options: List<String> = emptyList(), val selected: String? = null)
+/**
+ * Presets de um tipo: [options] para escolher, o [selected], quais são de usuário ([user]) e os
+ * valores do preset em edição, com as alterações não salvas.
+ */
+data class PresetChoice(
+    val options: List<String> = emptyList(),
+    val selected: String? = null,
+    val user: Set<String> = emptySet(),
+    val values: PresetValues = PresetValues(emptyMap(), emptySet()),
+) {
+    val dirty get() = values.dirty.isNotEmpty()
+    val selectedIsUser get() = selected in user
+}
 
 sealed interface SliceState {
     data object Idle : SliceState
@@ -40,6 +54,8 @@ data class SlicerUiState(
     val error: String? = null,
     val vendors: PresetChoice = PresetChoice(),
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
+    /** Definições das opções editáveis (PrintConfigDef do Orca), fixas. */
+    val optionDefs: Map<PresetKind, List<OptionDef>> = emptyMap(),
     /** Nome do primeiro modelo adicionado; dá nome ao G-code. */
     val modelName: String? = null,
     val scene: Scene? = null,
@@ -69,7 +85,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         launchEngine(R.string.busy_installing_profiles) { engine ->
             val vendors = engine.vendors()
             val vendor = if (DEFAULT_VENDOR in vendors) DEFAULT_VENDOR else vendors.first()
-            _state.update { it.copy(vendors = PresetChoice(vendors)) }
+            val defs = PresetKind.entries.associateWith { engine.options(it) }
+            _state.update { it.copy(vendors = PresetChoice(vendors), optionDefs = defs) }
             loadVendor(engine, vendor)
         }
     }
@@ -83,15 +100,60 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         if (kind == PresetKind.PRINTER) refreshScene(engine)
     }
 
+    /** [value] no formato do Orca; erros de valor aparecem como mensagem. */
+    fun setOption(kind: PresetKind, key: String, value: String) = launchEngine(null) { engine ->
+        try {
+            engine.setOption(kind, key, value)
+        } finally {
+            // Também no erro: o campo volta a mostrar o valor em vigor.
+            refreshPresets(engine)
+        }
+        // Mesa e volume vêm da impressora.
+        if (kind == PresetKind.PRINTER) refreshScene(engine)
+    }
+
+    fun discardChanges(kind: PresetKind) = launchEngine(null) { engine ->
+        engine.discardChanges(kind)
+        refreshPresets(engine)
+        if (kind == PresetKind.PRINTER) refreshScene(engine)
+    }
+
+    fun savePreset(kind: PresetKind, name: String) = launchEngine(null) { engine ->
+        engine.savePreset(kind, name.trim())
+        refreshPresets(engine)
+    }
+
+    fun deletePreset(kind: PresetKind, name: String) = launchEngine(null) { engine ->
+        engine.deletePreset(kind, name)
+        refreshPresets(engine)
+        if (kind == PresetKind.PRINTER) refreshScene(engine)
+    }
+
+    fun importPreset(uri: Uri) = launchEngine(null) { engine ->
+        val file = File(File(app.cacheDir, "import").apply { deleteRecursively(); mkdirs() }, displayName(uri))
+        copy(uri, file)
+        engine.importPreset(file)
+        refreshPresets(engine)
+    }
+
+    fun exportPreset(kind: PresetKind, uri: Uri) = launchEngine(R.string.busy_saving) { engine ->
+        val file = File(app.cacheDir, "export.json")
+        engine.exportPreset(kind, file)
+        withContext(Dispatchers.IO) {
+            val output = app.contentResolver.openOutputStream(uri) ?: throw IOException("cannot open $uri")
+            output.use { file.inputStream().use { input -> input.copyTo(it) } }
+        }
+    }
+
+    /** Nome sugerido ao exportar: o do preset em edição. */
+    fun presetFileName(kind: PresetKind): String = (_state.value.presets[kind]?.selected ?: "preset") + ".json"
+
     fun openModel(uri: Uri) = launchEngine(R.string.busy_loading_model) { engine ->
         val name = displayName(uri)
         val dir = File(app.cacheDir, "model").apply { deleteRecursively(); mkdirs() }
         // libslic3r detecta o formato pela extensão, então o nome original é mantido.
         val file = File(dir, name)
-        withContext(Dispatchers.IO) {
-            val input = app.contentResolver.openInputStream(uri) ?: throw IOException("cannot open $uri")
-            input.use { file.outputStream().use(it::copyTo) }
-        }
+        copy(uri, file)
         engine.addModel(file)
         _state.update { it.copy(modelName = it.modelName ?: name, slice = SliceState.Idle) }
         refreshScene(engine, engine.objects())
@@ -165,8 +227,15 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         refreshScene(engine)
     }
 
+    private suspend fun copy(uri: Uri, file: File) = withContext(Dispatchers.IO) {
+        val input = app.contentResolver.openInputStream(uri) ?: throw IOException("cannot open $uri")
+        input.use { file.outputStream().use(it::copyTo) }
+    }
+
     private suspend fun refreshPresets(engine: SlicerEngine) {
-        val presets = PresetKind.entries.associateWith { PresetChoice(engine.presets(it), engine.selected(it)) }
+        val presets = PresetKind.entries.associateWith {
+            PresetChoice(engine.presets(it), engine.selected(it), engine.userPresets(it).toSet(), engine.values(it))
+        }
         // Perfis mudaram: o G-code anterior não corresponde mais à seleção.
         _state.update { it.copy(presets = presets, slice = SliceState.Idle) }
     }

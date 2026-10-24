@@ -118,11 +118,16 @@ class Engine {
   Uma instância por objeto (duplicar cria outro objeto). "Fora do volume" vem de
   `ModelInstance::calc_print_volume_state()` com o `BuildVolume` da impressora; `slice()` recusa
   fatiar nesse caso (o `Print` ignoraria a instância em silêncio).
+- Parâmetros: `options_json()` (definições do `PrintConfigDef` filtradas como a GUI: com rótulo, sem
+  as de desenvolvimento), `values_json()`/`set_option()` sobre o preset editado e presets de usuário
+  via `PresetBundle::save_changes_for_preset()`/`import_presets()`.
+- Uma única thread nativa por processo para todos os motores (com uma por motor, motores criados
+  depois do primeiro falhavam ao fatiar).
 - A crescer nas próximas fases: edição de transformações/arranjo, opções avulsas, `PrintConfigDef` serializado,
   toolpaths como buffers planos (`float* positions`, `uint8* feature_type`...) para VBOs, 3MF.
 
 ### 2.6 Threading
-- Uma thread dedicada (dispatcher próprio dentro de `SlicerEngine`, pilha de 64 MB) para chamadas nativas; o `Engine` **não** é thread-safe.
+- Uma thread dedicada, compartilhada por todas as instâncias de `SlicerEngine` (pilha de 64 MB), para chamadas nativas; o `Engine` **não** é thread-safe.
 - `Print::process()` roda nessa thread; progresso via callback JNI → `StateFlow` (callbacks vindos de threads do TBB são ignorados); cancelar a coroutine chama `Print::cancel()`.
 - TBB usa seu pool interno; limitar threads ao número de cores *big* do SoC para não aquecer demais (configurável).
 

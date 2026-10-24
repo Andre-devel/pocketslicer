@@ -51,6 +51,11 @@ Falta da fase 2: testar gestos de 2 dedos e desempenho com malhas grandes num ta
 **Saída:** preparo de cena completo (RF-01…RF-06, RF-50…RF-52).
 
 ## Fase 3 — Parâmetros e presets (2–3 semanas)
+**Status:** implementada em 2026-10-24 e vista no emulador. As opções vêm do `PrintConfigDef` (tipo,
+enum, categoria, dica); o painel básico é o modo simples da GUI do Orca e o avançado mostra todas,
+com busca. Presets de usuário (salvar, excluir, descartar alterações, importar/exportar `.json`)
+usam o `PresetBundle` do Orca e ficam em `filesDir/orca-data/user/default` (sobrevivem a
+atualizações). Renomear = salvar com outro nome e excluir o antigo.
 1. `engine_get_config_def` → geração automática da lista completa de parâmetros (tipo, enum, default, tooltip, grupo).
 2. Painel "básico" curado + modo "avançado" pesquisável.
 3. Presets de usuário: salvar, renomear, excluir, import/export JSON.
