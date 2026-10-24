@@ -12,7 +12,7 @@ included as the git submodule third_party/OrcaSlicer, with the changes in
 native/patches.
 
 The APK contains the following third-party software. Versions are those pinned by
-OrcaSlicer v2.4.2 (third_party/OrcaSlicer/deps) and native/deps; the full license
+OrcaSlicer v2.4.2 (third_party/OrcaSlicer/deps), except OpenSSL, set in native/deps; the full license
 texts are in each project's source distribution.
 
 Native libraries (built by scripts/build-deps.sh)
@@ -32,7 +32,7 @@ MPFR 4.2.2                        LGPL-3.0-or-later
 NLopt 2.5.0                       MIT and LGPL-2.1-or-later (parts)
 oneTBB 2021.5.0                   Apache-2.0
 OpenEXR 2.5.5                     BSD 3-Clause
-OpenSSL 1.1.1w                    OpenSSL License and SSLeay License
+OpenSSL 3.5.9                     Apache-2.0
 OpenVDB (OrcaSlicer fork)         MPL-2.0
 Qhull 8.0.2                       Qhull License
 zlib (Android NDK)                zlib License

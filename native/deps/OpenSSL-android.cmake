@@ -1,4 +1,5 @@
-# OpenSSL 1.1.1w para Android (mesma versão que o Orca usa).
+# OpenSSL 3.5 (LTS) para Android. O Orca usa 1.1.1, cuja licença (OpenSSL/SSLeay) é
+# tida como incompatível com a AGPL; a 3.x é Apache-2.0. libslic3r só usa MD5.
 # Usa o script Configure do próprio OpenSSL com o target android-<arch>; o
 # Configure localiza o clang do NDK via ANDROID_NDK_ROOT + PATH.
 
@@ -14,15 +15,15 @@ endif ()
 
 ExternalProject_Add(dep_OpenSSL
     EXCLUDE_FROM_ALL ON
-    URL "https://github.com/openssl/openssl/archive/OpenSSL_1_1_1w.tar.gz"
-    URL_HASH SHA256=2130E8C2FB3B79D1086186F78E59E8BC8D1A6AEDF17AB3907F4CB9AE20918C41
+    URL "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz"
+    URL_HASH SHA256=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
     DOWNLOAD_DIR ${DEP_DOWNLOAD_DIR}/OpenSSL
     BUILD_IN_SOURCE ON
     CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env
             "ANDROID_NDK_ROOT=${ANDROID_NDK}"
             "PATH=${_ossl_toolchain_bin}:$ENV{PATH}"
         ./Configure ${_ossl_target} -D__ANDROID_API__=${_ossl_api}
-            "--prefix=${DESTDIR}" "--openssldir=${DESTDIR}"
+            "--prefix=${DESTDIR}" "--openssldir=${DESTDIR}" --libdir=lib
             no-shared no-asm no-ssl3-method no-dynamic-engine no-tests
     BUILD_COMMAND ${CMAKE_COMMAND} -E env
             "ANDROID_NDK_ROOT=${ANDROID_NDK}"
