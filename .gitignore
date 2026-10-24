@@ -12,10 +12,11 @@ captures/
 *.keystore
 
 # Native deps build output (gigabytes; rebuilt por script)
-native/deps/out-android/
-native/deps/build/
-native/build/
+native/deps/out-android-*/
+native/deps/build-*/
+native/build-*/
 
 # Misc
 .DS_Store
 *.log
+native/deps/DL_CACHE/

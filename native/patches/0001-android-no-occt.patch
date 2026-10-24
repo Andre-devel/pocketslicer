@@ -1,0 +1,158 @@
+diff --git a/src/libslic3r/CMakeLists.txt b/src/libslic3r/CMakeLists.txt
+index 9b67d7ab..fb0b383e 100644
+--- a/src/libslic3r/CMakeLists.txt
++++ b/src/libslic3r/CMakeLists.txt
+@@ -497,7 +497,9 @@ set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE ON CACHE BOOL "" FORCE)
+ cmake_policy(PUSH)
+ cmake_policy(SET CMP0011 NEW)
+ find_package(CGAL REQUIRED)
+-find_package(OpenCV REQUIRED core)
++if (NOT SLIC3R_NO_OCCT)
++    find_package(OpenCV REQUIRED core)
++endif ()
+ cmake_policy(POP)
+ 
+ add_library(libslic3r_cgal STATIC
+@@ -537,13 +539,29 @@ target_compile_definitions(libslic3r PUBLIC -DUSE_TBB -DTBB_USE_CAPTURED_EXCEPTI
+ target_include_directories(libslic3r PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+ target_include_directories(libslic3r SYSTEM PUBLIC ${EXPAT_INCLUDE_DIRS})
+ 
++find_package(JPEG REQUIRED)
++
++if (SLIC3R_NO_OCCT)
++    # Android build: no OpenCASCADE, OpenCV or Draco. The sources that need
++    # them are dropped and their entry points are provided by stubs
++    # (SLIC3R_NO_OCCT_STUBS, set by the parent project).
++    target_compile_definitions(libslic3r PUBLIC SLIC3R_NO_OCCT)
++    get_target_property(_slic3r_srcs libslic3r SOURCES)
++    list(FILTER _slic3r_srcs EXCLUDE REGEX "(Format/STEP|Format/svg|Format/DRC|Shape/TextShape|ObjColorUtils)\\.(cpp|hpp)$")
++    set_target_properties(libslic3r PROPERTIES SOURCES "${_slic3r_srcs}")
++    target_sources(libslic3r PRIVATE ${SLIC3R_NO_OCCT_STUBS})
++    set(OCCT_LIBS "")
++    set(_slic3r_opencv_lib "")
++    set(_slic3r_draco_lib "")
++else ()
+ # Find the OCCT and related libraries
+ set(OpenCASCADE_DIR "${CMAKE_PREFIX_PATH}/lib/cmake/occt")
+ find_package(OpenCASCADE REQUIRED)
+ target_include_directories(libslic3r SYSTEM PUBLIC ${OpenCASCADE_INCLUDE_DIR})
+ 
+-find_package(JPEG REQUIRED)
+ find_package(draco REQUIRED)
++set(_slic3r_opencv_lib opencv_world)
++set(_slic3r_draco_lib draco::draco)
+ 
+ set(OCCT_LIBS
+     TKXDESTEP
+@@ -573,6 +591,7 @@ set(OCCT_LIBS
+     TKMath
+     TKernel
+ )
++endif ()
+ 
+ target_link_libraries(libslic3r
+     PUBLIC
+@@ -581,7 +600,7 @@ target_link_libraries(libslic3r
+         libigl
+         libnest2d
+         miniz
+-        opencv_world
++        ${_slic3r_opencv_lib}
+     PRIVATE
+         ${CMAKE_DL_LIBS}
+         ${EXPAT_LIBRARIES}
+@@ -590,7 +609,7 @@ target_link_libraries(libslic3r
+         cereal::cereal
+         clipper
+         Clipper2
+-        draco::draco
++        ${_slic3r_draco_lib}
+         glu-libtess
+         JPEG::JPEG
+         libslic3r_cgal
+@@ -609,7 +628,7 @@ target_link_libraries(libslic3r
+ if(NOT WIN32)
+     # Link freetype for OCCT dependency (CAD operations need font rendering)
+     target_link_libraries(libslic3r PRIVATE ${FREETYPE_LIBRARIES})
+-    if (NOT APPLE)
++    if (NOT APPLE AND NOT ANDROID)
+         target_link_libraries(libslic3r PRIVATE fontconfig)
+     endif()
+ endif()
+diff --git a/src/libslic3r/Format/STEP.hpp b/src/libslic3r/Format/STEP.hpp
+index 32535535..8f02c00d 100644
+--- a/src/libslic3r/Format/STEP.hpp
++++ b/src/libslic3r/Format/STEP.hpp
+@@ -1,12 +1,15 @@
+ #ifndef slic3r_Format_STEP_hpp_
+ #define slic3r_Format_STEP_hpp_
++#ifndef SLIC3R_NO_OCCT
+ #include "XCAFDoc_DocumentTool.hxx"
+ #include "XCAFApp_Application.hxx"
+ #include "XCAFDoc_ShapeTool.hxx"
++#include <Message_ProgressIndicator.hxx>
++#endif
+ #include <boost/filesystem/path.hpp>
+ #include <boost/filesystem.hpp>
+-#include <Message_ProgressIndicator.hxx>
+ #include <atomic>
++#include <functional>
+ 
+ namespace fs = boost::filesystem;
+ 
+@@ -25,6 +28,12 @@ const int LOAD_STEP_STAGE_UNIT_NUM           = 5;
+ typedef std::function<void(int load_stage, int current, int total, bool& cancel)> ImportStepProgressFn;
+ typedef std::function<void(bool isUtf8)> StepIsUtf8Fn;
+ 
++#ifdef SLIC3R_NO_OCCT
++// Build without OpenCASCADE: STEP import is unavailable. Only the types that
++// other headers (Model.hpp) need are kept.
++class Step;
++#else
++
+ struct NamedSolid
+ {
+     NamedSolid(const TopoDS_Shape& s,
+@@ -119,6 +128,8 @@ private:
+     std::vector<NamedSolid> m_name_solids;
+ };
+ 
++#endif // SLIC3R_NO_OCCT
++
+ }; // namespace Slic3r
+ 
+ #endif /* slic3r_Format_STEP_hpp_ */
+diff --git a/src/libslic3r/LocalesUtils.hpp b/src/libslic3r/LocalesUtils.hpp
+index f63c3572..6900aec5 100644
+--- a/src/libslic3r/LocalesUtils.hpp
++++ b/src/libslic3r/LocalesUtils.hpp
+@@ -4,6 +4,7 @@
+ #include <string>
+ #include <clocale>
+ #include <iomanip>
++#include <sstream>
+ #include <cassert>
+ #include <string_view>
+ 
+diff --git a/src/libslic3r/Model.cpp b/src/libslic3r/Model.cpp
+index d1ca3cf8..665de1b5 100644
+--- a/src/libslic3r/Model.cpp
++++ b/src/libslic3r/Model.cpp
+@@ -191,6 +191,9 @@ Model Model::read_from_step(const std::string&
+                             double                                                  angle_defletion,
+                             bool                                                   is_split_compound)
+ {
++#ifdef SLIC3R_NO_OCCT
++    throw Slic3r::RuntimeError(_L("STEP import is not supported in this build."));
++#else
+     Model model;
+     bool result = false;
+     bool is_cb_cancel = false;
+@@ -234,6 +237,7 @@ _finished:
+         model.add_default_instances();
+ 
+     return model;
++#endif // SLIC3R_NO_OCCT
+ }
+ 
+ // BBS: add part plate related logic
