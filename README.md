@@ -15,7 +15,26 @@ Fatiador 3D (FDM) para tablets Android, totalmente offline, construído sobre o 
 - [Roadmap](docs/roadmap.md)
 
 ## Estado
-Fase 0 (prova de conceito nativa) — ver roadmap.
+Fase 1 (esqueleto do app) em andamento — ver [roadmap](docs/roadmap.md). Fase 0 aprovada no
+emulador ([resultados](docs/fase0-resultados.md)).
+
+## Build
+Uma vez por ABI (≈1 h na primeira vez), as dependências nativas:
+
+```bash
+git submodule update --init
+scripts/apply-patches.sh
+scripts/build-deps.sh                     # arm64-v8a
+ANDROID_ABI=x86_64 scripts/build-deps.sh  # emulador
+```
+
+Depois, o app (o Gradle compila libslic3r + JNI para as duas ABIs no build debug):
+
+```bash
+./gradlew :app:assembleDebug                          # app/build/outputs/apk/debug/
+./gradlew :slicer-core:connectedDebugAndroidTest      # testes no aparelho/emulador
+ANDROID_ABI=x86_64 scripts/build-native.sh slice_cli && ANDROID_ABI=x86_64 scripts/test-device.sh  # paridade
+```
 
 ## Créditos
 Baseado em OrcaSlicer (SoftFever), Bambu Studio (Bambu Lab), PrusaSlicer (Prusa Research)

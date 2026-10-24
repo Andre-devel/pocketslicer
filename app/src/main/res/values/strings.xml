@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Android Slicer</string>
+    <string name="open_model">Abrir modelo</string>
+    <string name="no_model">Nenhum modelo (STL, 3MF, OBJ)</string>
+    <string name="vendor">Fabricante</string>
+    <string name="printer">Impressora</string>
+    <string name="process">Processo</string>
+    <string name="filament">Filamento</string>
+    <string name="slice">Fatiar</string>
+    <string name="slice_again">Fatiar de novo</string>
+    <string name="cancel">Cancelar</string>
+    <string name="save_gcode">Salvar G-code</string>
+    <string name="slice_stats">Tempo estimado: %1$s · Filamento: %2$s cm³</string>
+    <string name="busy_installing_profiles">Preparando perfis do OrcaSlicer…</string>
+    <string name="busy_loading_vendor">Carregando perfis do fabricante…</string>
+    <string name="busy_loading_model">Carregando modelo…</string>
+    <string name="busy_saving">Salvando G-code…</string>
+</resources>

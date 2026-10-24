@@ -18,6 +18,9 @@ Objetivo: `libslic3r` fatiando um STL dentro de um Android arm64, sem UI.
 **Se falhar** (dependência intransponível): reavaliar CuraEngine ou motor próprio antes de investir em UI.
 
 ## Fase 1 — Esqueleto do app (2–3 semanas)
+**Status:** itens 1–5 implementados em 2026-10-24 e validados no emulador (x86_64): APK abre STL
+pelo SAF, fatia e salva G-code; 3 testes instrumentados e a paridade de `scripts/test-device.sh`
+passam. Falta repetir num tablet arm64 real. Ver README para build e testes.
 1. Projeto Gradle: `:app`, `:slicer-core`, `:profiles`; Compose; Kotlin 2.x; AGP atual; minSdk 29; `abiFilters arm64-v8a`.
 2. Bridge JNI (`bridge.cpp` + `SlicerEngine.kt`) cobrindo `create`, `load_model`, `list_presets`, `select_preset`, `slice`, `export_gcode`.
 3. Empacotar `resources/profiles` como asset comprimido; extração/índice na primeira execução.

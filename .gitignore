@@ -20,3 +20,4 @@ native/build-*/
 .DS_Store
 *.log
 native/deps/DL_CACHE/
+.kotlin/

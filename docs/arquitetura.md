@@ -11,15 +11,17 @@
 │  data/      presets de usuário, projeto 3MF, Room/DataStore  │
 ├──────────────────────────────────────────────────────────────┤
 │ slicer-core (Android library module, Kotlin + JNI)           │
-│  SlicerEngine.kt  API Kotlin (suspend) ─┐                    │
-│  jni/bridge.cpp   JNI ↔ C++             │                    │
-│  jni/engine.cpp   fachada C++ sobre libslic3r               │
+│  SlicerEngine.kt  API Kotlin (suspend)                       │
+│ profiles (Android library module)                            │
+│  orca-resources.zip (asset) + OrcaResources.kt (extração)    │
 ├──────────────────────────────────────────────────────────────┤
 │ native (CMake, NDK, arm64-v8a)                               │
 │  third_party/OrcaSlicer   submódulo em tag fixo              │
 │  patches/                 patches aplicados sobre o submódulo│
 │  deps/                    build cruzado das dependências     │
-│  libslic3r.a + deps .a    → liblslicer_jni.so                │
+│  src/jni_bridge.cpp       JNI ↔ C++                          │
+│  src/engine.cpp           fachada C++ sobre libslic3r        │
+│  libslic3r.a + deps .a    → libslicer_jni.so                 │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -74,40 +76,48 @@ Ordem recomendada de ataque na fase 0: Boost → TBB → ZLIB/PNG/JPEG/EXPAT →
 - Gradle (`externalNativeBuild.cmake`) compila só `libslic3r` + bridge JNI a cada build do app.
 - Patches: `native/patches/*.patch`, aplicados por `scripts/apply-patches.sh` (idempotente, `git apply --check` antes). Submódulo fixado em um tag de release do Orca (ex.: `v2.3.x`); upgrade é tarefa explícita.
 
-### 2.5 Fachada C++ (`jni/engine.cpp`)
-API intencionalmente pequena. Nada de expor classes do Orca para Kotlin.
+### 2.5 Fachada C++ (`native/src/engine.hpp`)
+API intencionalmente pequena. Nada de expor classes do Orca para Kotlin. Usada pelo JNI
+(`native/src/jni_bridge.cpp`) e pelo `slice_cli` (testes via adb), então o que o teste de
+paridade mede é o mesmo caminho do app.
 
-```
-Engine*  engine_create(const char* profiles_dir, const char* user_dir);
-int      engine_load_model(Engine*, const char* path, ModelId* out);
-void     engine_set_transform(Engine*, ModelId, const float mat4[16]);
-int      engine_select_preset(Engine*, PresetKind, const char* name);
-int      engine_set_option(Engine*, const char* key, const char* value_serialized);
-int      engine_get_option(Engine*, const char* key, std::string& out);
-int      engine_arrange(Engine*);
-int      engine_slice(Engine*, ProgressCb, CancelFlag*);       // Print::process()
-int      engine_export_gcode(Engine*, const char* path);
-int      engine_get_toolpaths(Engine*, ToolpathBuffers* out);   // de GCodeProcessorResult
-int      engine_save_3mf(Engine*, const char* path);
-int      engine_list_presets(Engine*, PresetKind, std::vector<PresetInfo>& out);
-int      engine_get_config_def(Engine*, std::string& json_out); // PrintConfigDef serializado
+```cpp
+class Engine {
+    Engine(resources_dir, data_dir);
+    std::vector<std::string> vendors() const;
+    void load_vendor(vendor);                    // PresetBundle com o fabricante + OrcaFilamentLibrary
+    std::vector<std::string> presets(PresetKind) const;   // filamento/processo: só os compatíveis
+    std::string selected(PresetKind) const;
+    void select(PresetKind, name);               // trocar impressora aplica os padrões dela
+    void load_model(path);                       // STL/OBJ/3MF (geometria)
+    SliceStats slice(gcode_path, ProgressFn);    // Print::process() + export_gcode()
+    void cancel();                               // de qualquer thread
+};
 ```
 
-- Toolpaths saem como buffers planos (`float* positions`, `uint8* feature_type`, `float* width/height`, `int* layer_offsets`) para subir direto para VBOs sem cópia objeto-a-objeto.
-- Malhas carregadas voltam para o Kotlin como `FloatBuffer` direto (vértices + normais) para render.
-- Toda função retorna código de erro; mensagem via `engine_last_error()`. `bridge.cpp` converte em `SlicerException` Java.
+- Perfis: como na GUI do Orca, `PresetBundle::load_presets()` carrega os fabricantes presentes em
+  `<data_dir>/system`; `load_vendor()` põe ali só symlinks para o fabricante escolhido e para
+  `OrcaFilamentLibrary` (de onde os filamentos herdam). Carregar os 130+ fabricantes de uma vez
+  custaria centenas de MB. Todos os modelos/variantes do fabricante ficam "instalados" no
+  `AppConfig`; a lista de filamentos traz todos os compatíveis, não só os padrões.
+- A configuração final é `PresetBundle::full_config()`; `Print::is_BBL_printer()` vem de
+  `PresetBundle::is_bbl_vendor()`, como no Plater da GUI.
+- Erros são exceções C++; o JNI converte em `SlicerException` e o cancelamento em
+  `CancellationException`.
+- A crescer nas próximas fases: transformações/arranjo, opções avulsas, `PrintConfigDef` serializado,
+  toolpaths como buffers planos (`float* positions`, `uint8* feature_type`...) para VBOs, 3MF.
 
 ### 2.6 Threading
-- Uma `HandlerThread`/`Dispatchers` dedicada para chamadas nativas; o `Engine` **não** é thread-safe.
-- `Print::process()` roda nessa thread; progresso via callback JNI → `StateFlow`; cancelamento via `Print::cancel()`.
+- Uma thread dedicada (dispatcher próprio dentro de `SlicerEngine`, pilha de 64 MB) para chamadas nativas; o `Engine` **não** é thread-safe.
+- `Print::process()` roda nessa thread; progresso via callback JNI → `StateFlow` (callbacks vindos de threads do TBB são ignorados); cancelar a coroutine chama `Print::cancel()`.
 - TBB usa seu pool interno; limitar threads ao número de cores *big* do SoC para não aquecer demais (configurável).
 
 ## 3. Camada Kotlin
 
 ### 3.1 Módulos Gradle
-- `:app` — UI, navegação, injeção (Hilt ou Koin — decidir na fase 1; tendência Koin por simplicidade).
-- `:slicer-core` — `SlicerEngine` (Kotlin), JNI, CMake. Sem dependência de Compose. Testável com instrumentação.
-- `:profiles` — asset pack com `resources/profiles` do Orca comprimido + índice gerado em build (`vendors.json`).
+- `:app` — UI. Sem framework de injeção enquanto houver um único ViewModel (`AndroidViewModel`).
+- `:slicer-core` — `SlicerEngine` (Kotlin) e o build CMake de `native/` (target `slicer_jni`). Sem dependência de Compose. Testes instrumentados em `src/androidTest` usando `testdata/`.
+- `:profiles` — os JSON de `resources/profiles` do Orca + `info/` e `flush/` num zip (asset, ~9 MB), gerado no build e extraído por `OrcaResources.install()` para `filesDir` a cada instalação/atualização do APK. A lista de fabricantes vem do próprio diretório extraído.
 
 ### 3.2 Estado
 - `SceneState` (objetos, transforms, seleção), `PresetState` (impressora/filamento/processo + overrides), `SliceState` (idle / running(progress) / done(result) / error).
@@ -124,13 +134,13 @@ int      engine_get_config_def(Engine*, std::string& json_out); // PrintConfigDe
 - Projetos: 3MF via `engine_save_3mf`.
 
 ## 4. Testes
-- Nativo: `native/tests/` executável que roda na própria máquina (host build de `libslic3r`) e no device via `adb` — fatia modelos de `testdata/` e grava G-code.
-- Paridade (RNF-05): script `scripts/parity.py` roda o OrcaSlicer desktop CLI (`--slice`) e a lib Android no device para os mesmos inputs e compara G-code normalizado.
-- Kotlin: unit tests de ViewModels; testes instrumentados de `SlicerEngine` em tablet/emulador (emulador x86_64 **não** suportado no MVP — só device real arm64; considerar ABI x86_64 só se virar dor).
+- Paridade (RNF-05): `scripts/test-device.sh` fatia os casos de `testdata/cases.tsv` com `native/tests/slice_cli` no device via `adb` e compara camada a camada (`scripts/compare-gcode.py`) com o G-code do OrcaSlicer desktop gerado por `scripts/make-reference.sh`.
+- Kotlin: testes instrumentados de `SlicerEngine` (`./gradlew :slicer-core:connectedDebugAndroidTest`) em tablet ou emulador. O build debug inclui x86_64 para o emulador; o release só arm64-v8a.
 
-## 5. Ambiente de desenvolvimento (estado atual da máquina)
-- SDK em `~/Android/Sdk` com platforms 36/37, build-tools 35–37, cmdline-tools. **Falta NDK e CMake do SDK**: `sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"` (ou versões correntes).
-- JDK: 17 e 21 disponíveis (`~/.jdks/corretto-17`, `corretto-21`); Gradle/AGP recentes exigem 17+. `java` padrão aponta para 8 — configurar `JAVA_HOME` no Gradle.
-- Python 3.14 do sistema: o Orca exige 3.12 só para o módulo stubgen, que fica desligado.
-- Disco: 16 GB livres. Build das deps + submódulo do Orca consome ~15–20 GB. **Liberar espaço antes da fase 0.**
+## 5. Ambiente de desenvolvimento
+- SDK em `~/Android/Sdk` com NDK 28.2.13676358 e CMake 3.31.6 (`scripts/env.sh`).
+- JDK: o daemon do Gradle usa JDK 21 (`gradle/gradle-daemon-jvm.properties`; o Gradle acha os JDKs
+  de `~/.jdks`), independentemente do `JAVA_HOME`. Os scripts nativos usam o JDK 17.
+- Python 3 para os scripts de teste; o módulo stubgen do Orca (Python 3.12) fica desligado.
+- Disco: dependências + builds nativos (scripts e Gradle, duas ABIs) ocupam ~20 GB.
 - 16 cores / 30 GB RAM: suficiente.
