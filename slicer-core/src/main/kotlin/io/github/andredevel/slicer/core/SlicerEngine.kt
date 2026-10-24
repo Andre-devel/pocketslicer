@@ -107,6 +107,16 @@ class SlicerException(message: String) : RuntimeException(message)
  */
 class SlicerEngine private constructor(private val handle: Long) : AutoCloseable {
 
+    /**
+     * Idioma dos textos do motor: rótulos e dicas das opções, progresso e erros. [language]
+     * como os catálogos do Orca ("pt_BR", "en"); sem catálogo, ficam em inglês. Vale para
+     * todas as instâncias; as [options] lidas antes continuam no idioma anterior.
+     */
+    suspend fun setLanguage(language: String) = call { nativeSetLanguage(handle, language) }
+
+    /** Texto do libslic3r (ex.: um de [roleNames]) no idioma de [setLanguage]. */
+    suspend fun translate(text: String): String = call { nativeTranslate(text) }
+
     suspend fun vendors(): List<String> = call { nativeVendors(handle).asList() }
 
     /** Carrega os perfis do fabricante e seleciona a primeira impressora dele. */
@@ -120,7 +130,7 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Trocar a impressora seleciona o processo e o filamento padrão dela. */
     suspend fun select(kind: PresetKind, name: String) = call { nativeSelect(handle, kind.ordinal, name) }
 
-    /** Opções editáveis do tipo de preset; não mudam durante a execução. */
+    /** Opções editáveis do tipo de preset; só os textos mudam, com [setLanguage]. */
     suspend fun options(kind: PresetKind): List<OptionDef> = call { parseOptions(nativeOptionsJson(handle, kind.ordinal)) }
 
     suspend fun values(kind: PresetKind): PresetValues = call {
@@ -299,6 +309,8 @@ private fun parseOptions(json: String): List<OptionDef> {
 // Implementadas em native/src/jni_bridge.cpp (classe JVM SlicerEngineKt).
 private external fun nativeCreate(resourcesDir: String, dataDir: String): Long
 private external fun nativeDestroy(handle: Long)
+private external fun nativeSetLanguage(handle: Long, language: String)
+private external fun nativeTranslate(text: String): String
 private external fun nativeVendors(handle: Long): Array<String>
 private external fun nativeLoadVendor(handle: Long, vendor: String)
 private external fun nativePresets(handle: Long, kind: Int): Array<String>

@@ -53,6 +53,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -103,7 +104,8 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
 
     LaunchedEffect(state.error) {
         state.error?.let {
-            snackbar.showSnackbar(it)
+            // Até o usuário fechar: a mensagem explica por que algo não aconteceu.
+            snackbar.showSnackbar(it, withDismissAction = true, duration = SnackbarDuration.Indefinite)
             viewModel.dismissError()
         }
     }
@@ -233,7 +235,7 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
         val preview = state.preview
         val done = state.slice as? SliceState.Done
         if (state.previewVisible && preview != null && done != null) {
-            PreviewOverlay(preview, done.stats, previewSettings) { previewSettings = it }
+            PreviewOverlay(preview, done.stats, state.roleLabels, previewSettings) { previewSettings = it }
             return@Box
         }
         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

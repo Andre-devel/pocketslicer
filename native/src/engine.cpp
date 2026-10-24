@@ -19,6 +19,8 @@
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
 #include "libslic3r/GCode/Thumbnails.hpp"
+#include "libslic3r/I18N.hpp"
+#include "libslic3r/format.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
@@ -26,6 +28,8 @@
 #include "libslic3r/Utils.hpp"
 
 #include "nlohmann/json.hpp"
+
+#include "i18n.hpp"
 
 namespace fs = boost::filesystem;
 using namespace Slic3r;
@@ -152,6 +156,19 @@ Engine::Engine(const std::string &resources_dir, const std::string &data_dir) : 
 }
 
 Engine::~Engine() = default;
+
+void Engine::set_language(const std::string &language)
+{
+    std::vector<std::string> files;
+    const fs::path dir = fs::path(Slic3r::resources_dir()) / "i18n" / language;
+    if (!language.empty() && fs::is_directory(dir))
+        for (const fs::directory_entry &entry : fs::directory_iterator(dir))
+            if (entry.path().extension() == ".po")
+                files.push_back(entry.path().string());
+    // Ordem ASCII: OrcaSlicer_<idioma>.po antes de slicer.po, que pode corrigir o do Orca.
+    std::sort(files.begin(), files.end());
+    i18n::load(files);
+}
 
 std::vector<std::string> Engine::vendors() const
 {
@@ -345,12 +362,20 @@ Model read_model(const std::string &path)
     Model model = Model::read_from_file(path, &config, &substitutions,
                                         LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
     if (model.objects.empty())
-        throw std::runtime_error("no objects in " + path);
+        throw std::runtime_error(format(_u8L("No objects found in %1%."), fs::path(path).filename().string()));
     // Como a GUI do Orca: a origem de cada objeto passa a ser o centro da sua malha,
     // então a posição exibida é a do centro e girar/escalar usa esse pivô.
     for (ModelObject *object : model.objects)
         object->center_around_origin();
     return model;
+}
+
+std::vector<std::string> translated(const std::vector<std::string> &texts)
+{
+    std::vector<std::string> out;
+    for (const std::string &text : texts)
+        out.push_back(i18n::translate(text));
+    return out;
 }
 
 } // namespace
@@ -424,7 +449,8 @@ std::string Engine::open_project(const std::string &path)
     if (vendor.empty())
         vendor = m->vendor;
     if (vendor.empty())
-        throw std::runtime_error("unknown printer: " + config.opt_string("printer_settings_id"));
+        throw std::runtime_error(format(_u8L("The project printer %1% is not among the installed profiles."),
+                                        config.opt_string("printer_settings_id")));
     if (vendor != m->vendor)
         load_vendor(vendor);
     // Como Plater::load_files(): presets embutidos, depois a configuração do projeto.
@@ -450,7 +476,7 @@ std::string Engine::open_project(const std::string &path)
         }
     }
     if (m->model.objects.empty())
-        throw std::runtime_error("no objects in " + path);
+        throw std::runtime_error(format(_u8L("No objects found in %1%."), fs::path(path).filename().string()));
     return m->vendor;
 }
 
@@ -485,7 +511,7 @@ void Engine::save_project(const std::string &path, const Thumbnail &thumbnail)
         params.thumbnail_data = {&image};
     params.strategy = SaveStrategy::Zip64;
     if (!store_bbs_3mf(params))
-        throw std::runtime_error("could not write " + path);
+        throw std::runtime_error(format(_u8L("Could not write %1%."), fs::path(path).filename().string()));
 }
 
 SliceStats Engine::load_gcode(const std::string &path)
@@ -638,16 +664,16 @@ std::string Engine::options_json(PresetKind kind) const
             continue;
         nlohmann::json o = {
             {"key", key},
-            {"label", def->label},
-            {"category", def->category},
-            {"tooltip", def->tooltip},
-            {"sidetext", def->sidetext},
+            {"label", i18n::translate(def->label)},
+            {"category", i18n::translate(def->category)},
+            {"tooltip", i18n::translate(def->tooltip)},
+            {"sidetext", i18n::translate(def->sidetext)},
             {"type", def->type == coPoints ? "points" : type_name(def->type)},
             {"vector", (int(def->type) & int(coVectorType)) != 0},
             {"mode", int(def->mode)},
             {"multiline", def->multiline || def->is_code},
             {"enum_values", def->enum_values},
-            {"enum_labels", def->enum_labels},
+            {"enum_labels", translated(def->enum_labels)},
         };
         if (def->min > -FLT_MAX)
             o["min"] = def->min;
@@ -672,12 +698,17 @@ std::string Engine::values_json(PresetKind kind) const
 void Engine::set_option(PresetKind kind, const std::string &key, const std::string &value)
 {
     const std::vector<std::string> &keys = option_keys(kind);
-    if (editable_def(key) == nullptr || std::find(keys.begin(), keys.end(), key) == keys.end())
+    const ConfigOptionDef *def = editable_def(key);
+    if (def == nullptr || std::find(keys.begin(), keys.end(), key) == keys.end())
         throw std::invalid_argument("not an editable option: " + key);
     PresetCollection &collection = m->collection(kind);
     // Sobre uma cópia: um valor inválido não deixa o preset pela metade.
     DynamicPrintConfig config = collection.get_edited_preset().config;
-    config.set_deserialize_strict(key, value);
+    try {
+        config.set_deserialize_strict(key, value);
+    } catch (const BadOptionValueException &) {
+        throw std::invalid_argument(format(_u8L("Invalid value provided for parameter %1%: %2%"), i18n::translate(def->label), value));
+    }
     collection.get_edited_preset().config = std::move(config);
 }
 
@@ -698,10 +729,10 @@ std::vector<std::string> Engine::user_presets(PresetKind kind) const
 void Engine::save_preset(PresetKind kind, const std::string &name)
 {
     if (name.empty())
-        throw std::invalid_argument("empty preset name");
+        throw std::invalid_argument(_u8L("The name is not allowed to be empty."));
     PresetCollection &collection = m->collection(kind);
     if (const Preset *existing = collection.find_preset(name, false); existing != nullptr && !existing->is_user())
-        throw std::invalid_argument("system preset cannot be overwritten: " + name);
+        throw std::invalid_argument(format(_u8L("The system preset %1% cannot be overwritten."), name));
     // Como a GUI: grava em <data_dir>/user/default só a diferença para o preset pai.
     m->bundle->save_changes_for_preset(name, preset_type(kind), {});
 }
@@ -714,7 +745,7 @@ void Engine::delete_preset(PresetKind kind, const std::string &name)
         throw std::invalid_argument("not a user preset: " + name);
     const bool was_selected = collection.get_selected_preset_name() == name;
     if (!collection.delete_preset(name))
-        throw std::runtime_error("cannot delete preset: " + name);
+        throw std::runtime_error(format(_u8L("Could not delete the preset %1%."), name));
     if (was_selected) {
         // Volta ao padrão da impressora (ou ao primeiro compatível), como ao trocar de impressora.
         m->bundle->update_compatible(PresetSelectCompatibleType::Always);
@@ -734,7 +765,7 @@ std::vector<std::string> Engine::import_preset(const std::string &path)
     m->bundle->import_presets(files, [](const std::string &) { return 1; },
                               ForwardCompatibilitySubstitutionRule::EnableSilent, m->app_config);
     if (files.empty())
-        throw std::runtime_error("no compatible preset in " + path);
+        throw std::runtime_error(format(_u8L("No compatible preset found in %1%."), fs::path(path).filename().string()));
     m->bundle->update_compatible(PresetSelectCompatibleType::Never);
     // import_presets devolve os arquivos importados; o nome do preset está no JSON.
     std::vector<std::string> names;
@@ -784,7 +815,7 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     print.is_BBL_printer() = m->bundle->is_bbl_vendor();
     print.set_status_callback([&progress](const PrintBase::SlicingStatus &s) {
         if (progress)
-            progress(s.percent, s.text);
+            progress(s.percent, i18n::translate(s.text));
     });
     print.apply(m->model, config);
     print.restart();

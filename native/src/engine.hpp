@@ -87,6 +87,11 @@ public:
     Engine(const std::string &resources_dir, const std::string &data_dir);
     ~Engine();
 
+    // Idioma dos textos do libslic3r e desta fachada (opções, progresso, erros): os .po de
+    // resources_dir/i18n/<language> (ex.: "pt_BR", "en"), do Orca e da fachada. Vale para o
+    // processo todo (i18n.hpp); sem esse diretório, os textos ficam como no código.
+    void set_language(const std::string &language);
+
     // Fabricantes disponíveis em resources/profiles (sem a biblioteca de filamentos).
     std::vector<std::string> vendors() const;
 

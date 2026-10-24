@@ -3,6 +3,7 @@ package io.github.andredevel.slicer
 import android.app.Application
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -18,6 +19,7 @@ import io.github.andredevel.slicer.profiles.OrcaResources
 import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.Scene
 import io.github.andredevel.slicer.render.Tool
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -29,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 
 /**
  * Presets de um tipo: [options] para escolher, o [selected], quais são de usuário ([user]) e os
@@ -57,8 +60,10 @@ data class SlicerUiState(
     val error: String? = null,
     val vendors: PresetChoice = PresetChoice(),
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
-    /** Definições das opções editáveis (PrintConfigDef do Orca), fixas. */
+    /** Definições das opções editáveis (PrintConfigDef do Orca); textos no idioma do app. */
     val optionDefs: Map<PresetKind, List<OptionDef>> = emptyMap(),
+    /** Nomes dos tipos de extrusão (índice em SlicerEngine.roleNames) no idioma do app. */
+    val roleLabels: List<String> = SlicerEngine.roleNames,
     /** Nome do primeiro modelo adicionado; dá nome ao G-code. */
     val modelName: String? = null,
     val scene: Scene? = null,
@@ -82,6 +87,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     private val gcodeFile get() = File(app.cacheDir, "output.gcode")
 
+    /** Idioma dos textos do motor, o do app ([setLocale]). */
+    private var language = engineLanguage(app.resources.configuration.locales[0])
+
     /**
      * Renderiza a miniatura dos objetos (largura, altura) para o projeto e o G-code; null sem
      * objetos. O viewport registra enquanto existe (ViewportView.thumbnail).
@@ -96,12 +104,33 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     // Perfis iniciais; arquivos abertos por outro app ("Abrir com") esperam por ela.
     private val setup = launchEngine(R.string.busy_installing_profiles) { engine ->
+            applyLanguage(engine)
             val vendors = engine.vendors()
             val vendor = if (DEFAULT_VENDOR in vendors) DEFAULT_VENDOR else vendors.first()
-            val defs = PresetKind.entries.associateWith { engine.options(it) }
-            _state.update { it.copy(vendors = PresetChoice(vendors), optionDefs = defs) }
+            _state.update { it.copy(vendors = PresetChoice(vendors)) }
             loadVendor(engine, vendor)
         }
+
+    /**
+     * Idioma do app (a Activity chama ao ser criada, inclusive depois de o usuário trocá-lo):
+     * os textos do motor passam a vir nele.
+     */
+    fun setLocale(locale: Locale) {
+        val language = engineLanguage(locale)
+        if (language == this.language) return
+        this.language = language
+        launchEngine(null) { engine ->
+            setup.join()
+            applyLanguage(engine)
+        }
+    }
+
+    private suspend fun applyLanguage(engine: SlicerEngine) {
+        engine.setLanguage(language)
+        val defs = PresetKind.entries.associateWith { engine.options(it) }
+        val roles = SlicerEngine.roleNames.map { engine.translate(it) }
+        _state.update { it.copy(optionDefs = defs, roleLabels = roles) }
+    }
 
     fun selectVendor(vendor: String) = launchEngine(R.string.busy_loading_vendor) { loadVendor(it, vendor) }
 
@@ -151,10 +180,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun exportPreset(kind: PresetKind, uri: Uri) = launchEngine(R.string.busy_saving) { engine ->
         val file = File(app.cacheDir, "export.json")
         engine.exportPreset(kind, file)
-        withContext(Dispatchers.IO) {
-            val output = app.contentResolver.openOutputStream(uri) ?: throw IOException("cannot open $uri")
-            output.use { file.inputStream().use { input -> input.copyTo(it) } }
-        }
+        write(file, uri)
     }
 
     /** Nome sugerido ao exportar: o do preset em edição. */
@@ -204,10 +230,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val thumbnail = thumbnails?.invoke(PROJECT_THUMBNAIL_SIZE, PROJECT_THUMBNAIL_SIZE)
         val file = File(app.cacheDir, "project.3mf")
         engine.saveProject(file, thumbnail)
-        withContext(Dispatchers.IO) {
-            val output = app.contentResolver.openOutputStream(uri) ?: throw IOException("cannot open $uri")
-            output.use { file.inputStream().use { input -> input.copyTo(it) } }
-        }
+        write(file, uri)
     }
 
     /** Nome sugerido para o projeto: o do modelo com a extensão trocada. */
@@ -267,12 +290,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         sliceJob?.cancel()
     }
 
-    fun saveGcode(uri: Uri) = launchEngine(R.string.busy_saving) {
-        withContext(Dispatchers.IO) {
-            val output = app.contentResolver.openOutputStream(uri) ?: throw IOException("cannot open $uri")
-            output.use { gcodeFile.inputStream().use { input -> input.copyTo(it) } }
-        }
-    }
+    fun saveGcode(uri: Uri) = launchEngine(R.string.busy_saving) { write(gcodeFile, uri) }
 
     fun dismissError() = _state.update { it.copy(error = null) }
 
@@ -287,8 +305,25 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun copy(uri: Uri, file: File) = withContext(Dispatchers.IO) {
-        val input = app.contentResolver.openInputStream(uri) ?: throw IOException("cannot open $uri")
-        input.use { file.outputStream().use(it::copyTo) }
+        try {
+            val input = app.contentResolver.openInputStream(uri) ?: throw IOException("no stream for $uri")
+            input.use { file.outputStream().use(it::copyTo) }
+        } catch (e: IOException) {
+            throw UserException(R.string.error_read_file, e)
+        } catch (e: SecurityException) { // permissão do provedor revogada
+            throw UserException(R.string.error_read_file, e)
+        }
+    }
+
+    private suspend fun write(file: File, uri: Uri) = withContext(Dispatchers.IO) {
+        try {
+            val output = app.contentResolver.openOutputStream(uri) ?: throw IOException("no stream for $uri")
+            output.use { file.inputStream().use { input -> input.copyTo(it) } }
+        } catch (e: IOException) {
+            throw UserException(R.string.error_write_file, e)
+        } catch (e: SecurityException) { // permissão do provedor revogada
+            throw UserException(R.string.error_write_file, e)
+        }
     }
 
     private suspend fun refreshPresets(engine: SlicerEngine) {
@@ -334,17 +369,35 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         try {
             block(engine.await())
         } catch (e: SlicerException) {
+            // Já traduzida pelo motor.
             _state.update { it.copy(error = e.message) }
-        } catch (e: IOException) {
-            _state.update { it.copy(error = e.message ?: e.toString()) }
+        } catch (e: UserException) {
+            Log.w(TAG, e.cause)
+            _state.update { it.copy(error = app.getString(e.text)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: OutOfMemoryError) {
+            Log.e(TAG, "out of memory", e)
+            _state.update { it.copy(error = app.getString(R.string.error_out_of_memory)) }
+        } catch (e: Exception) {
+            // Falha do app, não do arquivo: avisa em vez de fechar e perder a mesa.
+            Log.e(TAG, "unexpected error", e)
+            _state.update { it.copy(error = app.getString(R.string.error_unexpected, e.toString())) }
         } finally {
             _state.update { it.copy(busy = null) }
         }
     }
 
+    /** Erro com mensagem do app para o usuário; [cause] vai só para o log. */
+    private class UserException(@StringRes val text: Int, cause: Throwable) : Exception(cause)
+
     private companion object {
+        const val TAG = "SlicerViewModel"
         const val DEFAULT_VENDOR = "BBL"
         /** Lado da miniatura do projeto, como THUMBNAIL_SIZE_3MF do Orca. */
         const val PROJECT_THUMBNAIL_SIZE = 512
+
+        /** Catálogo de tradução do Orca para a localidade: os idiomas do app (res/values*). */
+        fun engineLanguage(locale: Locale) = if (locale.language == "pt") "pt_BR" else "en"
     }
 }

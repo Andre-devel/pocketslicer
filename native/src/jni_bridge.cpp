@@ -9,11 +9,13 @@
 
 #include <array>
 #include <iterator>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "engine.hpp"
+#include "i18n.hpp"
 
 using slicer::Engine;
 using slicer::PresetKind;
@@ -73,7 +75,13 @@ std::vector<slicer::Thumbnail> to_thumbnails(JNIEnv *env, jintArray sizes, jobje
 
 Engine *engine(jlong handle) { return reinterpret_cast<Engine *>(handle); }
 
-// Executa f convertendo exceções C++ em exceções Java pendentes.
+void throw_slicer_exception(JNIEnv *env, const std::string &message)
+{
+    env->ThrowNew(env->FindClass("io/github/andredevel/slicer/core/SlicerException"), message.c_str());
+}
+
+// Executa f convertendo exceções C++ em exceções Java pendentes. As mensagens vão
+// traduzidas: muitos erros do libslic3r (Print::validate...) só marcam o texto com L().
 template<typename F>
 auto guarded(JNIEnv *env, F &&f) -> decltype(f())
 {
@@ -81,10 +89,12 @@ auto guarded(JNIEnv *env, F &&f) -> decltype(f())
         return f();
     } catch (const slicer::Canceled &e) {
         env->ThrowNew(env->FindClass("java/util/concurrent/CancellationException"), e.what());
+    } catch (const std::bad_alloc &) {
+        throw_slicer_exception(env, slicer::i18n::translate("Not enough memory for this operation."));
     } catch (const std::exception &e) {
-        env->ThrowNew(env->FindClass("io/github/andredevel/slicer/core/SlicerException"), e.what());
+        throw_slicer_exception(env, slicer::i18n::translate(e.what()));
     } catch (...) {
-        env->ThrowNew(env->FindClass("io/github/andredevel/slicer/core/SlicerException"), "unknown native error");
+        throw_slicer_exception(env, slicer::i18n::translate("Unknown error."));
     }
     return decltype(f())();
 }
@@ -99,6 +109,18 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeCreate(JNIEnv *env, j
     return guarded(env, [&] {
         return reinterpret_cast<jlong>(new Engine(to_string(env, resources_dir), to_string(env, data_dir)));
     });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetLanguage(JNIEnv *env, jclass, jlong handle, jstring language)
+{
+    guarded(env, [&] { engine(handle)->set_language(to_string(env, language)); });
+}
+
+JNIEXPORT jstring JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeTranslate(JNIEnv *env, jclass, jstring text)
+{
+    return guarded(env, [&] { return env->NewStringUTF(slicer::i18n::translate(to_string(env, text)).c_str()); });
 }
 
 JNIEXPORT void JNICALL

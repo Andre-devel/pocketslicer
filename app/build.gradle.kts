@@ -28,6 +28,11 @@ android {
     buildFeatures {
         compose = true
     }
+
+    androidResources {
+        // Idiomas do app (res/values*) para a escolha por app do Android 13+.
+        generateLocaleConfig = true
+    }
 }
 
 dependencies {

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Só a janela (abertura e fundo); as cores do app vêm do MaterialTheme (MainActivity). -->
+    <style name="Theme.Slicer" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

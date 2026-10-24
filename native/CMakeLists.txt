@@ -128,7 +128,7 @@ target_include_directories(libslic3r PUBLIC "${ORCA_DIR}/src")
 target_link_libraries(libslic3r PUBLIC log)
 
 # --- Fachada C++ (engine.hpp), usada pelo JNI e pelo slice_cli ----------------
-add_library(slicer_engine STATIC src/engine.cpp)
+add_library(slicer_engine STATIC src/engine.cpp src/i18n.cpp)
 target_include_directories(slicer_engine PUBLIC src)
 target_link_libraries(slicer_engine PUBLIC libslic3r boost_libs)
 

@@ -30,7 +30,9 @@ data class Scene(
  * Desenha a cena com OpenGL ES 3. Roda na thread GL do [GLSurfaceView]; [scene] e
  * [camera] só devem ser alterados nela (GLSurfaceView.queueEvent).
  */
-class SceneRenderer : GLSurfaceView.Renderer {
+/** [dark]: fundo e mesa no tema escuro; senão, no claro. */
+class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
+    private val palette = if (dark) DARK else LIGHT
     val camera = OrbitCamera()
     var viewportWidth = 1
         private set
@@ -100,7 +102,7 @@ class SceneRenderer : GLSurfaceView.Renderer {
     override fun onDrawFrame(unused: GL10?) {
         for (request in thumbnailRequests) request.done(thumbnail(request.width, request.height))
         thumbnailRequests.clear()
-        glClearColor(0.16f, 0.17f, 0.19f, 1f)
+        palette.background.let { glClearColor(it[0], it[1], it[2], it[3]) }
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
         val scene = scene ?: return
         val gpu = gpu ?: upload(scene).also { gpu = it }
@@ -113,10 +115,10 @@ class SceneRenderer : GLSurfaceView.Renderer {
         // A superfície fica um pouco atrás das linhas para não disputarem o depth buffer.
         glEnable(GL_POLYGON_OFFSET_FILL)
         glPolygonOffset(1f, 1f)
-        gpu.bedSurface.draw(color, BED_SURFACE)
+        gpu.bedSurface.draw(color, palette.bedSurface)
         glDisable(GL_POLYGON_OFFSET_FILL)
-        gpu.bedGrid.draw(color, BED_GRID)
-        gpu.bedOutline.draw(color, BED_OUTLINE)
+        gpu.bedGrid.draw(color, palette.bedGrid)
+        gpu.bedOutline.draw(color, palette.bedOutline)
 
         val preview = preview
         if (showPreview && preview != null) {
@@ -283,12 +285,24 @@ class SceneRenderer : GLSurfaceView.Renderer {
         private fun buffer(bytes: Int): ByteBuffer = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
     }
 
+    /** Cores RGBA do que não é objeto nem caminho do G-code. */
+    private class Palette(val background: FloatArray, val bedSurface: FloatArray, val bedGrid: FloatArray, val bedOutline: FloatArray)
+
     companion object {
         private const val GRID_STEP = 10f
 
-        private val BED_SURFACE = floatArrayOf(0.30f, 0.32f, 0.35f, 1f)
-        private val BED_GRID = floatArrayOf(0.40f, 0.42f, 0.46f, 1f)
-        private val BED_OUTLINE = floatArrayOf(0.75f, 0.77f, 0.80f, 1f)
+        private val DARK = Palette(
+            background = floatArrayOf(0.16f, 0.17f, 0.19f, 1f),
+            bedSurface = floatArrayOf(0.30f, 0.32f, 0.35f, 1f),
+            bedGrid = floatArrayOf(0.40f, 0.42f, 0.46f, 1f),
+            bedOutline = floatArrayOf(0.75f, 0.77f, 0.80f, 1f),
+        )
+        private val LIGHT = Palette(
+            background = floatArrayOf(0.93f, 0.94f, 0.95f, 1f),
+            bedSurface = floatArrayOf(0.78f, 0.80f, 0.83f, 1f),
+            bedGrid = floatArrayOf(0.66f, 0.68f, 0.72f, 1f),
+            bedOutline = floatArrayOf(0.30f, 0.32f, 0.36f, 1f),
+        )
         private val OBJECT = floatArrayOf(0.20f, 0.68f, 0.38f, 1f)
         private val SELECTED = floatArrayOf(0.96f, 0.58f, 0.16f, 1f)
         private val OUTSIDE = floatArrayOf(0.80f, 0.18f, 0.18f, 1f)

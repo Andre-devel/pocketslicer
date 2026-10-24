@@ -2,6 +2,7 @@ package io.github.andredevel.slicer.render
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Configuration
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.view.MotionEvent
@@ -37,7 +38,10 @@ interface ViewportListener {
  */
 @SuppressLint("ViewConstructor")
 class ViewportView(context: Context) : GLSurfaceView(context) {
-    private val renderer = SceneRenderer()
+    // A Activity é recriada ao trocar o tema, e o viewport junto.
+    private val renderer = SceneRenderer(
+        dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES,
+    )
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
     var listener: ViewportListener? = null

@@ -32,7 +32,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.core.SliceStats
-import io.github.andredevel.slicer.core.SlicerEngine
 import io.github.andredevel.slicer.render.ColorMode
 import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.PreviewSettings
@@ -52,7 +51,13 @@ private val COLOR_MODES = listOf(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PreviewOverlay(preview: Preview, stats: SliceStats, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
+fun PreviewOverlay(
+    preview: Preview,
+    stats: SliceStats,
+    roleLabels: List<String>,
+    settings: PreviewSettings,
+    onSettings: (PreviewSettings) -> Unit,
+) {
     val toolpaths = preview.toolpaths
     val lastLayer = (toolpaths.layerCount - 1).coerceAtLeast(0)
     val maxLayer = settings.maxLayer.coerceIn(0, lastLayer)
@@ -74,7 +79,7 @@ fun PreviewOverlay(preview: Preview, stats: SliceStats, settings: PreviewSetting
                         }
                     }
                     if (settings.colorMode == ColorMode.FEATURE) {
-                        RoleLegend(preview, settings, onSettings)
+                        RoleLegend(preview, roleLabels, settings, onSettings)
                     } else {
                         RangeLegend(preview, settings.colorMode)
                     }
@@ -126,7 +131,7 @@ fun PreviewOverlay(preview: Preview, stats: SliceStats, settings: PreviewSetting
 }
 
 @Composable
-private fun RoleLegend(preview: Preview, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
+private fun RoleLegend(preview: Preview, roleLabels: List<String>, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
     val present = remember(preview) { preview.toolpaths.roles.map { it.toInt() and 0xFF }.toSortedSet() }
     for (role in present) {
         val hidden = role in settings.hiddenRoles
@@ -135,7 +140,7 @@ private fun RoleLegend(preview: Preview, settings: PreviewSettings, onSettings: 
                 onSettings(settings.copy(hiddenRoles = if (hidden) settings.hiddenRoles - role else settings.hiddenRoles + role))
             })
             Box(Modifier.size(14.dp).background(rgb(Preview.roleColor(role)), RoundedCornerShape(3.dp)))
-            Text(SlicerEngine.roleNames.getOrElse(role) { "?" }, style = MaterialTheme.typography.bodySmall,
+            Text(roleLabels.getOrElse(role) { "?" }, style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 8.dp))
         }
     }

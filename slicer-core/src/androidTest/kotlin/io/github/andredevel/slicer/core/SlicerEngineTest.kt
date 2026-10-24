@@ -31,6 +31,8 @@ class SlicerEngineTest {
 
     @After
     fun tearDown() {
+        // O idioma vale para o processo todo.
+        runBlocking { engine.setLanguage("en") }
         engine.close()
         work.deleteWithoutFollowingLinks()
     }
@@ -165,6 +167,23 @@ class SlicerEngineTest {
 
         engine.discardChanges(PresetKind.PROCESS)
         assertEquals("0.2", engine.values(PresetKind.PROCESS).values["layer_height"])
+    }
+
+    @Test
+    fun textsFollowLanguage() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.setLanguage("pt_BR")
+        val layerHeight = engine.options(PresetKind.PROCESS).first { it.key == "layer_height" }
+        assertEquals("Altura da camada", layerHeight.label)
+        assertEquals("Parede interna", engine.translate("Inner wall"))
+        // Erros do motor (aqui, valor inválido) e mensagens do libslic3r vêm traduzidos.
+        val error = runCatching { engine.setOption(PresetKind.PROCESS, "layer_height", "abc") }.exceptionOrNull()
+        assertEquals("Valor inválido fornecido para o parâmetro Altura da camada: abc", error?.message)
+        val empty = File(work, "empty.stl").apply { writeText("") }
+        assertEquals("Falha ao carregar um arquivo de modelo.", runCatching { engine.loadModel(empty) }.exceptionOrNull()?.message)
+
+        engine.setLanguage("en")
+        assertEquals("Layer height", engine.options(PresetKind.PROCESS).first { it.key == "layer_height" }.label)
     }
 
     @Test
