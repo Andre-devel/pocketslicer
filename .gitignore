@@ -1,0 +1,21 @@
+# Android / Gradle
+*.iml
+.gradle/
+build/
+local.properties
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+
+# Native deps build output (gigabytes; rebuilt por script)
+native/deps/out-android/
+native/deps/build/
+native/build/
+
+# Misc
+.DS_Store
+*.log
