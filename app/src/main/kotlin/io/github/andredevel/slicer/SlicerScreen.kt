@@ -76,6 +76,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SliceStats
+import io.github.andredevel.slicer.render.PreviewSettings
 import io.github.andredevel.slicer.render.ViewportView
 import java.util.Locale
 
@@ -118,7 +119,12 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
                     TextButton(onClick = { openModel.launch(arrayOf("*/*")) }, enabled = enabled) {
                         Text(stringResource(R.string.add_model))
                     }
-                    TextButton(onClick = viewModel::arrange, enabled = enabled && state.objectCount > 0) {
+                    if (state.preview != null) {
+                        TextButton(onClick = { viewModel.showPreview(!state.showPreview) }) {
+                            Text(stringResource(if (state.showPreview) R.string.prepare else R.string.preview))
+                        }
+                    }
+                    TextButton(onClick = viewModel::arrange, enabled = enabled && state.objectCount > 0 && !state.previewVisible) {
                         Text(stringResource(R.string.arrange))
                     }
                     if (landscape) {
@@ -157,6 +163,8 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
 private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var view by remember { mutableStateOf<ViewportView?>(null) }
+    // Barras e legenda da pré-visualização; recomeçam com cada fatiamento.
+    var previewSettings by remember(state.preview) { mutableStateOf(PreviewSettings()) }
     // Menu do toque longo: objeto e posição do toque (px).
     var menu by remember { mutableStateOf<Pair<Int, Offset>?>(null) }
     // GLSurfaceView precisa acompanhar onPause/onResume da tela.
@@ -192,8 +200,15 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
             update = {
                 it.setScene(state.scene)
                 it.tool = state.tool
+                it.setPreview(state.preview, state.previewVisible, previewSettings)
             },
         )
+        val preview = state.preview
+        val done = state.slice as? SliceState.Done
+        if (state.previewVisible && preview != null && done != null) {
+            PreviewOverlay(preview, done.stats, previewSettings) { previewSettings = it }
+            return@Box
+        }
         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state.scene?.selected != null) {
                 for ((tool, label) in TOOLS) {

@@ -64,6 +64,13 @@ atualizações). Renomear = salvar com outro nome e excluir o antigo.
 **Saída:** RF-10…RF-14.
 
 ## Fase 4 — Preview de G-code (3–4 semanas)
+**Status:** implementada em 2026-10-24 e vista no emulador. O motor expõe os segmentos do
+`GCodeProcessorResult` em buffers planos; o app desenha cada segmento como caixa instanciada
+(`render/ToolpathRenderer.kt`), com cor por tipo/velocidade/altura/largura, tipos ocultáveis na
+legenda, deslocamentos opcionais, barra de intervalo de camadas e barra de movimentos da camada de
+cima (cortes por uniform, sem refazer VBO). Estatísticas: tempo, filamento (m, g) e custo. O botão
+Preparar/Visualizar alterna sem refatiar.
+
 1. `engine_get_toolpaths` a partir de `GCodeProcessorResult`.
 2. `PreviewRenderer`: segmentos extrudados na GPU, cores por feature/velocidade/altura, barras de camada e de movimento, legenda com toggles.
 3. Estatísticas (tempo, filamento, custo).

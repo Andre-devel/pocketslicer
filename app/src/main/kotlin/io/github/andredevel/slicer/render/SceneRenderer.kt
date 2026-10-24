@@ -41,8 +41,8 @@ class SceneRenderer : GLSurfaceView.Renderer {
         set(value) {
             val old = field
             field = value
-            // Posições novas do motor substituem a pré-visualização do arraste.
-            preview = null
+            // Posições novas do motor substituem a transformação provisória do arraste.
+            dragTransform = null
             if (old?.bed !== value?.bed || old?.meshes !== value?.meshes) {
                 gpu?.let(::release)
                 gpu = null
@@ -53,13 +53,25 @@ class SceneRenderer : GLSurfaceView.Renderer {
         }
 
     /** Transformação provisória do objeto selecionado durante um arraste. */
-    var preview: FloatArray? = null
+    var dragTransform: FloatArray? = null
 
-    /** Transformações em uso: as da cena, com a [preview] no objeto selecionado. */
+    /** Transformações em uso: as da cena, com a [dragTransform] no objeto selecionado. */
     fun transforms(): List<FloatArray> {
         val scene = scene ?: return emptyList()
-        return scene.placements.mapIndexed { i, p -> preview?.takeIf { i == scene.selected } ?: p.transform }
+        return scene.placements.mapIndexed { i, p -> dragTransform?.takeIf { i == scene.selected } ?: p.transform }
     }
+
+    /** Caminhos do G-code; com [showPreview], substituem os objetos no desenho. */
+    var preview: Preview? = null
+        set(value) {
+            if (value === field) return
+            field = value
+            toolpathRenderer?.release()
+            toolpathRenderer = null
+        }
+    var showPreview = false
+    var previewSettings = PreviewSettings()
+    private var toolpathRenderer: ToolpathRenderer? = null
 
     /** Recursos GL da [scene] atual; recriados quando o contexto GL é perdido. */
     private var gpu: GpuScene? = null
@@ -72,7 +84,8 @@ class SceneRenderer : GLSurfaceView.Renderer {
     override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
         // Contexto novo: os objetos GL anteriores deixaram de existir.
         gpu = null
-        flatProgram = program(FLAT_VERTEX, FLAT_FRAGMENT)
+        toolpathRenderer = null
+        flatProgram = program(FLAT_VERTEX, FLAT_FRAGMENT_SOURCE)
         meshProgram = program(MESH_VERTEX, MESH_FRAGMENT)
         glEnable(GL_DEPTH_TEST)
     }
@@ -102,6 +115,14 @@ class SceneRenderer : GLSurfaceView.Renderer {
         glDisable(GL_POLYGON_OFFSET_FILL)
         gpu.bedGrid.draw(color, BED_GRID)
         gpu.bedOutline.draw(color, BED_OUTLINE)
+
+        val preview = preview
+        if (showPreview && preview != null) {
+            val renderer = toolpathRenderer ?: ToolpathRenderer(preview).also { toolpathRenderer = it }
+            Matrix.multiplyMM(mvp, 0, camera.projection, 0, camera.view, 0)
+            renderer.draw(mvp, camera.view, previewSettings)
+            return
+        }
 
         glUseProgram(meshProgram)
         val mvpLocation = glGetUniformLocation(meshProgram, "uMvp")
@@ -190,19 +211,19 @@ class SceneRenderer : GLSurfaceView.Renderer {
         private fun buffer(bytes: Int): ByteBuffer = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
     }
 
-    private companion object {
-        const val GRID_STEP = 10f
+    companion object {
+        private const val GRID_STEP = 10f
 
-        val BED_SURFACE = floatArrayOf(0.30f, 0.32f, 0.35f, 1f)
-        val BED_GRID = floatArrayOf(0.40f, 0.42f, 0.46f, 1f)
-        val BED_OUTLINE = floatArrayOf(0.75f, 0.77f, 0.80f, 1f)
-        val OBJECT = floatArrayOf(0.20f, 0.68f, 0.38f, 1f)
-        val SELECTED = floatArrayOf(0.96f, 0.58f, 0.16f, 1f)
-        val OUTSIDE = floatArrayOf(0.80f, 0.18f, 0.18f, 1f)
-        val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
+        private val BED_SURFACE = floatArrayOf(0.30f, 0.32f, 0.35f, 1f)
+        private val BED_GRID = floatArrayOf(0.40f, 0.42f, 0.46f, 1f)
+        private val BED_OUTLINE = floatArrayOf(0.75f, 0.77f, 0.80f, 1f)
+        private val OBJECT = floatArrayOf(0.20f, 0.68f, 0.38f, 1f)
+        private val SELECTED = floatArrayOf(0.96f, 0.58f, 0.16f, 1f)
+        private val OUTSIDE = floatArrayOf(0.80f, 0.18f, 0.18f, 1f)
+        private val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
 
         /** Linhas a cada [GRID_STEP] mm recortadas pelo contorno da mesa (que pode ser circular). */
-        fun gridLines(outline: FloatArray): FloatArray {
+        private fun gridLines(outline: FloatArray): FloatArray {
             val n = outline.size / 2
             if (n < 3) return FloatArray(0)
             val out = ArrayList<Float>()
@@ -250,18 +271,19 @@ class SceneRenderer : GLSurfaceView.Renderer {
             return program
         }
 
-        const val FLAT_VERTEX = """#version 300 es
+        private const val FLAT_VERTEX = """#version 300 es
             layout(location = 0) in vec3 aPosition;
             uniform mat4 uMvp;
             void main() { gl_Position = uMvp * vec4(aPosition, 1.0); }
         """
-        const val FLAT_FRAGMENT = """#version 300 es
+        /** Cor única ([uColor]); também usado pelos deslocamentos do [ToolpathRenderer]. */
+        const val FLAT_FRAGMENT_SOURCE = """#version 300 es
             precision mediump float;
             uniform vec4 uColor;
             out vec4 fragColor;
             void main() { fragColor = uColor; }
         """
-        const val MESH_VERTEX = """#version 300 es
+        private const val MESH_VERTEX = """#version 300 es
             layout(location = 0) in vec3 aPosition;
             uniform mat4 uMvp;
             uniform mat4 uModelView;
@@ -273,7 +295,7 @@ class SceneRenderer : GLSurfaceView.Renderer {
         """
         // Normal da face pelas derivadas da posição: dispensa um atributo de normal
         // e permite usar a malha indexada como vem do libslic3r.
-        const val MESH_FRAGMENT = """#version 300 es
+        private const val MESH_FRAGMENT = """#version 300 es
             precision highp float;
             in vec3 vViewPosition;
             uniform vec4 uColor;

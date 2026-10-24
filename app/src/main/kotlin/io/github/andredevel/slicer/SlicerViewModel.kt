@@ -14,6 +14,7 @@ import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.core.SlicerEngine
 import io.github.andredevel.slicer.core.SlicerException
 import io.github.andredevel.slicer.profiles.OrcaResources
+import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.Scene
 import io.github.andredevel.slicer.render.Tool
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +46,8 @@ data class PresetChoice(
 sealed interface SliceState {
     data object Idle : SliceState
     data class Running(val percent: Int, val text: String) : SliceState
-    data class Done(val stats: SliceStats) : SliceState
+    /** [preview]: caminhos do G-code gerado; deixa de valer com a próxima mudança de cena ou perfil. */
+    data class Done(val stats: SliceStats, val preview: Preview) : SliceState
 }
 
 data class SlicerUiState(
@@ -60,11 +62,15 @@ data class SlicerUiState(
     val modelName: String? = null,
     val scene: Scene? = null,
     val tool: Tool = Tool.MOVE,
+    /** Viewport na pré-visualização do G-code (só com fatiamento concluído). */
+    val showPreview: Boolean = false,
     val slice: SliceState = SliceState.Idle,
 ) {
     val objectCount get() = scene?.placements?.size ?: 0
     val anyOutside get() = scene?.placements?.any { it.outside } == true
     val canSlice get() = busy == null && objectCount > 0 && !anyOutside && slice !is SliceState.Running
+    val preview get() = (slice as? SliceState.Done)?.preview
+    val previewVisible get() = showPreview && preview != null
     val selectedPlacement get() = scene?.selected?.let { scene.placements.getOrNull(it) }
 }
 
@@ -183,6 +189,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun selectTool(tool: Tool) = _state.update { it.copy(tool = tool) }
 
+    fun showPreview(show: Boolean) = _state.update { it.copy(showPreview = show) }
+
     fun setTransform(objectIndex: Int, transform: FloatArray) = editScene { it.setTransform(objectIndex, transform); null }
 
     fun layOnFace(objectIndex: Int, triangle: Int) = editScene { it.layOnFace(objectIndex, triangle); null }
@@ -197,7 +205,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 val stats = engine.slice(gcodeFile) { percent, text ->
                     _state.update { it.copy(slice = SliceState.Running(percent, text)) }
                 }
-                _state.update { it.copy(slice = SliceState.Done(stats)) }
+                val toolpaths = engine.toolpaths()
+                val preview = withContext(Dispatchers.Default) { Preview(toolpaths) }
+                _state.update { it.copy(slice = SliceState.Done(stats, preview), showPreview = true) }
             } finally {
                 _state.update { if (it.slice is SliceState.Running) it.copy(slice = SliceState.Idle) else it }
             }

@@ -56,7 +56,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         onGlThread {
             // O dedo parado sobre o objeto não deve virar um arraste.
             dragObject = null
-            renderer.preview = null
+            renderer.dragTransform = null
             val hit = pickAt(x, y) ?: return@onGlThread
             post { listener?.onLongPress(hit.objectIndex, x, y) }
         }
@@ -77,6 +77,23 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     }
 
     private var scene: Scene? = null
+
+    private var preview: Preview? = null
+    private var showPreview = false
+    private var previewSettings = PreviewSettings()
+
+    /** Caminhos do G-code; com [show], o viewport mostra só eles e não edita objetos. */
+    fun setPreview(preview: Preview?, show: Boolean, settings: PreviewSettings) {
+        if (preview === this.preview && show == showPreview && settings == previewSettings) return
+        this.preview = preview
+        showPreview = show
+        previewSettings = settings
+        onGlThread {
+            renderer.preview = preview
+            renderer.showPreview = show
+            renderer.previewSettings = settings
+        }
+    }
 
     fun setScene(scene: Scene?) {
         // Recomposições repetem a mesma cena; reenviá-la descartaria a pré-visualização.
@@ -153,6 +170,8 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     // --- Thread GL ---
 
     private fun pickAt(x: Float, y: Float): Hit? {
+        // Na pré-visualização os objetos não aparecem: nada a tocar.
+        if (renderer.showPreview) return null
         val scene = renderer.scene ?: return null
         val ray = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight)
         return pick(ray, scene.meshes, renderer.transforms())
@@ -204,13 +223,13 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         }
         val result = FloatArray(16)
         Matrix.multiplyMM(result, 0, step, 0, current, 0)
-        renderer.preview = result
+        renderer.dragTransform = result
     }
 
     private fun endDrag() {
         val index = dragObject ?: return
         dragObject = null
-        val transform = renderer.preview ?: return
+        val transform = renderer.dragTransform ?: return
         post { listener?.onTransform(index, transform) }
     }
 
@@ -218,6 +237,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         dragObject = null
         val hit = pickAt(x, y)
         val selected = renderer.scene?.selected
+        if (renderer.showPreview) return
         post {
             if (hit != null && tool == Tool.LAY_ON_FACE && hit.objectIndex == selected) {
                 listener?.onLayOnFace(hit.objectIndex, hit.triangle)

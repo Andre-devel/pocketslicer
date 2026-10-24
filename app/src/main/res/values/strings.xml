@@ -48,4 +48,14 @@
     <string name="preset_copy_name">%1$s - cópia</string>
     <string name="save">Salvar</string>
     <string name="delete_preset_title">Excluir preset de usuário?</string>
+    <string name="prepare">Preparar</string>
+    <string name="preview">Visualizar</string>
+    <string name="color_feature">Tipo</string>
+    <string name="color_speed">Velocidade</string>
+    <string name="color_height">Altura</string>
+    <string name="color_width">Largura</string>
+    <string name="travels">Deslocamentos</string>
+    <string name="layers_label">Camadas %1$d–%2$d de %3$d · z %4$.2f mm</string>
+    <string name="moves_label">Movimentos da camada: %1$d de %2$d</string>
+    <string name="preview_stats">Tempo: %1$s\nFilamento: %2$s m · %3$s g\nCusto: %4$s</string>
 </resources>

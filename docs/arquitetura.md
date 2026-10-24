@@ -144,7 +144,7 @@ class Engine {
 
 ### 3.3 Render (OpenGL ES 3.0)
 - `SceneRenderer` (`app/.../render/`, num `GLSurfaceView` dentro do Compose): mesa (grid + contorno do perfil), modelos (normal de face por `dFdx/dFdy` no fragment shader, sobre a malha indexada, highlight de seleção, vermelho fora da mesa), gizmo de transformação.
-- `PreviewRenderer`: toolpaths como triângulos extrudados por GPU (geometry via instancing de segmentos) com corte por intervalo de camada/movimento via uniforms, sem rebuild de VBO ao arrastar a barra.
+- `ToolpathRenderer`: cada segmento de extrusão é uma caixa instanciada (largura × altura do segmento) com corte por intervalo de camada/movimento e máscara de tipos via uniforms, sem rebuild de VBO ao arrastar a barra; só o buffer de cores é refeito ao trocar o modo de cor. Deslocamentos são linhas.
 - Câmera orbital; picking por ray-cast em CPU sobre os triângulos (Kotlin, `render/Picking.kt`) — suficiente para um toque.
 - Gestos interpretados na thread GL; o arraste de um objeto altera só uma matriz provisória no
   renderer e é gravado no motor ao soltar (o motor fica livre durante o gesto).
