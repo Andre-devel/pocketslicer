@@ -79,6 +79,13 @@ Preparar/Visualizar alterna sem refatiar.
 **Saída:** RF-20…RF-33.
 
 ## Fase 5 — Projeto 3MF, polimento e release (2–3 semanas)
+**Status:** item 1 implementado em 2026-10-24 e visto no emulador. Projetos são o 3MF do Orca
+(`store_bbs_3mf`/`read_from_archive`), com configuração completa e miniatura 512×512 renderizada
+fora da tela; o OrcaSlicer 2.4.2 desktop abre e fatia o projeto salvo no app com os mesmos perfis.
+Ao abrir, o motor carrega o fabricante da impressora do projeto, e alterações aparecem como não
+salvas; de projetos com várias placas, só a primeira. G-code aberto vai direto para o preview.
+"Abrir com" e compartilhar aceitam 3MF, STL, OBJ e G-code.
+
 1. Salvar/abrir projeto 3MF com configuração e miniatura; "Abrir com" para STL/3MF/OBJ/G-code.
 2. Miniatura no G-code por perfil de impressora.
 3. Tema claro/escuro, pt-BR/en, tratamento de erros, telemetria **nenhuma**.

@@ -93,6 +93,13 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
     val saveGcode = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         uri?.let(viewModel::saveGcode)
     }
+    val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::open)
+    }
+    var viewport by remember { mutableStateOf<ViewportView?>(null) }
+    val saveProject = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("model/3mf")) { uri ->
+        uri?.let { viewModel.saveProject(it) { viewport?.thumbnail(SlicerViewModel.THUMBNAIL_SIZE) ?: ByteArray(0) } }
+    }
 
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -115,6 +122,20 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
             TopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
+                    var projectMenu by remember { mutableStateOf(false) }
+                    Box {
+                        TextButton(onClick = { projectMenu = true }, enabled = enabled) { Text(stringResource(R.string.project)) }
+                        DropdownMenu(expanded = projectMenu, onDismissRequest = { projectMenu = false }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.open_file)) }, onClick = {
+                                projectMenu = false
+                                openFile.launch(arrayOf("*/*"))
+                            })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.save_project)) }, enabled = state.objectCount > 0, onClick = {
+                                projectMenu = false
+                                saveProject.launch(viewModel.projectName())
+                            })
+                        }
+                    }
                     // STL/3MF chegam com MIME variado (model/stl, application/octet-stream...).
                     TextButton(onClick = { openModel.launch(arrayOf("*/*")) }, enabled = enabled) {
                         Text(stringResource(R.string.add_model))
@@ -140,7 +161,7 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
         if (landscape) {
             Scaffold(topBar = topBar, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
                 Row(Modifier.padding(padding).fillMaxSize()) {
-                    Viewport(state, viewModel, Modifier.weight(1f).fillMaxHeight())
+                    Viewport(state, viewModel, Modifier.weight(1f).fillMaxHeight()) { viewport = it }
                     if (panelVisible) panel(Modifier.width(PANEL_WIDTH).fillMaxHeight())
                 }
             }
@@ -153,14 +174,14 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
                 sheetContent = { panel(Modifier.fillMaxWidth().heightIn(max = sheetMaxHeight)) },
             ) { padding ->
                 // O viewport ocupa a tela toda; o sheet recolhido cobre só a faixa de baixo.
-                Viewport(state, viewModel, Modifier.padding(padding).fillMaxSize())
+                Viewport(state, viewModel, Modifier.padding(padding).fillMaxSize()) { viewport = it }
             }
         }
     }
 }
 
 @Composable
-private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier) {
+private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier, onView: (ViewportView) -> Unit) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var view by remember { mutableStateOf<ViewportView?>(null) }
     // Barras e legenda da pré-visualização; recomeçam com cada fatiamento.
@@ -194,6 +215,7 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
                         }
                     }
                     view = created
+                    onView(created)
                 }
             },
             modifier = Modifier.fillMaxSize(),

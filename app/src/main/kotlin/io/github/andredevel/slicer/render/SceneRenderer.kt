@@ -98,6 +98,10 @@ class SceneRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onDrawFrame(unused: GL10?) {
+        thumbnailRequest?.let { (size, done) ->
+            thumbnailRequest = null
+            done(thumbnail(size))
+        }
         glClearColor(0.16f, 0.17f, 0.19f, 1f)
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
         val scene = scene ?: return
@@ -124,6 +128,75 @@ class SceneRenderer : GLSurfaceView.Renderer {
             return
         }
 
+        drawObjects(gpu, scene, camera, highlight = true)
+    }
+
+    /**
+     * Pede uma miniatura dos objetos, sem a mesa e com fundo transparente, do ângulo padrão
+     * da câmera: RGBA de [size] × [size] com as linhas de baixo para cima (vazia sem objetos).
+     * [done] recebe a imagem no próximo quadro, quando o contexto GL certamente existe (um
+     * evento da fila do GLSurfaceView pode rodar antes de o contexto ser recriado ao voltar ao app).
+     */
+    fun requestThumbnail(size: Int, done: (ByteArray) -> Unit) {
+        thumbnailRequest = size to done
+    }
+
+    private var thumbnailRequest: Pair<Int, (ByteArray) -> Unit>? = null
+
+    private fun thumbnail(size: Int): ByteArray {
+        val scene = scene?.takeIf { it.meshes.isNotEmpty() } ?: return ByteArray(0)
+        val gpu = gpu ?: upload(scene).also { gpu = it }
+
+        // Esfera que envolve os vértices dos objetos na posição atual.
+        val min = FloatArray(3) { Float.MAX_VALUE }
+        val max = FloatArray(3) { -Float.MAX_VALUE }
+        val local = floatArrayOf(0f, 0f, 0f, 1f)
+        val world = FloatArray(4)
+        for ((mesh, transform) in scene.meshes.zip(transforms())) {
+            for (v in 0 until mesh.positions.size / 3) {
+                mesh.positions.copyInto(local, 0, v * 3, v * 3 + 3)
+                Matrix.multiplyMV(world, 0, transform, 0, local, 0)
+                for (axis in 0..2) {
+                    min[axis] = minOf(min[axis], world[axis])
+                    max[axis] = maxOf(max[axis], world[axis])
+                }
+            }
+        }
+        val center = FloatArray(3) { (min[it] + max[it]) / 2 }
+        val radius = sqrt((0..2).sumOf { ((max[it] - min[it]) / 2).let { h -> h * h }.toDouble() }).toFloat()
+        val camera = OrbitCamera().apply {
+            setViewport(size, size)
+            frame(center, radius.coerceAtLeast(1f))
+            update()
+        }
+
+        val framebuffer = IntArray(1).also { glGenFramebuffers(1, it, 0) }
+        val renderbuffers = IntArray(2).also { glGenRenderbuffers(2, it, 0) }
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer[0])
+        for ((buffer, format, attachment) in listOf(
+            Triple(renderbuffers[0], GL_RGBA8, GL_COLOR_ATTACHMENT0),
+            Triple(renderbuffers[1], GL_DEPTH_COMPONENT24, GL_DEPTH_ATTACHMENT),
+        )) {
+            glBindRenderbuffer(GL_RENDERBUFFER, buffer)
+            glRenderbufferStorage(GL_RENDERBUFFER, format, size, size)
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, attachment, GL_RENDERBUFFER, buffer)
+        }
+        glViewport(0, 0, size, size)
+        glClearColor(0f, 0f, 0f, 0f)
+        glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+        drawObjects(gpu, scene, camera, highlight = false)
+        val pixels = ByteBuffer.allocateDirect(size * size * 4)
+        glReadPixels(0, 0, size, size, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        glDeleteRenderbuffers(2, renderbuffers, 0)
+        glDeleteFramebuffers(1, framebuffer, 0)
+        glViewport(0, 0, viewportWidth, viewportHeight)
+        return ByteArray(size * size * 4).also { pixels.get(it) }
+    }
+
+    /** [highlight]: cores de seleção e de fora da mesa; sem ele, todos com a cor normal. */
+    private fun drawObjects(gpu: GpuScene, scene: Scene, camera: OrbitCamera, highlight: Boolean) {
         glUseProgram(meshProgram)
         val mvpLocation = glGetUniformLocation(meshProgram, "uMvp")
         val modelViewLocation = glGetUniformLocation(meshProgram, "uModelView")
@@ -133,9 +206,9 @@ class SceneRenderer : GLSurfaceView.Renderer {
             Matrix.multiplyMM(mvp, 0, camera.projection, 0, modelView, 0)
             glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
-            val outside = scene.placements[i].outside
+            val outside = highlight && scene.placements[i].outside
             val color = when {
-                i == scene.selected -> if (outside) SELECTED_OUTSIDE else SELECTED
+                highlight && i == scene.selected -> if (outside) SELECTED_OUTSIDE else SELECTED
                 outside -> OUTSIDE
                 else -> OBJECT
             }

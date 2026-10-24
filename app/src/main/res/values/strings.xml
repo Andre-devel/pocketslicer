@@ -16,6 +16,11 @@
     <string name="busy_loading_vendor">Carregando perfis do fabricante…</string>
     <string name="busy_loading_model">Carregando modelo…</string>
     <string name="busy_saving">Salvando G-code…</string>
+    <string name="busy_saving_project">Salvando projeto…</string>
+    <string name="busy_opening">Abrindo arquivo…</string>
+    <string name="project">Projeto</string>
+    <string name="open_file">Abrir (3MF, G-code, STL, OBJ)…</string>
+    <string name="save_project">Salvar projeto</string>
     <string name="tool_move">Mover</string>
     <string name="tool_rotate">Girar</string>
     <string name="tool_scale">Escalar</string>

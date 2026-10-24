@@ -87,15 +87,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         SlicerEngine.create(resources, File(app.filesDir, "orca-data")).also(::addCloseable)
     }
 
-    init {
-        launchEngine(R.string.busy_installing_profiles) { engine ->
+    // Perfis iniciais; arquivos abertos por outro app ("Abrir com") esperam por ela.
+    private val setup = launchEngine(R.string.busy_installing_profiles) { engine ->
             val vendors = engine.vendors()
             val vendor = if (DEFAULT_VENDOR in vendors) DEFAULT_VENDOR else vendors.first()
             val defs = PresetKind.entries.associateWith { engine.options(it) }
             _state.update { it.copy(vendors = PresetChoice(vendors), optionDefs = defs) }
             loadVendor(engine, vendor)
         }
-    }
 
     fun selectVendor(vendor: String) = launchEngine(R.string.busy_loading_vendor) { loadVendor(it, vendor) }
 
@@ -154,8 +153,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** Nome sugerido ao exportar: o do preset em edição. */
     fun presetFileName(kind: PresetKind): String = (_state.value.presets[kind]?.selected ?: "preset") + ".json"
 
-    fun openModel(uri: Uri) = launchEngine(R.string.busy_loading_model) { engine ->
-        val name = displayName(uri)
+    fun openModel(uri: Uri) = launchEngine(R.string.busy_loading_model) { engine -> addModel(engine, uri, displayName(uri)) }
+
+    private suspend fun addModel(engine: SlicerEngine, uri: Uri, name: String) {
         val dir = File(app.cacheDir, "model").apply { deleteRecursively(); mkdirs() }
         // libslic3r detecta o formato pela extensão, então o nome original é mantido.
         val file = File(dir, name)
@@ -164,6 +164,48 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         _state.update { it.copy(modelName = it.modelName ?: name, slice = SliceState.Idle) }
         refreshScene(engine, engine.objects())
     }
+
+    /**
+     * Abre pelo tipo do arquivo: projeto 3MF (substitui objetos e perfis), G-code (direto
+     * na pré-visualização) ou modelo STL/OBJ (acrescentado como em [openModel]).
+     */
+    fun open(uri: Uri) = launchEngine(R.string.busy_opening) { engine ->
+        setup.join()
+        _state.update { it.copy(busy = R.string.busy_opening) }
+        val name = displayName(uri)
+        when (name.substringAfterLast('.', "").lowercase()) {
+            "3mf" -> {
+                val file = File(File(app.cacheDir, "model").apply { deleteRecursively(); mkdirs() }, name)
+                copy(uri, file)
+                val vendor = engine.openProject(file)
+                _state.update { it.copy(vendors = it.vendors.copy(selected = vendor), modelName = name, showPreview = false) }
+                refreshPresets(engine)
+                refreshScene(engine, engine.objects())
+            }
+            "gcode" -> {
+                // Fica como o G-code atual: "Salvar G-code" grava uma cópia dele.
+                copy(uri, gcodeFile)
+                val stats = engine.loadGcode(gcodeFile)
+                val preview = withContext(Dispatchers.Default) { Preview(engine.toolpaths()) }
+                _state.update { it.copy(modelName = name, slice = SliceState.Done(stats, preview), showPreview = true) }
+            }
+            else -> addModel(engine, uri, name)
+        }
+    }
+
+    /** [thumbnail]: miniatura RGBA [THUMBNAIL_SIZE]² (ver ViewportView.thumbnail). */
+    fun saveProject(uri: Uri, thumbnail: suspend () -> ByteArray) = launchEngine(R.string.busy_saving_project) { engine ->
+        val image = thumbnail()
+        val file = File(app.cacheDir, "project.3mf")
+        engine.saveProject(file, image, THUMBNAIL_SIZE, THUMBNAIL_SIZE)
+        withContext(Dispatchers.IO) {
+            val output = app.contentResolver.openOutputStream(uri) ?: throw IOException("cannot open $uri")
+            output.use { file.inputStream().use { input -> input.copyTo(it) } }
+        }
+    }
+
+    /** Nome sugerido para o projeto: o do modelo com a extensão trocada. */
+    fun projectName(): String = (_state.value.modelName?.substringBeforeLast('.') ?: "model") + ".3mf"
 
     fun duplicate(objectIndex: Int) = editScene { engine ->
         engine.duplicate(objectIndex)
@@ -293,7 +335,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private companion object {
-        const val DEFAULT_VENDOR = "BBL"
+    companion object {
+        private const val DEFAULT_VENDOR = "BBL"
+        /** Lado da miniatura do projeto, como THUMBNAIL_SIZE_3MF do Orca. */
+        const val THUMBNAIL_SIZE = 512
     }
 }
