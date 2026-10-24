@@ -17,11 +17,14 @@ data class SliceStats(val printTimeSeconds: Double, val filamentMm3: Double)
 /** Área de impressão em mm: contorno com x, y intercalados e altura máxima. */
 class Bed(val shape: FloatArray, val maxHeight: Float)
 
+/** Malha de um objeto em coordenadas locais: x, y, z por vértice; 3 índices por triângulo. */
+class ObjectMesh(val positions: FloatArray, val indices: IntArray)
+
 /**
- * Malha de um objeto em coordenadas locais (x, y, z por vértice; 3 índices por
- * triângulo) e a transformação para a mesa, 4x4 em ordem de coluna (OpenGL).
+ * Posição de um objeto na mesa: [transform] é a matriz 4x4 em ordem de coluna (OpenGL),
+ * decomposta em [offset] (mm), [rotation] (graus, Euler XYZ como no Orca) e [scale] (1 = 100%).
  */
-class ObjectMesh(val positions: FloatArray, val indices: IntArray, val transform: FloatArray)
+class Placement(val transform: FloatArray, val offset: FloatArray, val rotation: FloatArray, val scale: FloatArray)
 
 fun interface SliceProgressListener {
     fun onProgress(percent: Int, text: String)
@@ -64,7 +67,27 @@ class SlicerEngine private constructor(
      */
     suspend fun loadModel(file: File) = call { nativeLoadModel(handle, file.absolutePath) }
 
+    /** Malhas dos objetos, na mesma ordem de [placements]. */
     suspend fun objects(): List<ObjectMesh> = call { nativeObjects(handle).asList() }
+
+    suspend fun placements(): List<Placement> = call {
+        val v = nativePlacements(handle)
+        List(v.size / 25) { i ->
+            fun part(from: Int, size: Int) = FloatArray(size) { v[i * 25 + from + it].toFloat() }
+            Placement(part(0, 16), part(16, 3), part(19, 3), part(22, 3))
+        }
+    }
+
+    /** As alterações de posição sempre apoiam o objeto na mesa. */
+    suspend fun setTransform(objectIndex: Int, transform: FloatArray) =
+        call { nativeSetTransform(handle, objectIndex, DoubleArray(16) { transform[it].toDouble() }) }
+
+    suspend fun setPlacement(objectIndex: Int, offset: FloatArray, rotation: FloatArray, scale: FloatArray) = call {
+        nativeSetPlacement(handle, objectIndex, (offset + rotation + scale).map(Float::toDouble).toDoubleArray())
+    }
+
+    /** Gira o objeto para apoiar na mesa o triângulo [triangle] da malha de [objects]. */
+    suspend fun layOnFace(objectIndex: Int, triangle: Int) = call { nativeLayOnFace(handle, objectIndex, triangle) }
 
     /** Fatia o modelo carregado, na posição atual, e grava o G-code em [gcode]. [listener] roda na thread do motor. */
     suspend fun slice(gcode: File, listener: SliceProgressListener): SliceStats = coroutineScope {
@@ -122,5 +145,9 @@ private external fun nativeSelect(handle: Long, kind: Int, name: String)
 private external fun nativeBed(handle: Long): Bed
 private external fun nativeLoadModel(handle: Long, path: String)
 private external fun nativeObjects(handle: Long): Array<ObjectMesh>
+private external fun nativePlacements(handle: Long): DoubleArray
+private external fun nativeSetTransform(handle: Long, objectIndex: Int, transform: DoubleArray)
+private external fun nativeSetPlacement(handle: Long, objectIndex: Int, values: DoubleArray)
+private external fun nativeLayOnFace(handle: Long, objectIndex: Int, triangle: Int)
 private external fun nativeSlice(handle: Long, gcodePath: String, listener: SliceProgressListener): DoubleArray
 private external fun nativeCancel(handle: Long)

@@ -63,6 +63,8 @@ struct Engine::Impl {
             select_filament(filaments->values.front());
     }
 
+    ModelObject &object(size_t index);
+
     // Sem PartPlate: os objetos ficam apoiados na mesa e centralizados nela.
     void place_on_bed()
     {
@@ -207,6 +209,10 @@ void Engine::load_model(const std::string &path)
                                         LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
     if (model.objects.empty())
         throw std::runtime_error("no objects in " + path);
+    // Como a GUI do Orca: a origem de cada objeto passa a ser o centro da sua malha,
+    // então a posição exibida é a do centro e girar/escalar usa esse pivô.
+    for (ModelObject *object : model.objects)
+        object->center_around_origin();
     m->model = std::move(model);
     m->place_on_bed();
 }
@@ -223,11 +229,82 @@ std::vector<ObjectMesh> Engine::objects() const
         mesh.indices.reserve(its.indices.size() * 3);
         for (const stl_triangle_vertex_indices &t : its.indices)
             mesh.indices.insert(mesh.indices.end(), {uint32_t(t[0]), uint32_t(t[1]), uint32_t(t[2])});
-        const Eigen::Matrix4f matrix = object->instances.front()->get_matrix().matrix().cast<float>();
-        std::copy(matrix.data(), matrix.data() + 16, mesh.transform.begin());
         out.push_back(std::move(mesh));
     }
     return out;
+}
+
+std::vector<Placement> Engine::placements() const
+{
+    std::vector<Placement> out;
+    for (const ModelObject *object : m->model.objects) {
+        const Geometry::Transformation &t = object->instances.front()->get_transformation();
+        Placement p;
+        std::copy(t.get_matrix().data(), t.get_matrix().data() + 16, p.transform.begin());
+        const Vec3d offset = t.get_offset(), rotation = t.get_rotation(), scale = t.get_scaling_factor();
+        for (int i = 0; i < 3; ++i) {
+            p.offset[i] = offset[i];
+            p.rotation[i] = Geometry::rad2deg(rotation[i]);
+            p.scale[i] = scale[i];
+        }
+        out.push_back(p);
+    }
+    return out;
+}
+
+ModelObject &Engine::Impl::object(size_t index)
+{
+    if (index >= model.objects.size())
+        throw std::out_of_range("no object " + std::to_string(index));
+    return *model.objects[index];
+}
+
+void Engine::set_transform(size_t object, const std::array<double, 16> &transform)
+{
+    ModelObject &o = m->object(object);
+    Transform3d matrix;
+    std::copy(transform.begin(), transform.end(), matrix.data());
+    o.instances.front()->set_transformation(Geometry::Transformation(matrix));
+    o.invalidate_bounding_box();
+    o.ensure_on_bed();
+}
+
+void Engine::set_placement(size_t object, const Vec3 &offset, const Vec3 &rotation, const Vec3 &scale)
+{
+    for (double s : scale)
+        if (!(s > 0.0))
+            throw std::invalid_argument("scale must be positive");
+    ModelObject &o = m->object(object);
+    Geometry::Transformation t;
+    t.set_offset(Vec3d(offset[0], offset[1], offset[2]));
+    t.set_rotation(Vec3d(Geometry::deg2rad(rotation[0]), Geometry::deg2rad(rotation[1]), Geometry::deg2rad(rotation[2])));
+    t.set_scaling_factor(Vec3d(scale[0], scale[1], scale[2]));
+    o.instances.front()->set_transformation(t);
+    o.invalidate_bounding_box();
+    o.ensure_on_bed();
+}
+
+void Engine::lay_on_face(size_t object, size_t triangle)
+{
+    ModelObject &o = m->object(object);
+    const indexed_triangle_set its = o.raw_indexed_triangle_set();
+    if (triangle >= its.indices.size())
+        throw std::out_of_range("no triangle " + std::to_string(triangle));
+    const stl_triangle_vertex_indices &t = its.indices[triangle];
+    const Vec3d a = its.vertices[t[0]].cast<double>(), b = its.vertices[t[1]].cast<double>(), c = its.vertices[t[2]].cast<double>();
+
+    ModelInstance &instance = *o.instances.front();
+    Transform3d matrix = instance.get_matrix();
+    // Normais se transformam pela inversa transposta (escala não uniforme).
+    const Vec3d normal = (matrix.linear().inverse().transpose() * (b - a).cross(c - a)).normalized();
+    if (!normal.allFinite())
+        throw std::invalid_argument("degenerate triangle");
+    // Gira em torno da origem da instância, como o gizmo "Lay on face" do Orca.
+    const Eigen::Quaterniond rotation = Eigen::Quaterniond::FromTwoVectors(normal, -Vec3d::UnitZ());
+    matrix.linear() = rotation.toRotationMatrix() * matrix.linear();
+    instance.set_transformation(Geometry::Transformation(matrix));
+    o.invalidate_bounding_box();
+    o.ensure_on_bed();
 }
 
 SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progress)

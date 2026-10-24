@@ -12,6 +12,7 @@ import io.github.andredevel.slicer.core.SlicerEngine
 import io.github.andredevel.slicer.core.SlicerException
 import io.github.andredevel.slicer.profiles.OrcaResources
 import io.github.andredevel.slicer.render.Scene
+import io.github.andredevel.slicer.render.Tool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -40,9 +41,11 @@ data class SlicerUiState(
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
     val modelName: String? = null,
     val scene: Scene? = null,
+    val tool: Tool = Tool.MOVE,
     val slice: SliceState = SliceState.Idle,
 ) {
     val canSlice get() = busy == null && modelName != null && slice !is SliceState.Running
+    val selectedPlacement get() = scene?.selected?.let { scene.placements.getOrNull(it) }
 }
 
 class SlicerViewModel(application: Application) : AndroidViewModel(application) {
@@ -73,7 +76,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.select(kind, name)
         refreshPresets(engine)
         // A mesa muda com a impressora, e o modelo é recentralizado nela.
-        if (kind == PresetKind.PRINTER) refreshScene(engine)
+        if (kind == PresetKind.PRINTER) refreshScene(engine, meshes = false)
     }
 
     fun openModel(uri: Uri) = launchEngine(R.string.busy_loading_model) { engine ->
@@ -87,8 +90,21 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
         engine.loadModel(file)
         _state.update { it.copy(modelName = name, slice = SliceState.Idle) }
-        refreshScene(engine)
+        refreshScene(engine, meshes = true)
     }
+
+    fun select(objectIndex: Int?) = _state.update { state ->
+        state.copy(scene = state.scene?.copy(selected = objectIndex))
+    }
+
+    fun selectTool(tool: Tool) = _state.update { it.copy(tool = tool) }
+
+    fun setTransform(objectIndex: Int, transform: FloatArray) = editPlacement { it.setTransform(objectIndex, transform) }
+
+    fun layOnFace(objectIndex: Int, triangle: Int) = editPlacement { it.layOnFace(objectIndex, triangle) }
+
+    fun setPlacement(objectIndex: Int, offset: FloatArray, rotation: FloatArray, scale: FloatArray) =
+        editPlacement { it.setPlacement(objectIndex, offset, rotation, scale) }
 
     fun slice() {
         sliceJob = launchEngine(null) { engine ->
@@ -124,12 +140,28 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.loadVendor(vendor)
         _state.update { it.copy(vendors = it.vendors.copy(selected = vendor)) }
         refreshPresets(engine)
-        refreshScene(engine)
+        refreshScene(engine, meshes = false)
     }
 
-    private suspend fun refreshScene(engine: SlicerEngine) {
-        val scene = Scene(engine.bed(), engine.objects())
-        _state.update { it.copy(scene = scene) }
+    /** [meshes]: recarregar as malhas (modelo novo); senão só mesa e posições mudaram. */
+    private suspend fun refreshScene(engine: SlicerEngine, meshes: Boolean) {
+        val bed = engine.bed()
+        val loaded = if (meshes) engine.objects() else _state.value.scene?.meshes.orEmpty()
+        val placements = engine.placements()
+        _state.update { state ->
+            val selected = state.scene?.selected?.takeIf { !meshes && it < placements.size }
+            state.copy(scene = Scene(bed, loaded, placements, selected))
+        }
+    }
+
+    private fun editPlacement(edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
+        try {
+            edit(engine)
+            _state.update { it.copy(slice = SliceState.Idle) }
+        } finally {
+            // Também em caso de erro: descarta a pré-visualização do viewport.
+            refreshScene(engine, meshes = false)
+        }
     }
 
     private suspend fun refreshPresets(engine: SlicerEngine) {

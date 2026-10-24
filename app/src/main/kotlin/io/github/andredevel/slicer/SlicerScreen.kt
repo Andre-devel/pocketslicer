@@ -1,6 +1,22 @@
 package io.github.andredevel.slicer
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import io.github.andredevel.slicer.core.Placement
+import io.github.andredevel.slicer.render.Tool
+import io.github.andredevel.slicer.render.ViewportListener
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -48,7 +64,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SliceStats
-import io.github.andredevel.slicer.render.Scene
 import io.github.andredevel.slicer.render.ViewportView
 import java.util.Locale
 
@@ -81,13 +96,13 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
         BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
             if (maxWidth > maxHeight) {
                 Row(Modifier.fillMaxSize()) {
-                    Viewport(state.scene, Modifier.weight(1f).fillMaxHeight())
+                    Viewport(state, viewModel, Modifier.weight(1f).fillMaxHeight())
                     ControlPanel(state, viewModel, Modifier.width(PANEL_WIDTH).fillMaxHeight(), openModel::launch, saveGcode::launch)
                 }
             } else {
                 val panelMaxHeight = maxHeight / 2
                 Column(Modifier.fillMaxSize()) {
-                    Viewport(state.scene, Modifier.weight(1f).fillMaxWidth())
+                    Viewport(state, viewModel, Modifier.weight(1f).fillMaxWidth())
                     ControlPanel(state, viewModel, Modifier.fillMaxWidth().heightIn(max = panelMaxHeight), openModel::launch, saveGcode::launch)
                 }
             }
@@ -96,7 +111,7 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
 }
 
 @Composable
-private fun Viewport(scene: Scene?, modifier: Modifier) {
+private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var view by remember { mutableStateOf<ViewportView?>(null) }
     // GLSurfaceView precisa acompanhar onPause/onResume da tela.
@@ -112,7 +127,114 @@ private fun Viewport(scene: Scene?, modifier: Modifier) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    AndroidView(factory = { ViewportView(it).also { created -> view = created } }, modifier = modifier, update = { it.setScene(scene) })
+    Box(modifier) {
+        AndroidView(
+            factory = { context ->
+                ViewportView(context).also { created ->
+                    created.listener = object : ViewportListener {
+                        override fun onSelect(objectIndex: Int?) = viewModel.select(objectIndex)
+                        override fun onTransform(objectIndex: Int, transform: FloatArray) { viewModel.setTransform(objectIndex, transform) }
+                        override fun onLayOnFace(objectIndex: Int, triangle: Int) { viewModel.layOnFace(objectIndex, triangle) }
+                    }
+                    view = created
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            update = {
+                it.setScene(state.scene)
+                it.tool = state.tool
+            },
+        )
+        if (state.scene?.selected != null) {
+            Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((tool, label) in TOOLS) {
+                    FilterChip(
+                        selected = state.tool == tool,
+                        onClick = { viewModel.selectTool(tool) },
+                        label = { Text(stringResource(label)) },
+                        colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val TOOLS = listOf(
+    Tool.MOVE to R.string.tool_move,
+    Tool.ROTATE to R.string.tool_rotate,
+    Tool.SCALE to R.string.tool_scale,
+    Tool.LAY_ON_FACE to R.string.tool_lay_on_face,
+)
+
+/** Campos numéricos do objeto selecionado: posição, rotação e escala. */
+@Composable
+private fun PlacementFields(objectIndex: Int, placement: Placement, viewModel: SlicerViewModel) {
+    var uniform by rememberSaveable { mutableStateOf(true) }
+    fun commit(offset: FloatArray = placement.offset, rotation: FloatArray = placement.rotation, scale: FloatArray = placement.scale) =
+        viewModel.setPlacement(objectIndex, offset, rotation, scale)
+
+    Text(stringResource(R.string.object_title), style = MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.object_hint), style = MaterialTheme.typography.bodySmall)
+    AxisRow(R.string.position_mm, placement.offset, axes = 2) { axis, value ->
+        commit(offset = placement.offset.copyOf().also { it[axis] = value })
+    }
+    AxisRow(R.string.rotation_deg, placement.rotation) { axis, value ->
+        commit(rotation = placement.rotation.copyOf().also { it[axis] = value })
+    }
+    AxisRow(R.string.scale_percent, FloatArray(3) { placement.scale[it] * 100f }, min = 0.01f) { axis, value ->
+        val factor = value / 100f
+        val scale = if (uniform) {
+            // Mantém a proporção entre os eixos.
+            val ratio = factor / placement.scale[axis]
+            FloatArray(3) { placement.scale[it] * ratio }
+        } else {
+            placement.scale.copyOf().also { it[axis] = factor }
+        }
+        commit(scale = scale)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = uniform, onCheckedChange = { uniform = it })
+        Text(stringResource(R.string.uniform_scale))
+    }
+}
+
+@Composable
+private fun AxisRow(label: Int, values: FloatArray, axes: Int = 3, min: Float? = null, onCommit: (axis: Int, value: Float) -> Unit) {
+    Text(stringResource(label), style = MaterialTheme.typography.labelLarge)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (axis in 0 until axes) {
+            NumberField("XYZ"[axis].toString(), values[axis], min, Modifier.weight(1f)) { onCommit(axis, it) }
+        }
+        // Mantém a largura dos campos igual entre linhas de 2 e 3 eixos.
+        for (unused in axes until 3) Spacer(Modifier.weight(1f))
+    }
+}
+
+/** Campo decimal que aplica o valor ao confirmar no teclado ou ao perder o foco. */
+@Composable
+private fun NumberField(label: String, value: Float, min: Float?, modifier: Modifier, onCommit: (Float) -> Unit) {
+    val formatted = String.format(Locale.ROOT, "%.2f", value)
+    var text by remember(formatted) { mutableStateOf(formatted) }
+    var focused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    fun commit() {
+        val parsed = text.replace(',', '.').toFloatOrNull()?.takeIf { min == null || it >= min }
+        if (parsed == null) text = formatted
+        else if (String.format(Locale.ROOT, "%.2f", parsed) != formatted) onCommit(parsed)
+    }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = it },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+        modifier = modifier.onFocusChanged {
+            if (focused && !it.isFocused) commit()
+            focused = it.isFocused
+        },
+    )
 }
 
 @Composable
@@ -137,6 +259,13 @@ private fun ControlPanel(
                 Text(stringResource(R.string.open_model))
             }
             Text(state.modelName ?: stringResource(R.string.no_model))
+        }
+
+        val selected = state.scene?.selected
+        val placement = state.selectedPlacement
+        if (selected != null && placement != null) {
+            PlacementFields(selected, placement, viewModel)
+            HorizontalDivider()
         }
 
         Dropdown(R.string.vendor, state.vendors, enabled, viewModel::selectVendor)

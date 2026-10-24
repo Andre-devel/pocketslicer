@@ -7,6 +7,7 @@
 
 #include <jni.h>
 
+#include <array>
 #include <string>
 #include <thread>
 #include <vector>
@@ -137,21 +138,64 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, 
     return guarded(env, [&]() -> jobjectArray {
         const std::vector<slicer::ObjectMesh> meshes = engine(handle)->objects();
         jclass cls = env->FindClass("io/github/andredevel/slicer/core/ObjectMesh");
-        jmethodID init = env->GetMethodID(cls, "<init>", "([F[I[F)V");
+        jmethodID init = env->GetMethodID(cls, "<init>", "([F[I)V");
         jobjectArray out = env->NewObjectArray(jsize(meshes.size()), cls, nullptr);
         for (size_t i = 0; i < meshes.size(); ++i) {
             const slicer::ObjectMesh &mesh = meshes[i];
             jfloatArray positions = to_float_array(env, mesh.positions);
             jintArray indices = env->NewIntArray(jsize(mesh.indices.size()));
             env->SetIntArrayRegion(indices, 0, jsize(mesh.indices.size()), reinterpret_cast<const jint *>(mesh.indices.data()));
-            jfloatArray transform = to_float_array(env, std::vector<jfloat>(mesh.transform.begin(), mesh.transform.end()));
-            jobject object = env->NewObject(cls, init, positions, indices, transform);
+            jobject object = env->NewObject(cls, init, positions, indices);
             env->SetObjectArrayElement(out, jsize(i), object);
-            for (jobject ref : {jobject(positions), jobject(indices), jobject(transform), object})
+            for (jobject ref : {jobject(positions), jobject(indices), object})
                 env->DeleteLocalRef(ref);
         }
         return out;
     });
+}
+
+// Por objeto, 25 valores: matriz 4x4 (coluna), offset, rotação (graus), escala.
+JNIEXPORT jdoubleArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePlacements(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&]() -> jdoubleArray {
+        std::vector<jdouble> values;
+        for (const slicer::Placement &p : engine(handle)->placements()) {
+            values.insert(values.end(), p.transform.begin(), p.transform.end());
+            for (const slicer::Vec3 *v : {&p.offset, &p.rotation, &p.scale})
+                values.insert(values.end(), v->begin(), v->end());
+        }
+        jdoubleArray out = env->NewDoubleArray(jsize(values.size()));
+        env->SetDoubleArrayRegion(out, 0, jsize(values.size()), values.data());
+        return out;
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetTransform(JNIEnv *env, jclass, jlong handle, jint object, jdoubleArray transform)
+{
+    guarded(env, [&] {
+        std::array<double, 16> matrix{};
+        env->GetDoubleArrayRegion(transform, 0, 16, matrix.data());
+        engine(handle)->set_transform(size_t(object), matrix);
+    });
+}
+
+// values: offset, rotação (graus) e escala, 3 valores cada.
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetPlacement(JNIEnv *env, jclass, jlong handle, jint object, jdoubleArray values)
+{
+    guarded(env, [&] {
+        std::array<double, 9> v{};
+        env->GetDoubleArrayRegion(values, 0, 9, v.data());
+        engine(handle)->set_placement(size_t(object), {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, {v[6], v[7], v[8]});
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeLayOnFace(JNIEnv *env, jclass, jlong handle, jint object, jint triangle)
+{
+    guarded(env, [&] { engine(handle)->lay_on_face(size_t(object), size_t(triangle)); });
 }
 
 // Retorna {tempo estimado em s, volume de filamento em mm³}.

@@ -16,4 +16,14 @@
     <string name="busy_loading_vendor">Carregando perfis do fabricante…</string>
     <string name="busy_loading_model">Carregando modelo…</string>
     <string name="busy_saving">Salvando G-code…</string>
+    <string name="tool_move">Mover</string>
+    <string name="tool_rotate">Girar</string>
+    <string name="tool_scale">Escalar</string>
+    <string name="tool_lay_on_face">Apoiar face</string>
+    <string name="object_title">Objeto selecionado</string>
+    <string name="object_hint">Arraste sobre o objeto para usar a ferramenta; em \"Apoiar face\", toque na face que deve ficar na mesa.</string>
+    <string name="position_mm">Posição (mm)</string>
+    <string name="rotation_deg">Rotação (°)</string>
+    <string name="scale_percent">Escala (%)</string>
+    <string name="uniform_scale">Escala uniforme</string>
 </resources>

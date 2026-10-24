@@ -57,12 +57,45 @@ class SlicerEngineTest {
         engine.loadModel(testAsset("cube20.stl"))
         val mesh = engine.objects().single()
         assertEquals(12, mesh.indices.size / 3)
-        // Transforma os vértices para a mesa: cubo de 20 mm apoiado em z = 0 no centro.
-        val world = (0 until mesh.positions.size / 3).map { v ->
-            FloatArray(3) { row -> (0 until 3).sumOf { col -> (mesh.transform[col * 4 + row] * mesh.positions[v * 3 + col]).toDouble() }.toFloat() + mesh.transform[12 + row] }
-        }
+        // Cubo de 20 mm apoiado em z = 0 no centro.
+        val world = worldVertices(mesh, engine.placements().single())
         assertEquals(118f, world.minOf { it[0] }, 0.01f)
         assertEquals(138f, world.maxOf { it[1] }, 0.01f)
+        assertEquals(0f, world.minOf { it[2] }, 0.01f)
+        // A posição do objeto é o centro da malha (pivô de rotação e escala).
+        val offset = engine.placements().single().offset
+        assertEquals(128f, offset[0], 0.01f)
+        assertEquals(128f, offset[1], 0.01f)
+    }
+
+    @Test
+    fun placementChangesKeepObjectOnBed() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val mesh = engine.objects().single()
+
+        // Offset z pedido é ignorado: o objeto volta a apoiar na mesa.
+        engine.setPlacement(0, floatArrayOf(50f, 60f, 30f), floatArrayOf(0f, 0f, 45f), floatArrayOf(2f, 2f, 2f))
+        var placement = engine.placements().single()
+        assertEquals(45f, placement.rotation[2], 0.01f)
+        assertEquals(2f, placement.scale[0], 0.001f)
+        var world = worldVertices(mesh, placement)
+        assertEquals(0f, world.minOf { it[2] }, 0.01f)
+        assertEquals(40f, world.maxOf { it[2] }, 0.01f)
+        // Diagonal de um quadrado de 40 mm girado 45°.
+        assertEquals(40f * Math.sqrt(2.0).toFloat(), world.maxOf { it[0] } - world.minOf { it[0] }, 0.01f)
+
+        // Triângulo cuja normal aponta para +X (no cubo sem rotação): vira a base.
+        engine.setPlacement(0, floatArrayOf(50f, 60f, 0f), floatArrayOf(0f, 0f, 0f), floatArrayOf(1f, 1f, 1f))
+        val side = (0 until mesh.indices.size / 3).first { t ->
+            val xs = (0..2).map { mesh.positions[mesh.indices[t * 3 + it] * 3] }
+            xs.all { it == xs.max() } && xs.max() > mesh.positions.filterIndexed { i, _ -> i % 3 == 0 }.min()
+        }
+        engine.layOnFace(0, side)
+        placement = engine.placements().single()
+        assertEquals(90f, Math.abs(placement.rotation[1]), 0.01f)
+        world = worldVertices(mesh, placement)
         assertEquals(0f, world.minOf { it[2] }, 0.01f)
     }
 
@@ -101,6 +134,13 @@ class SlicerEngineTest {
         // O motor continua utilizável depois de cancelar.
         engine.loadModel(testAsset("cube20.stl"))
         assertTrue(engine.slice(File(work, "cube20.gcode")) { _, _ -> }.filamentMm3 > 0)
+    }
+
+    private fun worldVertices(mesh: ObjectMesh, placement: Placement): List<FloatArray> {
+        val m = placement.transform
+        return (0 until mesh.positions.size / 3).map { v ->
+            FloatArray(3) { row -> (0 until 3).sumOf { col -> (m[col * 4 + row] * mesh.positions[v * 3 + col]).toDouble() }.toFloat() + m[12 + row] }
+        }
     }
 
     private fun testAsset(name: String): File {

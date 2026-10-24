@@ -5,6 +5,7 @@ import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import io.github.andredevel.slicer.core.Bed
 import io.github.andredevel.slicer.core.ObjectMesh
+import io.github.andredevel.slicer.core.Placement
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
@@ -13,8 +14,17 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
 
-/** O que o viewport mostra: a mesa da impressora e os objetos sobre ela. */
-class Scene(val bed: Bed, val objects: List<ObjectMesh>)
+/**
+ * O que o viewport mostra: a mesa da impressora e os objetos sobre ela ([meshes] e
+ * [placements] na mesma ordem). Para trocar só posições ou seleção, reutilize a
+ * mesma lista [meshes]: as malhas só são reenviadas à GPU quando ela muda.
+ */
+data class Scene(
+    val bed: Bed,
+    val meshes: List<ObjectMesh> = emptyList(),
+    val placements: List<Placement> = emptyList(),
+    val selected: Int? = null,
+)
 
 /**
  * Desenha a cena com OpenGL ES 3. Roda na thread GL do [GLSurfaceView]; [scene] e
@@ -22,19 +32,34 @@ class Scene(val bed: Bed, val objects: List<ObjectMesh>)
  */
 class SceneRenderer : GLSurfaceView.Renderer {
     val camera = OrbitCamera()
+    var viewportWidth = 1
+        private set
     var viewportHeight = 1
         private set
 
     var scene: Scene? = null
         set(value) {
-            val old = field?.bed
-            val bedChanged = old == null || value != null &&
-                (!value.bed.shape.contentEquals(old.shape) || value.bed.maxHeight != old.maxHeight)
+            val old = field
             field = value
-            gpu?.let(::release)
-            gpu = null
-            if (bedChanged && value != null) frameBed(value.bed)
+            // Posições novas do motor substituem a pré-visualização do arraste.
+            preview = null
+            if (old?.bed !== value?.bed || old?.meshes !== value?.meshes) {
+                gpu?.let(::release)
+                gpu = null
+            }
+            val oldBed = old?.bed
+            if (value != null && (oldBed == null || !value.bed.shape.contentEquals(oldBed.shape) || value.bed.maxHeight != oldBed.maxHeight))
+                frameBed(value.bed)
         }
+
+    /** Transformação provisória do objeto selecionado durante um arraste. */
+    var preview: FloatArray? = null
+
+    /** Transformações em uso: as da cena, com a [preview] no objeto selecionado. */
+    fun transforms(): List<FloatArray> {
+        val scene = scene ?: return emptyList()
+        return scene.placements.mapIndexed { i, p -> preview?.takeIf { i == scene.selected } ?: p.transform }
+    }
 
     /** Recursos GL da [scene] atual; recriados quando o contexto GL é perdido. */
     private var gpu: GpuScene? = null
@@ -55,6 +80,7 @@ class SceneRenderer : GLSurfaceView.Renderer {
     override fun onSurfaceChanged(unused: GL10?, width: Int, height: Int) {
         glViewport(0, 0, width, height)
         camera.setViewport(width, height)
+        viewportWidth = width
         viewportHeight = height
     }
 
@@ -81,12 +107,12 @@ class SceneRenderer : GLSurfaceView.Renderer {
         val mvpLocation = glGetUniformLocation(meshProgram, "uMvp")
         val modelViewLocation = glGetUniformLocation(meshProgram, "uModelView")
         val colorLocation = glGetUniformLocation(meshProgram, "uColor")
-        for ((mesh, transform) in gpu.objects.zip(scene.objects.map { it.transform })) {
+        for ((i, transform) in transforms().withIndex()) {
             Matrix.multiplyMM(modelView, 0, camera.view, 0, transform, 0)
             Matrix.multiplyMM(mvp, 0, camera.projection, 0, modelView, 0)
             glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
-            mesh.draw(colorLocation, OBJECT)
+            gpu.objects[i].draw(colorLocation, if (i == scene.selected) SELECTED else OBJECT)
         }
     }
 
@@ -108,7 +134,7 @@ class SceneRenderer : GLSurfaceView.Renderer {
             bedSurface = Geometry(GL_TRIANGLE_FAN, fan),
             bedOutline = Geometry(GL_LINE_LOOP, fan),
             bedGrid = Geometry(GL_LINES, gridLines(outline)),
-            objects = scene.objects.map { Geometry(GL_TRIANGLES, it.positions, it.indices) },
+            objects = scene.meshes.map { Geometry(GL_TRIANGLES, it.positions, it.indices) },
         )
     }
 
@@ -165,6 +191,7 @@ class SceneRenderer : GLSurfaceView.Renderer {
         val BED_GRID = floatArrayOf(0.40f, 0.42f, 0.46f, 1f)
         val BED_OUTLINE = floatArrayOf(0.75f, 0.77f, 0.80f, 1f)
         val OBJECT = floatArrayOf(0.20f, 0.68f, 0.38f, 1f)
+        val SELECTED = floatArrayOf(0.96f, 0.58f, 0.16f, 1f)
 
         /** Linhas a cada [GRID_STEP] mm recortadas pelo contorno da mesa (que pode ser circular). */
         fun gridLines(outline: FloatArray): FloatArray {

@@ -3,21 +3,54 @@ package io.github.andredevel.slicer.render
 import android.annotation.SuppressLint
 import android.content.Context
 import android.opengl.GLSurfaceView
+import android.opengl.Matrix
 import android.view.MotionEvent
+import android.view.ViewConfiguration
+import kotlin.math.exp
 import kotlin.math.hypot
 
+/** Ação de um arraste de 1 dedo que começa sobre o objeto selecionado (ou de um toque, em [LAY_ON_FACE]). */
+enum class Tool { MOVE, ROTATE, SCALE, LAY_ON_FACE }
+
+/** Resultados dos gestos, entregues na thread principal. */
+interface ViewportListener {
+    /** Toque num objeto (índice) ou fora deles (null). */
+    fun onSelect(objectIndex: Int?)
+    /** Fim de um arraste que moveu, girou ou escalou o objeto. */
+    fun onTransform(objectIndex: Int, transform: FloatArray)
+    /** Toque numa face do objeto selecionado com [Tool.LAY_ON_FACE]. */
+    fun onLayOnFace(objectIndex: Int, triangle: Int)
+}
+
 /**
- * Viewport 3D. Gestos: 1 dedo gira a câmera; 2 dedos movem (pan) e aproximam (pinça).
+ * Viewport 3D. Gestos: toque seleciona; 1 dedo gira a câmera, ou aplica [tool] se o
+ * arraste começar sobre o objeto selecionado; 2 dedos movem (pan) e aproximam (pinça).
+ *
+ * Os eventos de toque são interpretados na thread GL (queueEvent), onde estão a
+ * câmera e a cena; o estado do arraste (campos "drag*") só é usado nela.
  */
 @SuppressLint("ViewConstructor")
 class ViewportView(context: Context) : GLSurfaceView(context) {
     private val renderer = SceneRenderer()
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
-    // Último ponto de referência do gesto: centroide e distância entre os dedos.
+    var listener: ViewportListener? = null
+    var tool = Tool.MOVE
+
+    // Thread principal: referência do gesto (centroide e distância entre os dedos).
     private var lastX = 0f
     private var lastY = 0f
     private var lastSpan = 0f
     private var lastPointers = 0
+    private var downX = 0f
+    private var downY = 0f
+    private var moved = false
+
+    // Thread GL: arraste de objeto em andamento.
+    private var dragObject: Int? = null
+    private var dragTool = Tool.MOVE
+    private var dragGrabZ = 0f
+    private var dragLast: FloatArray? = null
 
     init {
         setEGLContextClientVersion(3)
@@ -27,7 +60,14 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         renderMode = RENDERMODE_WHEN_DIRTY
     }
 
-    fun setScene(scene: Scene?) = onGlThread { renderer.scene = scene }
+    private var scene: Scene? = null
+
+    fun setScene(scene: Scene?) {
+        // Recomposições repetem a mesma cena; reenviá-la descartaria a pré-visualização.
+        if (scene == this.scene) return
+        this.scene = scene
+        onGlThread { renderer.scene = scene }
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -38,25 +78,126 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         val y = (0 until pointers).sumOf { event.getY(it).toDouble() }.toFloat() / pointers
         val span = if (pointers == 2) hypot(event.getX(0) - event.getX(1), event.getY(0) - event.getY(1)) else 0f
 
-        if (event.actionMasked == MotionEvent.ACTION_MOVE && pointers == lastPointers) {
-            val dx = x - lastX
-            val dy = y - lastY
-            val zoom = if (pointers == 2 && lastSpan > 0f && span > 0f) span / lastSpan else 1f
-            onGlThread {
-                val camera = renderer.camera
-                if (pointers == 1) {
-                    camera.rotate(-dx * ROTATE_DEG_PER_PX, dy * ROTATE_DEG_PER_PX)
-                } else {
-                    camera.pan(dx, dy, renderer.viewportHeight)
-                    camera.zoom(zoom)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = x
+                downY = y
+                moved = false
+                val tool = tool
+                onGlThread { startDrag(x, y, tool) }
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                moved = true
+                onGlThread { endDrag() } // dois dedos sempre controlam a câmera
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (hypot(x - downX, y - downY) > touchSlop) moved = true
+                if (moved && pointers == lastPointers) {
+                    val dx = x - lastX
+                    val dy = y - lastY
+                    val zoom = if (pointers == 2 && lastSpan > 0f && span > 0f) span / lastSpan else 1f
+                    onGlThread {
+                        val camera = renderer.camera
+                        when {
+                            pointers == 2 -> {
+                                camera.pan(dx, dy, renderer.viewportHeight)
+                                camera.zoom(zoom)
+                            }
+                            dragObject != null -> drag(x, y, dx, dy)
+                            else -> camera.rotate(-dx * ROTATE_DEG_PER_PX, dy * ROTATE_DEG_PER_PX)
+                        }
+                    }
                 }
             }
+            MotionEvent.ACTION_UP -> {
+                val tap = !moved
+                val tool = tool
+                onGlThread { if (tap) tap(x, y, tool) else endDrag() }
+            }
+            MotionEvent.ACTION_CANCEL -> onGlThread { endDrag() }
         }
         lastX = x
         lastY = y
         lastSpan = span
         lastPointers = if (lifting) 0 else pointers
         return true
+    }
+
+    // --- Thread GL ---
+
+    private fun pickAt(x: Float, y: Float): Hit? {
+        val scene = renderer.scene ?: return null
+        val ray = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight)
+        return pick(ray, scene.meshes, renderer.transforms())
+    }
+
+    private fun startDrag(x: Float, y: Float, tool: Tool) {
+        dragObject = null
+        val selected = renderer.scene?.selected ?: return
+        if (tool == Tool.LAY_ON_FACE) return
+        val hit = pickAt(x, y)?.takeIf { it.objectIndex == selected } ?: return
+        dragObject = selected
+        dragTool = tool
+        dragGrabZ = hit.point[2]
+        dragLast = hit.point
+    }
+
+    private fun drag(x: Float, y: Float, dx: Float, dy: Float) {
+        val index = dragObject ?: return
+        val current = renderer.transforms().getOrNull(index) ?: return
+        // Pivô: origem da instância (centro do objeto ao carregar).
+        val cx = current[12]
+        val cy = current[13]
+        val cz = current[14]
+        val step = FloatArray(16)
+        when (dragTool) {
+            Tool.MOVE -> {
+                // Ponto sob o dedo no plano horizontal em que o objeto foi agarrado.
+                val ray = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight)
+                val point = ray.intersectZ(dragGrabZ) ?: return
+                val last = dragLast ?: return
+                Matrix.setIdentityM(step, 0)
+                Matrix.translateM(step, 0, point[0] - last[0], point[1] - last[1], 0f)
+                dragLast = point
+            }
+            Tool.ROTATE -> {
+                Matrix.setIdentityM(step, 0)
+                Matrix.translateM(step, 0, cx, cy, cz)
+                Matrix.rotateM(step, 0, dx * ROTATE_DEG_PER_PX, 0f, 0f, 1f)
+                Matrix.translateM(step, 0, -cx, -cy, -cz)
+            }
+            Tool.SCALE -> {
+                val factor = exp(-dy * SCALE_PER_PX)
+                Matrix.setIdentityM(step, 0)
+                Matrix.translateM(step, 0, cx, cy, cz)
+                Matrix.scaleM(step, 0, factor, factor, factor)
+                Matrix.translateM(step, 0, -cx, -cy, -cz)
+            }
+            Tool.LAY_ON_FACE -> return
+        }
+        val result = FloatArray(16)
+        Matrix.multiplyMM(result, 0, step, 0, current, 0)
+        renderer.preview = result
+    }
+
+    private fun endDrag() {
+        val index = dragObject ?: return
+        dragObject = null
+        val transform = renderer.preview ?: return
+        post { listener?.onTransform(index, transform) }
+    }
+
+    private fun tap(x: Float, y: Float, tool: Tool) {
+        dragObject = null
+        val hit = pickAt(x, y)
+        val selected = renderer.scene?.selected
+        post {
+            if (hit != null && tool == Tool.LAY_ON_FACE && hit.objectIndex == selected) {
+                listener?.onLayOnFace(hit.objectIndex, hit.triangle)
+            } else {
+                listener?.onSelect(hit?.objectIndex)
+            }
+        }
     }
 
     private fun onGlThread(block: () -> Unit) {
@@ -66,5 +207,6 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
 
     private companion object {
         const val ROTATE_DEG_PER_PX = 0.3f
+        const val SCALE_PER_PX = 0.004f
     }
 }

@@ -33,12 +33,21 @@ struct Bed {
     double max_height = 0.0;                  // printable_height
 };
 
-// Malha de um objeto em coordenadas locais (volumes já transformados) mais a
-// transformação da instância para a mesa: matriz 4x4 em ordem de coluna (OpenGL).
+// Malha de um objeto em coordenadas locais, com os volumes já transformados.
 struct ObjectMesh {
     std::vector<float>    positions; // x, y, z por vértice
     std::vector<uint32_t> indices;   // 3 por triângulo
-    std::array<float, 16> transform{};
+};
+
+using Vec3 = std::array<double, 3>;
+
+// Posição de um objeto na mesa (da sua instância). transform é a matriz 4x4 em
+// ordem de coluna (OpenGL); os demais campos são a decomposição dela.
+struct Placement {
+    std::array<double, 16> transform{};
+    Vec3 offset{};       // mm
+    Vec3 rotation{};     // graus, ângulos de Euler XYZ como no Orca
+    Vec3 scale{};        // fator (1 = 100%)
 };
 
 struct Canceled : std::runtime_error {
@@ -75,6 +84,14 @@ public:
     // na mesa da impressora selecionada; trocar a impressora o recentraliza.
     void load_model(const std::string &path);
     std::vector<ObjectMesh> objects() const;
+    std::vector<Placement> placements() const;
+
+    // As alterações de posição sempre apoiam o objeto na mesa (z mínimo = 0).
+    void set_transform(size_t object, const std::array<double, 16> &transform);
+    void set_placement(size_t object, const Vec3 &offset, const Vec3 &rotation, const Vec3 &scale);
+    // Gira o objeto para que o triângulo dado (índice na malha de objects()) fique
+    // virado para baixo, apoiado na mesa.
+    void lay_on_face(size_t object, size_t triangle);
 
     // Fatia o modelo na posição atual com os perfis selecionados e grava o G-code em gcode_path.
     SliceStats slice(const std::string &gcode_path, const ProgressFn &progress);

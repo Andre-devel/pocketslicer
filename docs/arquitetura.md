@@ -91,7 +91,11 @@ class Engine {
     void select(PresetKind, name);               // trocar impressora aplica os padrões dela
     Bed bed() const;                             // printable_area + printable_height
     void load_model(path);                       // STL/OBJ/3MF; centraliza na mesa
-    std::vector<ObjectMesh> objects() const;     // malha indexada + transformação da instância
+    std::vector<ObjectMesh> objects() const;     // malha indexada, em coordenadas locais
+    std::vector<Placement> placements() const;   // matriz da instância + offset/rotação/escala
+    void set_transform(i, matrix);               // fim de um arraste no viewport
+    void set_placement(i, offset, rotation, scale); // campos numéricos
+    void lay_on_face(i, triangle);               // triângulo tocado vira a base
     SliceStats slice(gcode_path, ProgressFn);    // Print::process() + export_gcode()
     void cancel();                               // de qualquer thread
 };
@@ -107,7 +111,8 @@ class Engine {
 - Erros são exceções C++; o JNI converte em `SlicerException` e o cancelamento em
   `CancellationException`.
 - O `Model` do libslic3r é a fonte de verdade da cena: o app só recebe malhas e transformações
-  para desenhar. Fatiar usa as posições atuais (sem recentralizar).
+  para desenhar. Fatiar usa as posições atuais (sem recentralizar). Como na GUI do Orca, a origem
+  de cada objeto é o centro da malha (`center_around_origin`) e toda alteração o apoia na mesa.
 - A crescer nas próximas fases: edição de transformações/arranjo, opções avulsas, `PrintConfigDef` serializado,
   toolpaths como buffers planos (`float* positions`, `uint8* feature_type`...) para VBOs, 3MF.
 
@@ -130,7 +135,9 @@ class Engine {
 ### 3.3 Render (OpenGL ES 3.0)
 - `SceneRenderer` (`app/.../render/`, num `GLSurfaceView` dentro do Compose): mesa (grid + contorno do perfil), modelos (normal de face por `dFdx/dFdy` no fragment shader, sobre a malha indexada, highlight de seleção, vermelho fora da mesa), gizmo de transformação.
 - `PreviewRenderer`: toolpaths como triângulos extrudados por GPU (geometry via instancing de segmentos) com corte por intervalo de camada/movimento via uniforms, sem rebuild de VBO ao arrastar a barra.
-- Câmera orbital; picking por ray-cast em CPU sobre a bounding box e depois triângulos (Kotlin) — suficiente para seleção.
+- Câmera orbital; picking por ray-cast em CPU sobre os triângulos (Kotlin, `render/Picking.kt`) — suficiente para um toque.
+- Gestos interpretados na thread GL; o arraste de um objeto altera só uma matriz provisória no
+  renderer e é gravado no motor ao soltar (o motor fica livre durante o gesto).
 
 ### 3.4 Persistência
 - Presets de usuário: arquivos JSON no formato do Orca em `filesDir/user/{machine,filament,process}/` (compatível com import/export desktop).

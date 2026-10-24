@@ -33,6 +33,9 @@ passam. Falta repetir num tablet arm64 real. Ver README para build e testes.
 **Status:** item 1 implementado em 2026-10-24 e visto no emulador: mesa do perfil (contorno + grade),
 malha do modelo centralizada nela, câmera orbital (1 dedo gira, 2 dedos pan/pinça) e layout
 viewport + painel (paisagem/retrato). Pinça/pan ainda não testados com toque real.
+Item 2 implementado em 2026-10-24 e visto no emulador: toque seleciona; ferramentas Mover/Girar/Escalar
+agem arrastando sobre o objeto selecionado (no lugar de um gizmo 3D com alças, mais adequado ao toque);
+campos de posição, rotação e escala (uniforme ou por eixo); "Apoiar face" pelo triângulo tocado.
 1. `SceneRenderer` GL ES 3: mesa do perfil, malha do modelo, câmera orbital, gestos.
 2. Seleção por toque, gizmo mover/rotacionar/escalar, campos numéricos, lay-on-face.
 3. Múltiplos objetos, duplicar/excluir, arranjo automático, aviso fora da mesa.
