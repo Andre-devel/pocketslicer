@@ -97,6 +97,8 @@ Item 4: `.github/workflows/parity.yml` (GitHub Actions) compila as dependências
 testes instrumentados. Casos: BBL A1, Creality Ender-3 V3, Prusa MK4 e Voron 2.4, todos
 equivalentes ao Orca 2.4.2 desktop. Ainda não rodou no GitHub (o repositório não tem remoto);
 contra aparelho físico, só manualmente com `scripts/test-device.sh`.
+Item 5 em parte: `LICENSE` (AGPL-3.0), `NOTICE` com as licenças das bibliotecas do APK e README.
+Faltam a release no GitHub (remoto, assinatura do APK) e o nome/`applicationId` definitivos.
 
 1. Salvar/abrir projeto 3MF com configuração e miniatura; "Abrir com" para STL/3MF/OBJ/G-code.
 2. Miniatura no G-code por perfil de impressora.
