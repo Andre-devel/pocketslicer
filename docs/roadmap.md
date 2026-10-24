@@ -40,6 +40,9 @@ Item 3 implementado em 2026-10-24 e visto no emulador: "Adicionar modelo" acumul
 excluir pelo toque longo ou pelo painel; "Arranjar" (libnest2d do Orca); objeto fora do volume em
 vermelho, com aviso, e fatiamento recusado. Adicionar/duplicar rearranja todos os objetos, como o
 "Clonar" do Orca (o arranjo com objetos fixos do FirstFit do Orca os sobrepõe quando falha a 1ª tentativa).
+Item 4 implementado em 2026-10-24 e visto no emulador: barra superior (Adicionar modelo, Arranjar,
+Ocultar/Mostrar painel), painel lateral recolhível em paisagem e bottom sheet em retrato.
+Falta da fase 2: testar gestos de 2 dedos e desempenho com malhas grandes num tablet real.
 1. `SceneRenderer` GL ES 3: mesa do perfil, malha do modelo, câmera orbital, gestos.
 2. Seleção por toque, gizmo mover/rotacionar/escalar, campos numéricos, lay-on-face.
 3. Múltiplos objetos, duplicar/excluir, arranjo automático, aviso fora da mesa.

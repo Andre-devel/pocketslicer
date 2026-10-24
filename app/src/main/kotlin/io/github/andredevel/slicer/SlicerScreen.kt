@@ -2,12 +2,16 @@ package io.github.andredevel.slicer
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.offset
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
@@ -27,7 +31,6 @@ import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.render.ViewportListener
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -96,23 +99,54 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
         }
     }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
-        snackbarHost = { SnackbarHost(snackbar) },
-    ) { padding ->
-        // Paisagem: viewport à esquerda e painel à direita; retrato: painel embaixo.
-        BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
-            if (maxWidth > maxHeight) {
-                Row(Modifier.fillMaxSize()) {
+    val enabled = state.busy == null && state.slice !is SliceState.Running
+    // RF-50/52: barra superior, viewport e painel; em paisagem o painel fica à direita e
+    // pode ser recolhido, em retrato vira um bottom sheet.
+    // Orientação pela configuração, não por BoxWithConstraints: com o Scaffold dentro de um
+    // BoxWithConstraints, o GLSurfaceView travou a thread principal (ANR) ao abrir no emulador.
+    run {
+        val configuration = LocalConfiguration.current
+        val landscape = configuration.screenWidthDp > configuration.screenHeightDp
+        val sheetMaxHeight = configuration.screenHeightDp.dp * 0.7f
+        var panelVisible by rememberSaveable { mutableStateOf(true) }
+        val topBar = @Composable {
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                actions = {
+                    // STL/3MF chegam com MIME variado (model/stl, application/octet-stream...).
+                    TextButton(onClick = { openModel.launch(arrayOf("*/*")) }, enabled = enabled) {
+                        Text(stringResource(R.string.add_model))
+                    }
+                    TextButton(onClick = viewModel::arrange, enabled = enabled && state.objectCount > 0) {
+                        Text(stringResource(R.string.arrange))
+                    }
+                    if (landscape) {
+                        TextButton(onClick = { panelVisible = !panelVisible }) {
+                            Text(stringResource(if (panelVisible) R.string.hide_panel else R.string.show_panel))
+                        }
+                    }
+                },
+            )
+        }
+        val panel = @Composable { modifier: Modifier -> ControlPanel(state, viewModel, modifier, saveGcode::launch) }
+
+        if (landscape) {
+            Scaffold(topBar = topBar, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+                Row(Modifier.padding(padding).fillMaxSize()) {
                     Viewport(state, viewModel, Modifier.weight(1f).fillMaxHeight())
-                    ControlPanel(state, viewModel, Modifier.width(PANEL_WIDTH).fillMaxHeight(), openModel::launch, saveGcode::launch)
+                    if (panelVisible) panel(Modifier.width(PANEL_WIDTH).fillMaxHeight())
                 }
-            } else {
-                val panelMaxHeight = maxHeight / 2
-                Column(Modifier.fillMaxSize()) {
-                    Viewport(state, viewModel, Modifier.weight(1f).fillMaxWidth())
-                    ControlPanel(state, viewModel, Modifier.fillMaxWidth().heightIn(max = panelMaxHeight), openModel::launch, saveGcode::launch)
-                }
+            }
+        } else {
+            BottomSheetScaffold(
+                topBar = topBar,
+                snackbarHost = { SnackbarHost(snackbar) },
+                // A parte visível do sheet recolhido fica acima da barra de navegação.
+                sheetPeekHeight = SHEET_PEEK_HEIGHT + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                sheetContent = { panel(Modifier.fillMaxWidth().heightIn(max = sheetMaxHeight)) },
+            ) { padding ->
+                // O viewport ocupa a tela toda; o sheet recolhido cobre só a faixa de baixo.
+                Viewport(state, viewModel, Modifier.padding(padding).fillMaxSize())
             }
         }
     }
@@ -160,13 +194,6 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
             },
         )
         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state.objectCount > 0) {
-                AssistChip(
-                    onClick = viewModel::arrange,
-                    label = { Text(stringResource(R.string.arrange)) },
-                    colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surface),
-                )
-            }
             if (state.scene?.selected != null) {
                 for ((tool, label) in TOOLS) {
                     FilterChip(
@@ -281,7 +308,6 @@ private fun ControlPanel(
     state: SlicerUiState,
     viewModel: SlicerViewModel,
     modifier: Modifier,
-    openModel: (Array<String>) -> Unit,
     saveGcode: (String) -> Unit,
 ) {
     val slicing = state.slice is SliceState.Running
@@ -292,32 +318,14 @@ private fun ControlPanel(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            // STL/3MF chegam com MIME variado (model/stl, application/octet-stream...).
-            Button(onClick = { openModel(arrayOf("*/*")) }, enabled = enabled) {
-                Text(stringResource(R.string.add_model))
-            }
-            Text(
-                if (state.objectCount == 0) stringResource(R.string.no_model)
-                else pluralStringResource(R.plurals.object_count, state.objectCount, state.objectCount)
-            )
-        }
+        Text(
+            if (state.objectCount == 0) stringResource(R.string.no_model)
+            else pluralStringResource(R.plurals.object_count, state.objectCount, state.objectCount),
+            style = MaterialTheme.typography.titleMedium,
+        )
         if (state.anyOutside) {
             Text(stringResource(R.string.outside_warning), color = MaterialTheme.colorScheme.error)
         }
-
-        val selected = state.scene?.selected
-        val placement = state.selectedPlacement
-        if (selected != null && placement != null) {
-            PlacementFields(selected, placement, viewModel)
-            HorizontalDivider()
-        }
-
-        Dropdown(R.string.vendor, state.vendors, enabled, viewModel::selectVendor)
-        Dropdown(R.string.printer, state.presets[PresetKind.PRINTER], enabled) { viewModel.selectPreset(PresetKind.PRINTER, it) }
-        Dropdown(R.string.process, state.presets[PresetKind.PROCESS], enabled) { viewModel.selectPreset(PresetKind.PROCESS, it) }
-        Dropdown(R.string.filament, state.presets[PresetKind.FILAMENT], enabled) { viewModel.selectPreset(PresetKind.FILAMENT, it) }
-
         state.busy?.let {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text(stringResource(it))
@@ -344,10 +352,24 @@ private fun ControlPanel(
                 }
             }
         }
+        HorizontalDivider()
+
+        val selected = state.scene?.selected
+        val placement = state.selectedPlacement
+        if (selected != null && placement != null) {
+            PlacementFields(selected, placement, viewModel)
+            HorizontalDivider()
+        }
+
+        Dropdown(R.string.vendor, state.vendors, enabled, viewModel::selectVendor)
+        Dropdown(R.string.printer, state.presets[PresetKind.PRINTER], enabled) { viewModel.selectPreset(PresetKind.PRINTER, it) }
+        Dropdown(R.string.process, state.presets[PresetKind.PROCESS], enabled) { viewModel.selectPreset(PresetKind.PROCESS, it) }
+        Dropdown(R.string.filament, state.presets[PresetKind.FILAMENT], enabled) { viewModel.selectPreset(PresetKind.FILAMENT, it) }
     }
 }
 
 private val PANEL_WIDTH = 360.dp
+private val SHEET_PEEK_HEIGHT = 160.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -2,7 +2,9 @@ package io.github.andredevel.slicer.render
 
 import android.opengl.Matrix
 import kotlin.math.cos
+import kotlin.math.atan
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.tan
 
@@ -17,25 +19,35 @@ class OrbitCamera {
     val projection = FloatArray(16)
     private var aspect = 1f
 
-    /** Enquadra uma esfera de raio [radius] centrada em [center] de um ângulo padrão. */
+    // Raio enquadrado por frame(); null depois que o usuário mexe na câmera.
+    private var framedRadius: Float? = null
+
+    /**
+     * Enquadra uma esfera de raio [radius] centrada em [center] de um ângulo padrão. Até o
+     * usuário mexer na câmera, o enquadramento acompanha mudanças de proporção do viewport.
+     */
     fun frame(center: FloatArray, radius: Float) {
         center.copyInto(target)
-        distance = radius / sin(Math.toRadians(FOV_DEG / 2.0)).toFloat()
+        framedRadius = radius
         yaw = -90f
         pitch = 35f
+        fitFramedRadius()
     }
 
     fun rotate(dYaw: Float, dPitch: Float) {
+        framedRadius = null
         yaw += dYaw
         pitch = (pitch + dPitch).coerceIn(-89f, 89f)
     }
 
     fun zoom(factor: Float) {
+        framedRadius = null
         distance = (distance / factor).coerceIn(5f, 5000f)
     }
 
     /** Desloca o alvo no plano da tela; dx, dy em pixels de uma tela com [heightPx] de altura. */
     fun pan(dx: Float, dy: Float, heightPx: Int) {
+        framedRadius = null
         val mmPerPx = 2f * distance * tan(Math.toRadians(FOV_DEG / 2.0)).toFloat() / max(heightPx, 1)
         // Linhas 0 e 1 da matriz de visão são os eixos direita e cima da câmera.
         for (i in 0..2) target[i] += (-dx * view[i * 4] + dy * view[i * 4 + 1]) * mmPerPx
@@ -43,6 +55,15 @@ class OrbitCamera {
 
     fun setViewport(width: Int, height: Int) {
         aspect = width.toFloat() / max(height, 1)
+        fitFramedRadius()
+    }
+
+    /** Distância em que a esfera enquadrada cabe no menor dos campos de visão (retrato: o horizontal). */
+    private fun fitFramedRadius() {
+        val radius = framedRadius ?: return
+        val halfVertical = Math.toRadians(FOV_DEG / 2.0)
+        val halfHorizontal = atan(tan(halfVertical) * aspect)
+        distance = radius / sin(min(halfVertical, halfHorizontal)).toFloat()
     }
 
     fun update() {

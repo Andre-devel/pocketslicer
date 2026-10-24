@@ -34,4 +34,6 @@
         <item quantity="one">%d objeto na mesa</item>
         <item quantity="other">%d objetos na mesa</item>
     </plurals>
+    <string name="hide_panel">Ocultar painel</string>
+    <string name="show_panel">Mostrar painel</string>
 </resources>
