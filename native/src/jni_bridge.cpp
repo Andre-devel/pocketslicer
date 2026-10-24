@@ -46,6 +46,14 @@ jfloatArray to_float_array(JNIEnv *env, const std::vector<jfloat> &values)
     return out;
 }
 
+jdoubleArray to_array(JNIEnv *env, const slicer::SliceStats &stats)
+{
+    const jdouble values[] = {stats.print_time_s, stats.filament_mm3, stats.filament_m, stats.filament_g, stats.cost};
+    jdoubleArray out = env->NewDoubleArray(jsize(std::size(values)));
+    env->SetDoubleArrayRegion(out, 0, jsize(std::size(values)), values);
+    return out;
+}
+
 Engine *engine(jlong handle) { return reinterpret_cast<Engine *>(handle); }
 
 // Executa f convertendo exceções C++ em exceções Java pendentes.
@@ -193,6 +201,27 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeAddModel(JNIEnv *env,
     guarded(env, [&] { engine(handle)->add_model(to_string(env, path)); });
 }
 
+JNIEXPORT jstring JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeOpenProject(JNIEnv *env, jclass, jlong handle, jstring path)
+{
+    return guarded(env, [&] { return env->NewStringUTF(engine(handle)->open_project(to_string(env, path)).c_str()); });
+}
+
+// thumbnail: RGBA, linhas de baixo para cima; vazio = sem miniatura.
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSaveProject(JNIEnv *env, jclass, jlong handle, jstring path,
+                                                                     jbyteArray thumbnail, jint width, jint height)
+{
+    guarded(env, [&] {
+        slicer::Thumbnail image;
+        image.width = unsigned(width);
+        image.height = unsigned(height);
+        image.rgba.resize(size_t(env->GetArrayLength(thumbnail)));
+        env->GetByteArrayRegion(thumbnail, 0, jsize(image.rgba.size()), reinterpret_cast<jbyte *>(image.rgba.data()));
+        engine(handle)->save_project(to_string(env, path), image);
+    });
+}
+
 JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeDuplicate(JNIEnv *env, jclass, jlong handle, jint object)
 {
@@ -298,11 +327,15 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSlice(JNIEnv *env, jc
                 env->ExceptionClear();
             }
         });
-        const jdouble values[] = {stats.print_time_s, stats.filament_mm3, stats.filament_m, stats.filament_g, stats.cost};
-        jdoubleArray out = env->NewDoubleArray(jsize(std::size(values)));
-        env->SetDoubleArrayRegion(out, 0, jsize(std::size(values)), values);
-        return out;
+        return to_array(env, stats);
     });
+}
+
+// Mesmos valores de nativeSlice.
+JNIEXPORT jdoubleArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeLoadGcode(JNIEnv *env, jclass, jlong handle, jstring path)
+{
+    return guarded(env, [&] { return to_array(env, engine(handle)->load_gcode(to_string(env, path))); });
 }
 
 // Toolpaths(extrusions: FloatArray, roles: ByteArray, layers: IntArray, travels: FloatArray,

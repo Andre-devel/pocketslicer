@@ -160,6 +160,23 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Acrescenta os objetos do arquivo; se a mesa já tinha objetos, todos são rearranjados. */
     suspend fun addModel(file: File) = call { nativeAddModel(handle, file.absolutePath) }
 
+    /**
+     * Projeto 3MF do Orca/Bambu Studio: objetos nas posições salvas e perfis com as alterações.
+     * Carrega o fabricante da impressora do projeto e devolve o nome dele. Um 3MF sem
+     * configuração abre como [loadModel]; de várias placas, só a primeira.
+     */
+    suspend fun openProject(file: File): String = call { nativeOpenProject(handle, file.absolutePath) }
+
+    /**
+     * Grava objetos, configuração e miniatura num 3MF que o Orca abre. [thumbnail]: RGBA de
+     * [width] × [height] com as linhas de baixo para cima (ordem do glReadPixels); vazio = sem miniatura.
+     */
+    suspend fun saveProject(file: File, thumbnail: ByteArray, width: Int, height: Int) =
+        call { nativeSaveProject(handle, file.absolutePath, thumbnail, width, height) }
+
+    /** G-code pronto, para preview: substitui os [toolpaths] do último [slice]. */
+    suspend fun loadGcode(file: File): SliceStats = call { nativeLoadGcode(handle, file.absolutePath).toStats() }
+
     /** Cópia do objeto, ao fim da lista; rearranja todos como em [addModel]. */
     suspend fun duplicate(objectIndex: Int) = call { nativeDuplicate(handle, objectIndex) }
 
@@ -199,10 +216,10 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
             nativeCancel(handle) // o fatiamento nativo não é interrompível de outra forma
             throw e
         }
-        SliceStats(result[0], result[1], result[2], result[3], result[4])
+        result.toStats()
     }
 
-    /** Caminhos do último [slice] bem-sucedido. */
+    /** Caminhos do último [slice] ou [loadGcode] bem-sucedido. */
     suspend fun toolpaths(): Toolpaths = call { nativeToolpaths(handle) }
 
     override fun close() {
@@ -236,6 +253,8 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
         }.asCoroutineDispatcher()
     }
 }
+
+private fun DoubleArray.toStats() = SliceStats(this[0], this[1], this[2], this[3], this[4])
 
 private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
 
@@ -281,6 +300,9 @@ private external fun nativeExportPreset(handle: Long, kind: Int, path: String)
 private external fun nativeBed(handle: Long): Bed
 private external fun nativeLoadModel(handle: Long, path: String)
 private external fun nativeAddModel(handle: Long, path: String)
+private external fun nativeOpenProject(handle: Long, path: String): String
+private external fun nativeSaveProject(handle: Long, path: String, thumbnail: ByteArray, width: Int, height: Int)
+private external fun nativeLoadGcode(handle: Long, path: String): DoubleArray
 private external fun nativeDuplicate(handle: Long, objectIndex: Int)
 private external fun nativeRemove(handle: Long, objectIndex: Int)
 private external fun nativeArrange(handle: Long)

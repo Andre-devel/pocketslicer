@@ -228,6 +228,53 @@ class SlicerEngineTest {
         assertTrue(toolpaths.travels.isNotEmpty())
     }
 
+    @Test
+    fun projectKeepsObjectsPresetsAndChanges() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.setOption(PresetKind.PROCESS, "sparse_infill_density", "35%")
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.addModel(testAsset("voron_cube_v7.stl"))
+        engine.setPlacement(0, floatArrayOf(60f, 70f, 10f), floatArrayOf(0f, 0f, 30f), floatArrayOf(1f, 1f, 1f))
+        val placements = engine.placements()
+        val project = File(work, "project.3mf")
+        engine.saveProject(project, ByteArray(64 * 64 * 4) { 0x7f }, 64, 64)
+
+        val entries = java.util.zip.ZipFile(project).use { zip -> zip.entries().asSequence().map { it.name }.toSet() }
+        assertTrue("Metadata/plate_1.png" in entries)
+        assertTrue("Metadata/project_settings.config" in entries)
+
+        // Outro fabricante carregado: abrir o projeto volta para o da impressora dele.
+        engine.loadVendor("Prusa")
+        assertEquals("BBL", engine.openProject(project))
+        assertEquals("Bambu Lab A1 0.4 nozzle", engine.selected(PresetKind.PRINTER))
+        val process = engine.values(PresetKind.PROCESS)
+        assertEquals("35%", process.values["sparse_infill_density"])
+        assertTrue("sparse_infill_density" in process.dirty)
+        val reopened = engine.placements()
+        assertEquals(placements.size, reopened.size)
+        for ((before, after) in placements.zip(reopened))
+            for (i in 0 until 16) assertEquals(before.transform[i], after.transform[i], 0.01f)
+        assertTrue(engine.slice(File(work, "project.gcode")) { _, _ -> }.filamentMm3 > 0)
+    }
+
+    @Test
+    fun loadsGcodeForPreview() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val gcode = File(work, "cube20.gcode")
+        val sliced = engine.slice(gcode) { _, _ -> }
+
+        engine.close()
+        engine = SlicerEngine.create(OrcaResources.install(context), File(work, "data"))
+        val loaded = engine.loadGcode(gcode)
+        assertEquals(sliced.printTimeSeconds, loaded.printTimeSeconds, sliced.printTimeSeconds * 0.01)
+        assertEquals(sliced.filamentGrams, loaded.filamentGrams, sliced.filamentGrams * 0.01)
+        assertEquals(sliced.cost, loaded.cost, sliced.cost * 0.01)
+        assertEquals(100, engine.toolpaths().layerCount)
+    }
+
     // Regressão: com uma thread nativa por motor, motores criados depois do primeiro
     // falhavam ao fatiar ("Coordinate outside allowed range") na maioria das vezes.
     @Test
@@ -286,6 +333,16 @@ class SlicerEngineTest {
  * File.deleteRecursively() os seguiria e apagaria os perfis.
  */
 private fun File.deleteWithoutFollowingLinks() {
-    if (!toPath().let { Files.exists(it) || Files.isSymbolicLink(it) }) return
-    Files.walk(toPath()).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
+    // SlicerEngine.close() destrói o motor na thread dele, e o Model nativo apaga seus
+    // temporários nisso, possivelmente durante a varredura: tenta de novo.
+    repeat(5) {
+        if (!toPath().let { Files.exists(it) || Files.isSymbolicLink(it) }) return
+        try {
+            Files.walk(toPath()).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
+        } catch (e: java.io.IOException) {
+            Thread.sleep(100)
+        } catch (e: java.io.UncheckedIOException) {
+            Thread.sleep(100)
+        }
+    }
 }

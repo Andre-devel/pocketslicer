@@ -15,7 +15,9 @@
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/ExtrusionEntity.hpp"
+#include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
+#include "libslic3r/GCode/ThumbnailData.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
@@ -33,6 +35,7 @@ struct Engine::Impl {
     fs::path                      profiles_dir;
     AppConfig                     app_config;
     std::unique_ptr<PresetBundle> bundle;
+    std::string                   vendor; // de bundle
     Model                         model;
     Print                         print;
     GCodeProcessorResult          result; // do último slice()
@@ -139,6 +142,10 @@ Engine::Engine(const std::string &resources_dir, const std::string &data_dir) : 
     // Absolutos: load_vendor() cria symlinks para os perfis.
     set_resources_dir(fs::absolute(resources_dir).string());
     set_data_dir(fs::absolute(data_dir).string());
+    // Arquivos intermediários do 3MF (Model::get_backup_path); sem isto ficariam em "/".
+    const fs::path temp_dir = fs::absolute(data_dir) / "tmp";
+    fs::create_directories(temp_dir);
+    set_temporary_dir(temp_dir.string());
     m->profiles_dir = fs::path(Slic3r::resources_dir()) / "profiles";
     PresetBundle().setup_directories();
 }
@@ -189,6 +196,7 @@ void Engine::load_vendor(const std::string &vendor)
     for (Preset &filament : bundle->filaments)
         filament.is_visible = true;
     m->bundle = std::move(bundle);
+    m->vendor = vendor;
 
     const std::vector<std::string> printers = presets(PresetKind::Printer);
     if (printers.empty())
@@ -296,6 +304,39 @@ const char *type_name(ConfigOptionType type)
     }
 }
 
+SliceStats stats_of(const GCodeProcessorResult &result)
+{
+    SliceStats stats;
+    stats.print_time_s = result.print_statistics.modes.front().time;
+    for (const auto &kv : result.print_statistics.total_volumes_per_extruder)
+        stats.filament_mm3 += kv.second;
+    for (const auto &[role, used] : result.print_statistics.used_filaments_per_role) {
+        stats.filament_m += used.first;
+        stats.filament_g += used.second;
+    }
+    if (!result.filament_costs.empty())
+        stats.cost = result.filament_costs.front() * stats.filament_g / 1000.0;
+    return stats;
+}
+
+// Fabricante (em resources/profiles) que declara uma das impressoras.
+std::string vendor_of(const fs::path &profiles_dir, const std::set<std::string> &printers)
+{
+    for (const fs::directory_entry &entry : fs::directory_iterator(profiles_dir)) {
+        const fs::path &path = entry.path();
+        if (path.extension() != ".json" || !fs::is_directory(path.parent_path() / path.stem()))
+            continue;
+        boost::nowide::ifstream in(path.string());
+        const nlohmann::json index = nlohmann::json::parse(in, nullptr, false);
+        if (!index.is_object() || !index.contains("machine_list"))
+            continue;
+        for (const nlohmann::json &machine : index["machine_list"])
+            if (printers.count(machine.value("name", "")) > 0)
+                return path.stem().string();
+    }
+    return {};
+}
+
 Model read_model(const std::string &path)
 {
     DynamicPrintConfig        config;
@@ -339,6 +380,121 @@ void Engine::load_model(const std::string &path)
 void Engine::add_model(const std::string &path)
 {
     m->add(read_model(path));
+}
+
+std::string Engine::open_project(const std::string &path)
+{
+    DynamicPrintConfig        config;
+    ConfigSubstitutionContext substitutions(ForwardCompatibilitySubstitutionRule::EnableSilent);
+    En3mfType                 type = En3mfType::From_Other;
+    PlateDataPtrs             plates;
+    // read_from_archive() aloca os presets embutidos; quem chama os libera.
+    struct OwnedPresets : std::vector<Preset *> {
+        ~OwnedPresets() { for (Preset *preset : *this) delete preset; }
+    } project_presets;
+    Semver version;
+    Model  model;
+    try {
+        model = Model::read_from_archive(path, &config, &substitutions, type,
+                                         LoadStrategy::LoadModel | LoadStrategy::LoadConfig | LoadStrategy::AddDefaultInstances,
+                                         &plates, &project_presets, &version);
+    } catch (...) {
+        release_PlateData_list(plates);
+        throw;
+    }
+    // Instâncias (objeto, instância) da primeira placa; vazio = todas.
+    std::set<std::pair<int, int>> first_plate;
+    if (plates.size() > 1)
+        first_plate.insert(plates.front()->objects_and_instances.begin(), plates.front()->objects_and_instances.end());
+    release_PlateData_list(plates);
+
+    if (!config.has("printer_settings_id")) {
+        load_model(path);
+        if (m->vendor.empty())
+            throw std::runtime_error("no vendor loaded");
+        return m->vendor;
+    }
+
+    // A impressora do projeto ou o preset de sistema de que ela herda (último de inherits_group).
+    std::set<std::string> printers{config.opt_string("printer_settings_id")};
+    if (const auto *inherits = config.option<ConfigOptionStrings>("inherits_group"); inherits != nullptr && !inherits->values.empty())
+        printers.insert(inherits->values.back());
+    std::string vendor = vendor_of(m->profiles_dir, printers);
+    if (vendor.empty())
+        vendor = m->vendor;
+    if (vendor.empty())
+        throw std::runtime_error("unknown printer: " + config.opt_string("printer_settings_id"));
+    if (vendor != m->vendor)
+        load_vendor(vendor);
+    // Como Plater::load_files(): presets embutidos, depois a configuração do projeto.
+    if (!project_presets.empty())
+        m->bundle->load_project_embedded_presets(project_presets, ForwardCompatibilitySubstitutionRule::EnableSilent);
+    m->bundle->load_config_model(path, std::move(config), version);
+    for (Preset &filament : m->bundle->filaments)
+        filament.is_visible = true;
+
+    // Uma instância por objeto, nas posições do arquivo.
+    m->model.clear_objects();
+    m->model.clear_materials();
+    for (size_t i = 0; i < model.objects.size(); ++i) {
+        const ModelObject *source = model.objects[i];
+        for (size_t j = 0; j < source->instances.size(); ++j) {
+            if (!first_plate.empty() && first_plate.count({int(i), int(j)}) == 0)
+                continue;
+            ModelObject *added = m->model.add_object(*source);
+            const Transform3d transform = source->instances[j]->get_matrix();
+            while (added->instances.size() > 1)
+                added->delete_instance(added->instances.size() - 1);
+            added->instances.front()->set_transformation(Geometry::Transformation(transform));
+        }
+    }
+    if (m->model.objects.empty())
+        throw std::runtime_error("no objects in " + path);
+    return m->vendor;
+}
+
+void Engine::save_project(const std::string &path, const Thumbnail &thumbnail)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    DynamicPrintConfig config = m->bundle->full_config_secure();
+
+    ThumbnailData image;
+    if (thumbnail.width > 0 && thumbnail.rgba.size() == size_t(thumbnail.width) * thumbnail.height * 4) {
+        image.set(thumbnail.width, thumbnail.height);
+        image.pixels = thumbnail.rgba;
+    }
+    // Uma placa com todos os objetos, como PartPlateList::store_to_3mf_structure().
+    PlateData plate;
+    plate.plate_index = 0;
+    for (size_t i = 0; i < m->model.objects.size(); ++i)
+        plate.objects_and_instances.emplace_back(int(i), 0);
+    plate.printer_model_id = m->bundle->printers.get_edited_preset().get_printer_type(m->bundle.get());
+    if (const ConfigOption *nozzle = config.option("nozzle_diameter"))
+        plate.nozzle_diameters = nozzle->serialize();
+
+    StoreParams params;
+    const std::string absolute = fs::absolute(path).string();
+    params.path = absolute.c_str();
+    params.model = &m->model;
+    params.plate_data_list = {&plate};
+    params.project_presets = m->bundle->get_current_project_embedded_presets();
+    params.config = &config;
+    if (image.is_valid())
+        params.thumbnail_data = {&image};
+    params.strategy = SaveStrategy::Zip64;
+    if (!store_bbs_3mf(params))
+        throw std::runtime_error("could not write " + path);
+}
+
+SliceStats Engine::load_gcode(const std::string &path)
+{
+    GCodeProcessor processor;
+    processor.init_filament_maps_and_nozzle_type_when_import_only_gcode();
+    GCodeProcessor::s_IsBBLPrinter = m->bundle && m->bundle->is_bbl_vendor();
+    processor.process_file(path);
+    m->result = processor.extract_result();
+    return stats_of(m->result);
 }
 
 void Engine::duplicate(size_t object)
@@ -636,18 +792,8 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     if (print.canceled())
         throw Canceled();
 
-    SliceStats stats;
-    stats.print_time_s = result.print_statistics.modes.front().time;
-    for (const auto &kv : result.print_statistics.total_volumes_per_extruder)
-        stats.filament_mm3 += kv.second;
-    for (const auto &[role, used] : result.print_statistics.used_filaments_per_role) {
-        stats.filament_m += used.first;
-        stats.filament_g += used.second;
-    }
-    if (const auto *cost = config.opt<ConfigOptionFloats>("filament_cost"); cost != nullptr && !cost->values.empty())
-        stats.cost = cost->values.front() * stats.filament_g / 1000.0;
     m->result = std::move(result);
-    return stats;
+    return stats_of(m->result);
 }
 
 void Engine::cancel()

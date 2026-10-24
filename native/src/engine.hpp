@@ -53,6 +53,13 @@ struct ObjectMesh {
     std::vector<uint32_t> indices;   // 3 por triângulo
 };
 
+// Miniatura RGBA com as linhas de baixo para cima (a ordem do glReadPixels).
+struct Thumbnail {
+    unsigned width = 0;
+    unsigned height = 0;
+    std::vector<uint8_t> rgba;
+};
+
 using Vec3 = std::array<double, 3>;
 
 // Posição de um objeto na mesa (da sua instância). transform é a matriz 4x4 em
@@ -129,6 +136,17 @@ public:
     // Como load_model(), mas acrescenta os objetos do arquivo. Se a mesa já tinha
     // objetos, todos são rearranjados (como o "Clonar" da GUI do Orca).
     void add_model(const std::string &path);
+    // Projeto 3MF do Orca/Bambu Studio: objetos nas posições salvas e perfis com as
+    // alterações, como a GUI do Orca abre. Carrega o fabricante da impressora do projeto
+    // e devolve o nome dele. Um 3MF sem configuração abre como load_model(); de um projeto
+    // com várias placas, só os objetos da primeira.
+    std::string open_project(const std::string &path);
+    // Grava os objetos, a configuração completa e a miniatura num 3MF que o Orca abre.
+    void save_project(const std::string &path, const Thumbnail &thumbnail);
+    // G-code pronto (para preview); substitui o resultado do último slice(). O tempo e o
+    // filamento vêm dos comentários e da configuração no G-code, como no Orca.
+    SliceStats load_gcode(const std::string &path);
+
     // Cópia do objeto, ao fim da lista; rearranja todos como em add_model().
     void duplicate(size_t object);
     void remove(size_t object);
@@ -150,7 +168,7 @@ public:
     // Pode ser chamado de outra thread durante slice().
     void cancel();
 
-    // Do último slice() bem-sucedido (vazio antes dele).
+    // Do último slice() ou load_gcode() bem-sucedido (vazio antes deles).
     Toolpaths toolpaths() const;
     // Nome (em inglês, como no Orca) de cada ExtrusionRole, pelo índice.
     static std::vector<std::string> role_names();
