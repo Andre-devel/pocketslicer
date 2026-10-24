@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <set>
 
 #include <boost/filesystem.hpp>
+#include <boost/nowide/fstream.hpp>
 #include <boost/log/core.hpp>
 #include <boost/log/expressions.hpp>
 #include <boost/log/trivial.hpp>
@@ -18,6 +20,8 @@
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Utils.hpp"
+
+#include "nlohmann/json.hpp"
 
 namespace fs = boost::filesystem;
 using namespace Slic3r;
@@ -238,6 +242,58 @@ void Engine::select(PresetKind kind, const std::string &name)
 
 namespace {
 
+const std::vector<std::string> &option_keys(PresetKind kind)
+{
+    switch (kind) {
+    case PresetKind::Printer: return Preset::printer_options();
+    case PresetKind::Filament: return Preset::filament_options();
+    case PresetKind::Process: return Preset::print_options();
+    }
+    throw std::invalid_argument("invalid preset kind");
+}
+
+Preset::Type preset_type(PresetKind kind)
+{
+    switch (kind) {
+    case PresetKind::Printer: return Preset::TYPE_PRINTER;
+    case PresetKind::Filament: return Preset::TYPE_FILAMENT;
+    case PresetKind::Process: return Preset::TYPE_PRINT;
+    }
+    throw std::invalid_argument("invalid preset kind");
+}
+
+// Opção que a GUI do Orca mostra para FFF: com rótulo, não de desenvolvimento nem só leitura.
+// As de vínculo entre presets (herança, compatibilidade) não são parâmetros de impressão.
+const ConfigOptionDef *editable_def(const std::string &key)
+{
+    static const std::set<std::string> internal = {
+        "inherits", "compatible_printers", "compatible_printers_condition", "compatible_prints",
+        "compatible_prints_condition", "print_settings_id", "filament_settings_id", "printer_settings_id",
+        "printer_model", "printer_variant", "default_print_profile", "default_filament_profile",
+        "print_compatible_printers", "filament_vendor", "filament_ids", "printer_agent", "printable_area"};
+    const ConfigOptionDef *def = print_config_def.get(key);
+    if (def == nullptr || def->label.empty() || def->readonly || def->mode == comDevelop ||
+        def->printer_technology == ptSLA || def->type == coNone || internal.count(key))
+        return nullptr;
+    return def;
+}
+
+const char *type_name(ConfigOptionType type)
+{
+    switch (ConfigOptionType(int(type) & ~int(coVectorType))) {
+    case coBool: return "bool";
+    case coInt: return "int";
+    case coFloat: return "float";
+    case coPercent: return "percent";
+    case coFloatOrPercent: return "float_or_percent";
+    case coString: return "string";
+    case coEnum: return "enum";
+    case coPoint: return "point";
+    case coPoint3: return "point";
+    default: return "other";
+    }
+}
+
 Model read_model(const std::string &path)
 {
     DynamicPrintConfig        config;
@@ -412,6 +468,128 @@ void Engine::lay_on_face(size_t object, size_t triangle)
     instance.set_transformation(Geometry::Transformation(matrix));
     o.invalidate_bounding_box();
     o.ensure_on_bed();
+}
+
+std::string Engine::options_json(PresetKind kind) const
+{
+    nlohmann::json out = nlohmann::json::array();
+    for (const std::string &key : option_keys(kind)) {
+        const ConfigOptionDef *def = editable_def(key);
+        if (def == nullptr)
+            continue;
+        nlohmann::json o = {
+            {"key", key},
+            {"label", def->label},
+            {"category", def->category},
+            {"tooltip", def->tooltip},
+            {"sidetext", def->sidetext},
+            {"type", def->type == coPoints ? "points" : type_name(def->type)},
+            {"vector", (int(def->type) & int(coVectorType)) != 0},
+            {"mode", int(def->mode)},
+            {"multiline", def->multiline || def->is_code},
+            {"enum_values", def->enum_values},
+            {"enum_labels", def->enum_labels},
+        };
+        if (def->min > -FLT_MAX)
+            o["min"] = def->min;
+        if (def->max < FLT_MAX)
+            o["max"] = def->max;
+        out.push_back(std::move(o));
+    }
+    return out.dump();
+}
+
+std::string Engine::values_json(PresetKind kind) const
+{
+    const PresetCollection &collection = m->collection(kind);
+    const DynamicPrintConfig &config = collection.get_edited_preset().config;
+    nlohmann::json values = nlohmann::json::object();
+    for (const std::string &key : option_keys(kind))
+        if (editable_def(key) != nullptr && config.has(key))
+            values[key] = config.opt_serialize(key);
+    return nlohmann::json{{"values", values}, {"dirty", collection.current_dirty_options()}}.dump();
+}
+
+void Engine::set_option(PresetKind kind, const std::string &key, const std::string &value)
+{
+    const std::vector<std::string> &keys = option_keys(kind);
+    if (editable_def(key) == nullptr || std::find(keys.begin(), keys.end(), key) == keys.end())
+        throw std::invalid_argument("not an editable option: " + key);
+    PresetCollection &collection = m->collection(kind);
+    // Sobre uma cópia: um valor inválido não deixa o preset pela metade.
+    DynamicPrintConfig config = collection.get_edited_preset().config;
+    config.set_deserialize_strict(key, value);
+    collection.get_edited_preset().config = std::move(config);
+}
+
+void Engine::discard_changes(PresetKind kind)
+{
+    m->collection(kind).discard_current_changes();
+}
+
+std::vector<std::string> Engine::user_presets(PresetKind kind) const
+{
+    std::vector<std::string> out;
+    for (const Preset &preset : m->collection(kind))
+        if (preset.is_user() && preset.is_visible && preset.is_compatible)
+            out.push_back(preset.name);
+    return out;
+}
+
+void Engine::save_preset(PresetKind kind, const std::string &name)
+{
+    if (name.empty())
+        throw std::invalid_argument("empty preset name");
+    PresetCollection &collection = m->collection(kind);
+    if (const Preset *existing = collection.find_preset(name, false); existing != nullptr && !existing->is_user())
+        throw std::invalid_argument("system preset cannot be overwritten: " + name);
+    // Como a GUI: grava em <data_dir>/user/default só a diferença para o preset pai.
+    m->bundle->save_changes_for_preset(name, preset_type(kind), {});
+}
+
+void Engine::delete_preset(PresetKind kind, const std::string &name)
+{
+    PresetCollection &collection = m->collection(kind);
+    const Preset *preset = collection.find_preset(name, false);
+    if (preset == nullptr || !preset->is_user())
+        throw std::invalid_argument("not a user preset: " + name);
+    const bool was_selected = collection.get_selected_preset_name() == name;
+    if (!collection.delete_preset(name))
+        throw std::runtime_error("cannot delete preset: " + name);
+    if (was_selected) {
+        // Volta ao padrão da impressora (ou ao primeiro compatível), como ao trocar de impressora.
+        m->bundle->update_compatible(PresetSelectCompatibleType::Always);
+        if (kind == PresetKind::Printer) {
+            select(PresetKind::Printer, presets(PresetKind::Printer).front());
+        } else {
+            m->select_printer_defaults();
+            m->bundle->set_filament_preset(0, m->bundle->filaments.get_selected_preset_name());
+        }
+    }
+}
+
+std::vector<std::string> Engine::import_preset(const std::string &path)
+{
+    std::vector<std::string> files{path};
+    // 1 = sobrescrever um preset de usuário com o mesmo nome.
+    m->bundle->import_presets(files, [](const std::string &) { return 1; },
+                              ForwardCompatibilitySubstitutionRule::EnableSilent, m->app_config);
+    if (files.empty())
+        throw std::runtime_error("no compatible preset in " + path);
+    m->bundle->update_compatible(PresetSelectCompatibleType::Never);
+    // import_presets devolve os arquivos importados; o nome do preset está no JSON.
+    std::vector<std::string> names;
+    for (const std::string &file : files) {
+        boost::nowide::ifstream in(file);
+        names.push_back(nlohmann::json::parse(in).value("name", fs::path(file).stem().string()));
+    }
+    return names;
+}
+
+void Engine::export_preset(PresetKind kind, const std::string &path) const
+{
+    const Preset &preset = m->collection(kind).get_edited_preset();
+    preset.config.save_to_json(path, preset.name, "User", SLIC3R_VERSION);
 }
 
 SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progress)

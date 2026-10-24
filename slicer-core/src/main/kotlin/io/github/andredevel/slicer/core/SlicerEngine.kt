@@ -6,6 +6,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -33,6 +35,33 @@ class Placement(
     val outside: Boolean,
 )
 
+/** Tipo de valor de uma opção do Orca (ConfigOptionType sem a distinção escalar/vetor). */
+enum class OptionType { BOOL, INT, FLOAT, PERCENT, FLOAT_OR_PERCENT, STRING, ENUM, POINT, POINTS, OTHER }
+
+/**
+ * Definição de uma opção editável, vinda do `PrintConfigDef` do Orca. [simple]: aparece no
+ * modo simples da GUI do Orca (painel básico); as demais são do modo avançado. [vector]:
+ * um valor por extrusor/filamento, separados por vírgula na forma serializada.
+ */
+data class OptionDef(
+    val key: String,
+    val label: String,
+    val category: String,
+    val tooltip: String,
+    val sidetext: String,
+    val type: OptionType,
+    val vector: Boolean,
+    val simple: Boolean,
+    val multiline: Boolean,
+    val enumValues: List<String>,
+    val enumLabels: List<String>,
+    val min: Double?,
+    val max: Double?,
+)
+
+/** Valores (serializados como no Orca) do preset em edição e as chaves alteradas desde o salvo. */
+data class PresetValues(val values: Map<String, String>, val dirty: Set<String>)
+
 fun interface SliceProgressListener {
     fun onProgress(percent: Int, text: String)
 }
@@ -43,14 +72,12 @@ class SlicerException(message: String) : RuntimeException(message)
 /**
  * Motor de fatiamento: libslic3r do OrcaSlicer via JNI (native/src/engine.hpp).
  *
- * O motor nativo não é thread-safe, então toda chamada roda numa thread própria;
- * as funções podem ser chamadas de qualquer coroutine. Cancelar a coroutine de
- * [slice] interrompe o fatiamento.
+ * O motor nativo não é thread-safe e o libslic3r tem estado global (diretórios de dados),
+ * então toda chamada, de qualquer instância, roda numa única thread do processo; as funções
+ * podem ser chamadas de qualquer coroutine. Cancelar a coroutine de [slice] interrompe o
+ * fatiamento.
  */
-class SlicerEngine private constructor(
-    private val handle: Long,
-    private val dispatcher: ExecutorCoroutineDispatcher,
-) : AutoCloseable {
+class SlicerEngine private constructor(private val handle: Long) : AutoCloseable {
 
     suspend fun vendors(): List<String> = call { nativeVendors(handle).asList() }
 
@@ -64,6 +91,37 @@ class SlicerEngine private constructor(
 
     /** Trocar a impressora seleciona o processo e o filamento padrão dela. */
     suspend fun select(kind: PresetKind, name: String) = call { nativeSelect(handle, kind.ordinal, name) }
+
+    /** Opções editáveis do tipo de preset; não mudam durante a execução. */
+    suspend fun options(kind: PresetKind): List<OptionDef> = call { parseOptions(nativeOptionsJson(handle, kind.ordinal)) }
+
+    suspend fun values(kind: PresetKind): PresetValues = call {
+        val json = JSONObject(nativeValuesJson(handle, kind.ordinal))
+        val values = json.getJSONObject("values")
+        PresetValues(
+            values = values.keys().asSequence().associateWith(values::getString),
+            dirty = json.getJSONArray("dirty").strings().toSet(),
+        )
+    }
+
+    /** Altera o preset em edição (usado no fatiamento). [value] no formato do Orca, ex.: "0.2", "15%". */
+    suspend fun setOption(kind: PresetKind, key: String, value: String) = call { nativeSetOption(handle, kind.ordinal, key, value) }
+
+    suspend fun discardChanges(kind: PresetKind) = call { nativeDiscardChanges(handle, kind.ordinal) }
+
+    /** Presets de usuário entre os de [presets]; os demais são de sistema (somente leitura). */
+    suspend fun userPresets(kind: PresetKind): List<String> = call { nativeUserPresets(handle, kind.ordinal).asList() }
+
+    /** Salva o preset em edição como preset de usuário [name] e o seleciona. */
+    suspend fun savePreset(kind: PresetKind, name: String) = call { nativeSavePreset(handle, kind.ordinal, name) }
+
+    suspend fun deletePreset(kind: PresetKind, name: String) = call { nativeDeletePreset(handle, kind.ordinal, name) }
+
+    /** Importa um .json de preset do Orca; devolve os nomes importados. */
+    suspend fun importPreset(file: File): List<String> = call { nativeImportPreset(handle, file.absolutePath).asList() }
+
+    /** Exporta o preset em edição (configuração completa) como .json do Orca. */
+    suspend fun exportPreset(kind: PresetKind, file: File) = call { nativeExportPreset(handle, kind.ordinal, file.absolutePath) }
 
     /** Mesa da impressora selecionada. */
     suspend fun bed(): Bed = call { nativeBed(handle) }
@@ -121,7 +179,6 @@ class SlicerEngine private constructor(
 
     override fun close() {
         dispatcher.executor.execute { nativeDestroy(handle) }
-        dispatcher.close()
     }
 
     private suspend fun <T> call(block: () -> T): T = withContext(dispatcher) { block() }
@@ -136,19 +193,40 @@ class SlicerEngine private constructor(
          * @param dataDir diretório gravável para os presets carregados. Contém symlinks para
          *   [resourcesDir]: não apague com File.deleteRecursively(), que os segue.
          */
-        suspend fun create(resourcesDir: File, dataDir: File): SlicerEngine {
-            val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-                // libslic3r usa recursão profunda em algumas etapas.
-                Thread(null, runnable, "slicer-engine", 64L shl 20)
-            }.asCoroutineDispatcher()
-            return try {
-                val handle = withContext(dispatcher) { nativeCreate(resourcesDir.absolutePath, dataDir.absolutePath) }
-                SlicerEngine(handle, dispatcher)
-            } catch (e: Throwable) {
-                dispatcher.close()
-                throw e
-            }
-        }
+        suspend fun create(resourcesDir: File, dataDir: File): SlicerEngine =
+            SlicerEngine(withContext(dispatcher) { nativeCreate(resourcesDir.absolutePath, dataDir.absolutePath) })
+
+        // Uma thread para o processo todo. Com uma thread nova por motor, motores criados
+        // depois do primeiro falhavam ao fatiar com "Coordinate outside allowed range"
+        // (visto nos testes instrumentados; não reproduz no slice_cli).
+        private val dispatcher: ExecutorCoroutineDispatcher = Executors.newSingleThreadExecutor { runnable ->
+            // libslic3r usa recursão profunda em algumas etapas.
+            Thread(null, runnable, "slicer-engine", 64L shl 20).apply { isDaemon = true }
+        }.asCoroutineDispatcher()
+    }
+}
+
+private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
+
+private fun parseOptions(json: String): List<OptionDef> {
+    val array = JSONArray(json)
+    return List(array.length()) { i ->
+        val o = array.getJSONObject(i)
+        OptionDef(
+            key = o.getString("key"),
+            label = o.getString("label"),
+            category = o.getString("category"),
+            tooltip = o.getString("tooltip"),
+            sidetext = o.getString("sidetext"),
+            type = OptionType.valueOf(o.getString("type").uppercase()),
+            vector = o.getBoolean("vector"),
+            simple = o.getInt("mode") == 0,
+            multiline = o.getBoolean("multiline"),
+            enumValues = o.getJSONArray("enum_values").strings(),
+            enumLabels = o.getJSONArray("enum_labels").strings(),
+            min = o.optDouble("min").takeUnless { it.isNaN() },
+            max = o.optDouble("max").takeUnless { it.isNaN() },
+        )
     }
 }
 
@@ -160,6 +238,15 @@ private external fun nativeLoadVendor(handle: Long, vendor: String)
 private external fun nativePresets(handle: Long, kind: Int): Array<String>
 private external fun nativeSelected(handle: Long, kind: Int): String
 private external fun nativeSelect(handle: Long, kind: Int, name: String)
+private external fun nativeOptionsJson(handle: Long, kind: Int): String
+private external fun nativeValuesJson(handle: Long, kind: Int): String
+private external fun nativeSetOption(handle: Long, kind: Int, key: String, value: String)
+private external fun nativeDiscardChanges(handle: Long, kind: Int)
+private external fun nativeUserPresets(handle: Long, kind: Int): Array<String>
+private external fun nativeSavePreset(handle: Long, kind: Int, name: String)
+private external fun nativeDeletePreset(handle: Long, kind: Int, name: String)
+private external fun nativeImportPreset(handle: Long, path: String): Array<String>
+private external fun nativeExportPreset(handle: Long, kind: Int, path: String)
 private external fun nativeBed(handle: Long): Bed
 private external fun nativeLoadModel(handle: Long, path: String)
 private external fun nativeAddModel(handle: Long, path: String)

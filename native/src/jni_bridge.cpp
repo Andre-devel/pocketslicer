@@ -111,6 +111,60 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSelect(JNIEnv *env, j
     guarded(env, [&] { engine(handle)->select(PresetKind(kind), to_string(env, name)); });
 }
 
+JNIEXPORT jstring JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeOptionsJson(JNIEnv *env, jclass, jlong handle, jint kind)
+{
+    return guarded(env, [&] { return env->NewStringUTF(engine(handle)->options_json(PresetKind(kind)).c_str()); });
+}
+
+JNIEXPORT jstring JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeValuesJson(JNIEnv *env, jclass, jlong handle, jint kind)
+{
+    return guarded(env, [&] { return env->NewStringUTF(engine(handle)->values_json(PresetKind(kind)).c_str()); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetOption(JNIEnv *env, jclass, jlong handle, jint kind, jstring key, jstring value)
+{
+    guarded(env, [&] { engine(handle)->set_option(PresetKind(kind), to_string(env, key), to_string(env, value)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeDiscardChanges(JNIEnv *env, jclass, jlong handle, jint kind)
+{
+    guarded(env, [&] { engine(handle)->discard_changes(PresetKind(kind)); });
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeUserPresets(JNIEnv *env, jclass, jlong handle, jint kind)
+{
+    return guarded(env, [&] { return to_array(env, engine(handle)->user_presets(PresetKind(kind))); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSavePreset(JNIEnv *env, jclass, jlong handle, jint kind, jstring name)
+{
+    guarded(env, [&] { engine(handle)->save_preset(PresetKind(kind), to_string(env, name)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeDeletePreset(JNIEnv *env, jclass, jlong handle, jint kind, jstring name)
+{
+    guarded(env, [&] { engine(handle)->delete_preset(PresetKind(kind), to_string(env, name)); });
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeImportPreset(JNIEnv *env, jclass, jlong handle, jstring path)
+{
+    return guarded(env, [&] { return to_array(env, engine(handle)->import_preset(to_string(env, path))); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeExportPreset(JNIEnv *env, jclass, jlong handle, jint kind, jstring path)
+{
+    guarded(env, [&] { engine(handle)->export_preset(PresetKind(kind), to_string(env, path)); });
+}
+
 JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeLoadModel(JNIEnv *env, jclass, jlong handle, jstring path)
 {

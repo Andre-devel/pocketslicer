@@ -77,7 +77,35 @@ public:
     std::vector<std::string> presets(PresetKind kind) const;
     std::string selected(PresetKind kind) const;
     // Trocar a impressora reaplica o processo e o filamento padrão dela quando compatíveis.
+    // Descarta alterações não salvas do preset selecionado.
     void select(PresetKind kind, const std::string &name);
+
+    // --- Parâmetros (o preset "editado" de cada tipo, base do fatiamento) ---
+
+    // Definições das opções editáveis do tipo de preset, de PrintConfigDef, como JSON:
+    // [{"key","label","category","tooltip","sidetext","type","vector","mode",
+    //   "min","max","enum_values","enum_labels","multiline"}], type em
+    // bool|int|float|percent|float_or_percent|string|enum|point|points;
+    // mode 0 = simples (painel básico), 1 = avançado.
+    std::string options_json(PresetKind kind) const;
+    // {"values": {key: valor serializado}, "dirty": [keys alteradas em relação ao preset salvo]}
+    std::string values_json(PresetKind kind) const;
+    // Valor no formato serializado do Orca (ex.: "0.2", "15%", "1", "grid"). Lança se inválido.
+    void set_option(PresetKind kind, const std::string &key, const std::string &value);
+    void discard_changes(PresetKind kind);
+
+    // --- Presets de usuário (em <data_dir>/user/default, formato do Orca) ---
+
+    // Nomes dos presets de usuário (não de sistema) entre os de presets().
+    std::vector<std::string> user_presets(PresetKind kind) const;
+    // Salva o preset editado com outro nome (ou sobrescreve um de usuário) e o seleciona.
+    void save_preset(PresetKind kind, const std::string &name);
+    // Só presets de usuário; seleciona outro compatível.
+    void delete_preset(PresetKind kind, const std::string &name);
+    // Importa um .json de preset do Orca; devolve os nomes importados.
+    std::vector<std::string> import_preset(const std::string &path);
+    // Exporta o preset editado (configuração completa) como .json do Orca.
+    void export_preset(PresetKind kind, const std::string &path) const;
 
     Bed bed() const;
 

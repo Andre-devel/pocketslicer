@@ -137,6 +137,66 @@ class SlicerEngineTest {
         assertTrue(engine.placements().none { it.outside })
     }
 
+    @Test
+    fun optionsComeFromPrintConfigDefAndAffectSlicing() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        val options = engine.options(PresetKind.PROCESS).associateBy { it.key }
+        val layerHeight = options.getValue("layer_height")
+        assertEquals(OptionType.FLOAT, layerHeight.type)
+        assertTrue(layerHeight.simple)
+        assertTrue(options.getValue("sparse_infill_pattern").enumValues.contains("gyroid"))
+        assertTrue(options.values.any { !it.simple })
+        assertTrue("inherits" !in options)
+
+        assertEquals("0.2", engine.values(PresetKind.PROCESS).values["layer_height"])
+        engine.setOption(PresetKind.PROCESS, "layer_height", "0.1")
+        val values = engine.values(PresetKind.PROCESS)
+        assertEquals("0.1", values.values["layer_height"])
+        assertTrue("layer_height" in values.dirty)
+        assertTrue(runCatching { engine.setOption(PresetKind.PROCESS, "layer_height", "abc") }.exceptionOrNull() is SlicerException)
+
+        // O valor editado vale no fatiamento: 1ª camada de 0.2 mm e as outras de 0.1 mm
+        // num cubo de 20 mm (eram 100 camadas).
+        engine.loadModel(testAsset("cube20.stl"))
+        val gcode = File(work, "fine.gcode")
+        engine.slice(gcode) { _, _ -> }
+        assertTrue("; total layer number: 199" in gcode.readText())
+
+        engine.discardChanges(PresetKind.PROCESS)
+        assertEquals("0.2", engine.values(PresetKind.PROCESS).values["layer_height"])
+    }
+
+    @Test
+    fun userPresetsAreSavedDeletedAndImported() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.setOption(PresetKind.PROCESS, "sparse_infill_density", "35%")
+        engine.savePreset(PresetKind.PROCESS, "Meu processo")
+        assertEquals("Meu processo", engine.selected(PresetKind.PROCESS))
+        assertEquals(listOf("Meu processo"), engine.userPresets(PresetKind.PROCESS))
+        assertTrue(engine.values(PresetKind.PROCESS).dirty.isEmpty())
+        assertTrue(runCatching { engine.savePreset(PresetKind.PROCESS, "0.20mm Standard @BBL A1") }.isFailure)
+
+        // Persistência: um motor novo sobre o mesmo diretório de dados vê o preset.
+        val exported = File(work, "export.json")
+        engine.exportPreset(PresetKind.PROCESS, exported)
+        engine.close()
+        engine = SlicerEngine.create(OrcaResources.install(context), File(work, "data"))
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        assertTrue("Meu processo" in engine.presets(PresetKind.PROCESS))
+        engine.select(PresetKind.PROCESS, "Meu processo")
+        assertEquals("35%", engine.values(PresetKind.PROCESS).values["sparse_infill_density"])
+
+        engine.deletePreset(PresetKind.PROCESS, "Meu processo")
+        assertTrue(engine.userPresets(PresetKind.PROCESS).isEmpty())
+        assertEquals("0.20mm Standard @BBL A1", engine.selected(PresetKind.PROCESS))
+
+        assertEquals(listOf("Meu processo"), engine.importPreset(exported))
+        assertTrue("Meu processo" in engine.userPresets(PresetKind.PROCESS))
+    }
+
     // Mesmo caso "cube20" de testdata/cases.tsv (comparado camada a camada por scripts/test-device.sh).
     @Test
     fun slicesCubeLikeDesktopOrca() = runBlocking {
@@ -156,6 +216,20 @@ class SlicerEngineTest {
         val layers = Regex("; total layer number: [0-9]+").find(reference)!!.value
         assertTrue(layers in gcode.readText())
         assertTrue(progress.isNotEmpty())
+    }
+
+    // Regressão: com uma thread nativa por motor, motores criados depois do primeiro
+    // falhavam ao fatiar ("Coordinate outside allowed range") na maioria das vezes.
+    @Test
+    fun consecutiveEnginesSlice() = runBlocking {
+        val model = testAsset("cube20.stl")
+        repeat(4) { i ->
+            engine.close()
+            engine = SlicerEngine.create(OrcaResources.install(context), File(work, "data"))
+            engine.loadVendor("BBL")
+            engine.loadModel(model)
+            assertTrue(engine.slice(File(work, "cube$i.gcode")) { _, _ -> }.filamentMm3 > 0)
+        }
     }
 
     @Test
