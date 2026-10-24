@@ -54,6 +54,23 @@ jdoubleArray to_array(JNIEnv *env, const slicer::SliceStats &stats)
     return out;
 }
 
+// sizes: largura e altura intercaladas, uma dupla por imagem de pixels (RGBA).
+std::vector<slicer::Thumbnail> to_thumbnails(JNIEnv *env, jintArray sizes, jobjectArray pixels)
+{
+    std::vector<slicer::Thumbnail> out(size_t(env->GetArrayLength(pixels)));
+    std::vector<jint> dims(size_t(env->GetArrayLength(sizes)));
+    env->GetIntArrayRegion(sizes, 0, jsize(dims.size()), dims.data());
+    for (size_t i = 0; i < out.size() && i * 2 + 1 < dims.size(); ++i) {
+        auto rgba = static_cast<jbyteArray>(env->GetObjectArrayElement(pixels, jsize(i)));
+        out[i].width = unsigned(dims[i * 2]);
+        out[i].height = unsigned(dims[i * 2 + 1]);
+        out[i].rgba.resize(size_t(env->GetArrayLength(rgba)));
+        env->GetByteArrayRegion(rgba, 0, jsize(out[i].rgba.size()), reinterpret_cast<jbyte *>(out[i].rgba.data()));
+        env->DeleteLocalRef(rgba);
+    }
+    return out;
+}
+
 Engine *engine(jlong handle) { return reinterpret_cast<Engine *>(handle); }
 
 // Executa f convertendo exceções C++ em exceções Java pendentes.
@@ -207,18 +224,28 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeOpenProject(JNIEnv *e
     return guarded(env, [&] { return env->NewStringUTF(engine(handle)->open_project(to_string(env, path)).c_str()); });
 }
 
-// thumbnail: RGBA, linhas de baixo para cima; vazio = sem miniatura.
+// Miniatura como em to_thumbnails(); sem imagens = sem miniatura.
 JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSaveProject(JNIEnv *env, jclass, jlong handle, jstring path,
-                                                                     jbyteArray thumbnail, jint width, jint height)
+                                                                     jintArray thumbnail_size, jobjectArray thumbnail)
 {
     guarded(env, [&] {
-        slicer::Thumbnail image;
-        image.width = unsigned(width);
-        image.height = unsigned(height);
-        image.rgba.resize(size_t(env->GetArrayLength(thumbnail)));
-        env->GetByteArrayRegion(thumbnail, 0, jsize(image.rgba.size()), reinterpret_cast<jbyte *>(image.rgba.data()));
-        engine(handle)->save_project(to_string(env, path), image);
+        const std::vector<slicer::Thumbnail> images = to_thumbnails(env, thumbnail_size, thumbnail);
+        engine(handle)->save_project(to_string(env, path), images.empty() ? slicer::Thumbnail() : images.front());
+    });
+}
+
+// Largura e altura intercaladas.
+JNIEXPORT jintArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeGcodeThumbnailSizes(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] {
+        std::vector<jint> values;
+        for (const auto &[width, height] : engine(handle)->gcode_thumbnail_sizes())
+            values.insert(values.end(), {jint(width), jint(height)});
+        jintArray out = env->NewIntArray(jsize(values.size()));
+        env->SetIntArrayRegion(out, 0, jsize(values.size()), values.data());
+        return out;
     });
 }
 
@@ -310,8 +337,10 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeLayOnFace(JNIEnv *env
 
 // Retorna {tempo estimado em s, volume em mm³, comprimento em m, peso em g, custo}.
 JNIEXPORT jdoubleArray JNICALL
-Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSlice(JNIEnv *env, jclass, jlong handle, jstring gcode_path, jobject listener)
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSlice(JNIEnv *env, jclass, jlong handle, jstring gcode_path,
+                                                               jintArray thumbnail_sizes, jobjectArray thumbnails, jobject listener)
 {
+    const std::vector<slicer::Thumbnail> images = to_thumbnails(env, thumbnail_sizes, thumbnails);
     jmethodID on_progress = env->GetMethodID(env->GetObjectClass(listener), "onProgress", "(ILjava/lang/String;)V");
     return guarded(env, [&] {
         const std::thread::id jni_thread = std::this_thread::get_id();
@@ -326,7 +355,7 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSlice(JNIEnv *env, jc
                 env->ExceptionDescribe();
                 env->ExceptionClear();
             }
-        });
+        }, images);
         return to_array(env, stats);
     });
 }

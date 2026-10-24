@@ -238,7 +238,7 @@ class SlicerEngineTest {
         engine.setPlacement(0, floatArrayOf(60f, 70f, 10f), floatArrayOf(0f, 0f, 30f), floatArrayOf(1f, 1f, 1f))
         val placements = engine.placements()
         val project = File(work, "project.3mf")
-        engine.saveProject(project, ByteArray(64 * 64 * 4) { 0x7f }, 64, 64)
+        engine.saveProject(project, Thumbnail(64, 64, ByteArray(64 * 64 * 4) { 0x7f }))
 
         val entries = java.util.zip.ZipFile(project).use { zip -> zip.entries().asSequence().map { it.name }.toSet() }
         assertTrue("Metadata/plate_1.png" in entries)
@@ -256,6 +256,23 @@ class SlicerEngineTest {
         for ((before, after) in placements.zip(reopened))
             for (i in 0 until 16) assertEquals(before.transform[i], after.transform[i], 0.01f)
         assertTrue(engine.slice(File(work, "project.gcode")) { _, _ -> }.filamentMm3 > 0)
+    }
+
+    @Test
+    fun gcodeHasThumbnailsOfPrinterProfile() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        assertTrue(engine.gcodeThumbnailSizes().isEmpty()) // Bambu: configuração no lugar
+
+        engine.loadVendor("Prusa")
+        engine.select(PresetKind.PRINTER, engine.presets(PresetKind.PRINTER).first { it.startsWith("Prusa MK4") })
+        val sizes = engine.gcodeThumbnailSizes()
+        assertTrue(sizes.isNotEmpty())
+        engine.loadModel(testAsset("cube20.stl"))
+        val gcode = File(work, "thumb.gcode")
+        engine.slice(gcode, sizes.map { (w, h) -> Thumbnail(w, h, ByteArray(w * h * 4) { 0x40 }) }) { _, _ -> }
+        val text = gcode.readText()
+        for ((w, h) in sizes) assertTrue("${w}x$h", Regex("; thumbnail(_[A-Z]+)? begin ${w}x$h ").containsMatchIn(text))
     }
 
     @Test

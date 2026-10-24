@@ -98,10 +98,8 @@ class SceneRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onDrawFrame(unused: GL10?) {
-        thumbnailRequest?.let { (size, done) ->
-            thumbnailRequest = null
-            done(thumbnail(size))
-        }
+        for (request in thumbnailRequests) request.done(thumbnail(request.width, request.height))
+        thumbnailRequests.clear()
         glClearColor(0.16f, 0.17f, 0.19f, 1f)
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
         val scene = scene ?: return
@@ -133,17 +131,18 @@ class SceneRenderer : GLSurfaceView.Renderer {
 
     /**
      * Pede uma miniatura dos objetos, sem a mesa e com fundo transparente, do ângulo padrão
-     * da câmera: RGBA de [size] × [size] com as linhas de baixo para cima (vazia sem objetos).
+     * da câmera: RGBA de [width] × [height] com as linhas de baixo para cima (vazia sem objetos).
      * [done] recebe a imagem no próximo quadro, quando o contexto GL certamente existe (um
      * evento da fila do GLSurfaceView pode rodar antes de o contexto ser recriado ao voltar ao app).
      */
-    fun requestThumbnail(size: Int, done: (ByteArray) -> Unit) {
-        thumbnailRequest = size to done
+    fun requestThumbnail(width: Int, height: Int, done: (ByteArray) -> Unit) {
+        thumbnailRequests += ThumbnailRequest(width, height, done)
     }
 
-    private var thumbnailRequest: Pair<Int, (ByteArray) -> Unit>? = null
+    private class ThumbnailRequest(val width: Int, val height: Int, val done: (ByteArray) -> Unit)
+    private val thumbnailRequests = ArrayList<ThumbnailRequest>()
 
-    private fun thumbnail(size: Int): ByteArray {
+    private fun thumbnail(width: Int, height: Int): ByteArray {
         val scene = scene?.takeIf { it.meshes.isNotEmpty() } ?: return ByteArray(0)
         val gpu = gpu ?: upload(scene).also { gpu = it }
 
@@ -165,7 +164,7 @@ class SceneRenderer : GLSurfaceView.Renderer {
         val center = FloatArray(3) { (min[it] + max[it]) / 2 }
         val radius = sqrt((0..2).sumOf { ((max[it] - min[it]) / 2).let { h -> h * h }.toDouble() }).toFloat()
         val camera = OrbitCamera().apply {
-            setViewport(size, size)
+            setViewport(width, height)
             frame(center, radius.coerceAtLeast(1f))
             update()
         }
@@ -178,21 +177,21 @@ class SceneRenderer : GLSurfaceView.Renderer {
             Triple(renderbuffers[1], GL_DEPTH_COMPONENT24, GL_DEPTH_ATTACHMENT),
         )) {
             glBindRenderbuffer(GL_RENDERBUFFER, buffer)
-            glRenderbufferStorage(GL_RENDERBUFFER, format, size, size)
+            glRenderbufferStorage(GL_RENDERBUFFER, format, width, height)
             glFramebufferRenderbuffer(GL_FRAMEBUFFER, attachment, GL_RENDERBUFFER, buffer)
         }
-        glViewport(0, 0, size, size)
+        glViewport(0, 0, width, height)
         glClearColor(0f, 0f, 0f, 0f)
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
         drawObjects(gpu, scene, camera, highlight = false)
-        val pixels = ByteBuffer.allocateDirect(size * size * 4)
-        glReadPixels(0, 0, size, size, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
+        val pixels = ByteBuffer.allocateDirect(width * height * 4)
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
         glDeleteRenderbuffers(2, renderbuffers, 0)
         glDeleteFramebuffers(1, framebuffer, 0)
         glViewport(0, 0, viewportWidth, viewportHeight)
-        return ByteArray(size * size * 4).also { pixels.get(it) }
+        return ByteArray(width * height * 4).also { pixels.get(it) }
     }
 
     /** [highlight]: cores de seleção e de fora da mesa; sem ele, todos com a cor normal. */

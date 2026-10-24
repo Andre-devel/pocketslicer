@@ -77,6 +77,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.render.PreviewSettings
+import io.github.andredevel.slicer.core.Thumbnail
 import io.github.andredevel.slicer.render.ViewportView
 import java.util.Locale
 
@@ -96,9 +97,8 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::open)
     }
-    var viewport by remember { mutableStateOf<ViewportView?>(null) }
     val saveProject = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("model/3mf")) { uri ->
-        uri?.let { viewModel.saveProject(it) { viewport?.thumbnail(SlicerViewModel.THUMBNAIL_SIZE) ?: ByteArray(0) } }
+        uri?.let(viewModel::saveProject)
     }
 
     LaunchedEffect(state.error) {
@@ -161,7 +161,7 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
         if (landscape) {
             Scaffold(topBar = topBar, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
                 Row(Modifier.padding(padding).fillMaxSize()) {
-                    Viewport(state, viewModel, Modifier.weight(1f).fillMaxHeight()) { viewport = it }
+                    Viewport(state, viewModel, Modifier.weight(1f).fillMaxHeight())
                     if (panelVisible) panel(Modifier.width(PANEL_WIDTH).fillMaxHeight())
                 }
             }
@@ -174,21 +174,22 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
                 sheetContent = { panel(Modifier.fillMaxWidth().heightIn(max = sheetMaxHeight)) },
             ) { padding ->
                 // O viewport ocupa a tela toda; o sheet recolhido cobre só a faixa de baixo.
-                Viewport(state, viewModel, Modifier.padding(padding).fillMaxSize()) { viewport = it }
+                Viewport(state, viewModel, Modifier.padding(padding).fillMaxSize())
             }
         }
     }
 }
 
 @Composable
-private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier, onView: (ViewportView) -> Unit) {
+private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var view by remember { mutableStateOf<ViewportView?>(null) }
     // Barras e legenda da pré-visualização; recomeçam com cada fatiamento.
     var previewSettings by remember(state.preview) { mutableStateOf(PreviewSettings()) }
     // Menu do toque longo: objeto e posição do toque (px).
     var menu by remember { mutableStateOf<Pair<Int, Offset>?>(null) }
-    // GLSurfaceView precisa acompanhar onPause/onResume da tela.
+    // GLSurfaceView precisa acompanhar onPause/onResume da tela; o viewport também fornece as
+    // miniaturas do projeto e do G-code enquanto existe.
     DisposableEffect(lifecycle, view) {
         val target = view ?: return@DisposableEffect onDispose {}
         val observer = LifecycleEventObserver { _, event ->
@@ -199,7 +200,12 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        val thumbnails: suspend (Int, Int) -> Thumbnail? = target::thumbnail
+        viewModel.thumbnails = thumbnails
+        onDispose {
+            lifecycle.removeObserver(observer)
+            if (viewModel.thumbnails === thumbnails) viewModel.thumbnails = null
+        }
     }
     Box(modifier) {
         AndroidView(
@@ -215,7 +221,6 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
                         }
                     }
                     view = created
-                    onView(created)
                 }
             },
             modifier = Modifier.fillMaxSize(),

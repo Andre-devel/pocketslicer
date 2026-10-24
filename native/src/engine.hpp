@@ -162,9 +162,15 @@ public:
     // virado para baixo, apoiado na mesa.
     void lay_on_face(size_t object, size_t triangle);
 
+    // Tamanhos (largura, altura) das miniaturas que o G-code da impressora selecionada
+    // leva (opção "thumbnails"). Vazio nas impressoras Bambu: o G-code delas não tem miniatura.
+    std::vector<std::array<unsigned, 2>> gcode_thumbnail_sizes() const;
+
     // Fatia o modelo na posição atual com os perfis selecionados (falha se algum
     // objeto estiver fora do volume de impressão) e grava o G-code em gcode_path.
-    SliceStats slice(const std::string &gcode_path, const ProgressFn &progress);
+    // thumbnails: imagens nos tamanhos de gcode_thumbnail_sizes(); as que faltarem ficam fora.
+    SliceStats slice(const std::string &gcode_path, const ProgressFn &progress,
+                     const std::vector<Thumbnail> &thumbnails = {});
     // Pode ser chamado de outra thread durante slice().
     void cancel();
 

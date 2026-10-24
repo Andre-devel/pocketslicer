@@ -41,6 +41,9 @@ class Toolpaths(
     val layerCount get() = layerZ.size
 }
 
+/** Imagem RGBA de [width] × [height] com as linhas de baixo para cima (a ordem do glReadPixels). */
+class Thumbnail(val width: Int, val height: Int, val rgba: ByteArray)
+
 /** Área de impressão em mm: contorno com x, y intercalados e altura máxima. */
 class Bed(val shape: FloatArray, val maxHeight: Float)
 
@@ -167,12 +170,19 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
      */
     suspend fun openProject(file: File): String = call { nativeOpenProject(handle, file.absolutePath) }
 
+    /** Grava objetos, configuração e miniatura num 3MF que o Orca abre. */
+    suspend fun saveProject(file: File, thumbnail: Thumbnail?) = call {
+        val images = listOfNotNull(thumbnail)
+        nativeSaveProject(handle, file.absolutePath, images.sizes(), images.pixels())
+    }
+
     /**
-     * Grava objetos, configuração e miniatura num 3MF que o Orca abre. [thumbnail]: RGBA de
-     * [width] × [height] com as linhas de baixo para cima (ordem do glReadPixels); vazio = sem miniatura.
+     * Tamanhos (largura, altura) das miniaturas que o G-code da impressora selecionada leva,
+     * a passar para [slice]. Vazio nas impressoras Bambu, cujo G-code não tem miniatura.
      */
-    suspend fun saveProject(file: File, thumbnail: ByteArray, width: Int, height: Int) =
-        call { nativeSaveProject(handle, file.absolutePath, thumbnail, width, height) }
+    suspend fun gcodeThumbnailSizes(): List<Pair<Int, Int>> = call {
+        nativeGcodeThumbnailSizes(handle).asList().chunked(2) { it[0] to it[1] }
+    }
 
     /** G-code pronto, para preview: substitui os [toolpaths] do último [slice]. */
     suspend fun loadGcode(file: File): SliceStats = call { nativeLoadGcode(handle, file.absolutePath).toStats() }
@@ -207,9 +217,12 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Gira o objeto para apoiar na mesa o triângulo [triangle] da malha de [objects]. */
     suspend fun layOnFace(objectIndex: Int, triangle: Int) = call { nativeLayOnFace(handle, objectIndex, triangle) }
 
-    /** Fatia os objetos na posição atual (todos dentro do volume de impressão) e grava o G-code em [gcode]. [listener] roda na thread do motor. */
-    suspend fun slice(gcode: File, listener: SliceProgressListener): SliceStats = coroutineScope {
-        val job = async(dispatcher) { nativeSlice(handle, gcode.absolutePath, listener) }
+    /**
+     * Fatia os objetos na posição atual (todos dentro do volume de impressão) e grava o G-code em [gcode].
+     * [thumbnails]: nos tamanhos de [gcodeThumbnailSizes]. [listener] roda na thread do motor.
+     */
+    suspend fun slice(gcode: File, thumbnails: List<Thumbnail> = emptyList(), listener: SliceProgressListener): SliceStats = coroutineScope {
+        val job = async(dispatcher) { nativeSlice(handle, gcode.absolutePath, thumbnails.sizes(), thumbnails.pixels(), listener) }
         val result = try {
             job.await()
         } catch (e: CancellationException) {
@@ -253,6 +266,9 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
         }.asCoroutineDispatcher()
     }
 }
+
+private fun List<Thumbnail>.sizes() = flatMap { listOf(it.width, it.height) }.toIntArray()
+private fun List<Thumbnail>.pixels() = map { it.rgba }.toTypedArray()
 
 private fun DoubleArray.toStats() = SliceStats(this[0], this[1], this[2], this[3], this[4])
 
@@ -301,7 +317,8 @@ private external fun nativeBed(handle: Long): Bed
 private external fun nativeLoadModel(handle: Long, path: String)
 private external fun nativeAddModel(handle: Long, path: String)
 private external fun nativeOpenProject(handle: Long, path: String): String
-private external fun nativeSaveProject(handle: Long, path: String, thumbnail: ByteArray, width: Int, height: Int)
+private external fun nativeSaveProject(handle: Long, path: String, thumbnailSize: IntArray, thumbnail: Array<ByteArray>)
+private external fun nativeGcodeThumbnailSizes(handle: Long): IntArray
 private external fun nativeLoadGcode(handle: Long, path: String): DoubleArray
 private external fun nativeDuplicate(handle: Long, objectIndex: Int)
 private external fun nativeRemove(handle: Long, objectIndex: Int)
@@ -311,7 +328,9 @@ private external fun nativePlacements(handle: Long): DoubleArray
 private external fun nativeSetTransform(handle: Long, objectIndex: Int, transform: DoubleArray)
 private external fun nativeSetPlacement(handle: Long, objectIndex: Int, values: DoubleArray)
 private external fun nativeLayOnFace(handle: Long, objectIndex: Int, triangle: Int)
-private external fun nativeSlice(handle: Long, gcodePath: String, listener: SliceProgressListener): DoubleArray
+private external fun nativeSlice(
+    handle: Long, gcodePath: String, thumbnailSizes: IntArray, thumbnails: Array<ByteArray>, listener: SliceProgressListener,
+): DoubleArray
 private external fun nativeCancel(handle: Long)
 private external fun nativeToolpaths(handle: Long): Toolpaths
 private external fun nativeRoleNames(): Array<String>

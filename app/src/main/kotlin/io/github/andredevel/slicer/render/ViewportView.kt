@@ -5,6 +5,7 @@ import android.content.Context
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.view.MotionEvent
+import io.github.andredevel.slicer.core.Thumbnail
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import android.view.ViewConfiguration
@@ -97,9 +98,16 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         }
     }
 
-    /** Ver [SceneRenderer.requestThumbnail]. Só termina com a superfície GL ativa (app em primeiro plano). */
-    suspend fun thumbnail(size: Int): ByteArray = suspendCancellableCoroutine { continuation ->
-        onGlThread { renderer.requestThumbnail(size) { continuation.resume(it) } }
+    /**
+     * Ver [SceneRenderer.requestThumbnail]; null sem objetos. Só termina com a superfície GL
+     * ativa (app em primeiro plano).
+     */
+    suspend fun thumbnail(width: Int, height: Int): Thumbnail? = suspendCancellableCoroutine { continuation ->
+        onGlThread {
+            renderer.requestThumbnail(width, height) { rgba ->
+                continuation.resume(rgba.takeIf { it.isNotEmpty() }?.let { Thumbnail(width, height, it) })
+            }
+        }
     }
 
     fun setScene(scene: Scene?) {

@@ -18,6 +18,7 @@
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
+#include "libslic3r/GCode/Thumbnails.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
@@ -750,7 +751,20 @@ void Engine::export_preset(PresetKind kind, const std::string &path) const
     preset.config.save_to_json(path, preset.name, "User", SLIC3R_VERSION);
 }
 
-SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progress)
+std::vector<std::array<unsigned, 2>> Engine::gcode_thumbnail_sizes() const
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    std::vector<std::array<unsigned, 2>> out;
+    // Como GCode::_do_export(): Bambu grava a configuração no lugar das miniaturas.
+    if (m->bundle->is_bbl_vendor())
+        return out;
+    for (const auto &[format, size] : GCodeThumbnails::make_and_check_thumbnail_list(m->printer()).first)
+        out.push_back({unsigned(size.x()), unsigned(size.y())});
+    return out;
+}
+
+SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progress, const std::vector<Thumbnail> &thumbnails)
 {
     if (!m->bundle)
         throw std::runtime_error("no vendor loaded");
@@ -785,7 +799,21 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     try {
         print.process();
         // GCode::do_export cria o diretório pai; com caminho relativo ele seria vazio.
-        print.export_gcode(fs::absolute(gcode_path).string(), &result, nullptr);
+        // Chamado por tamanho de gcode_thumbnail_sizes(); a GUI renderiza nessa hora.
+        ThumbnailsGeneratorCallback thumbnail_cb = [&thumbnails](const ThumbnailsParams &params) {
+            ThumbnailsList out;
+            for (const Vec2d &size : params.sizes)
+                for (const Thumbnail &image : thumbnails)
+                    if (image.width == unsigned(size.x()) && image.height == unsigned(size.y()) &&
+                        image.rgba.size() == size_t(image.width) * image.height * 4) {
+                        ThumbnailData &data = out.emplace_back();
+                        data.set(image.width, image.height);
+                        data.pixels = image.rgba;
+                        break;
+                    }
+            return out;
+        };
+        print.export_gcode(fs::absolute(gcode_path).string(), &result, thumbnail_cb);
     } catch (const CanceledException &) {
         throw Canceled();
     }

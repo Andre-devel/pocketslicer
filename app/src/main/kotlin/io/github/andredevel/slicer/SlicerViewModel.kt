@@ -13,6 +13,7 @@ import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.core.SlicerEngine
 import io.github.andredevel.slicer.core.SlicerException
+import io.github.andredevel.slicer.core.Thumbnail
 import io.github.andredevel.slicer.profiles.OrcaResources
 import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.Scene
@@ -80,6 +81,12 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     val state: StateFlow<SlicerUiState> = _state.asStateFlow()
 
     private val gcodeFile get() = File(app.cacheDir, "output.gcode")
+
+    /**
+     * Renderiza a miniatura dos objetos (largura, altura) para o projeto e o G-code; null sem
+     * objetos. O viewport registra enquanto existe (ViewportView.thumbnail).
+     */
+    var thumbnails: (suspend (width: Int, height: Int) -> Thumbnail?)? = null
     private var sliceJob: Job? = null
 
     private val engine = viewModelScope.async {
@@ -193,11 +200,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** [thumbnail]: miniatura RGBA [THUMBNAIL_SIZE]² (ver ViewportView.thumbnail). */
-    fun saveProject(uri: Uri, thumbnail: suspend () -> ByteArray) = launchEngine(R.string.busy_saving_project) { engine ->
-        val image = thumbnail()
+    fun saveProject(uri: Uri) = launchEngine(R.string.busy_saving_project) { engine ->
+        val thumbnail = thumbnails?.invoke(PROJECT_THUMBNAIL_SIZE, PROJECT_THUMBNAIL_SIZE)
         val file = File(app.cacheDir, "project.3mf")
-        engine.saveProject(file, image, THUMBNAIL_SIZE, THUMBNAIL_SIZE)
+        engine.saveProject(file, thumbnail)
         withContext(Dispatchers.IO) {
             val output = app.contentResolver.openOutputStream(uri) ?: throw IOException("cannot open $uri")
             output.use { file.inputStream().use { input -> input.copyTo(it) } }
@@ -244,7 +250,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         sliceJob = launchEngine(null) { engine ->
             _state.update { it.copy(slice = SliceState.Running(0, "")) }
             try {
-                val stats = engine.slice(gcodeFile) { percent, text ->
+                val thumbnails = engine.gcodeThumbnailSizes().mapNotNull { (width, height) -> this.thumbnails?.invoke(width, height) }
+                val stats = engine.slice(gcodeFile, thumbnails) { percent, text ->
                     _state.update { it.copy(slice = SliceState.Running(percent, text)) }
                 }
                 val toolpaths = engine.toolpaths()
@@ -335,9 +342,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    companion object {
-        private const val DEFAULT_VENDOR = "BBL"
+    private companion object {
+        const val DEFAULT_VENDOR = "BBL"
         /** Lado da miniatura do projeto, como THUMBNAIL_SIZE_3MF do Orca. */
-        const val THUMBNAIL_SIZE = 512
+        const val PROJECT_THUMBNAIL_SIZE = 512
     }
 }

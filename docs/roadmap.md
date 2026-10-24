@@ -84,7 +84,9 @@ Preparar/Visualizar alterna sem refatiar.
 fora da tela; o OrcaSlicer 2.4.2 desktop abre e fatia o projeto salvo no app com os mesmos perfis.
 Ao abrir, o motor carrega o fabricante da impressora do projeto, e alterações aparecem como não
 salvas; de projetos com várias placas, só a primeira. G-code aberto vai direto para o preview.
-"Abrir com" e compartilhar aceitam 3MF, STL, OBJ e G-code.
+"Abrir com" e compartilhar aceitam 3MF, STL, OBJ e G-code. Item 2 também: o G-code leva as
+miniaturas da opção `thumbnails` da impressora (tamanhos e formatos PNG/QOI/... do perfil),
+renderizadas pelo app antes de fatiar; impressoras Bambu não têm miniatura no G-code, como no Orca.
 
 1. Salvar/abrir projeto 3MF com configuração e miniatura; "Abrir com" para STL/3MF/OBJ/G-code.
 2. Miniatura no G-code por perfil de impressora.
