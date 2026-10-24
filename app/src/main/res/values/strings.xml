@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Android Slicer</string>
+    <string name="app_name" translatable="false">PocketSlicer</string>
     <string name="add_model">Add model</string>
     <string name="no_model">No model (STL, 3MF, OBJ)</string>
     <string name="vendor">Vendor</string>

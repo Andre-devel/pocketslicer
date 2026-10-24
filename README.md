@@ -1,4 +1,4 @@
-# Android Slicer
+# PocketSlicer
 
 Fatiador 3D (FDM) para tablets Android, totalmente offline, construído sobre o núcleo
 `libslic3r` do [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer).
@@ -39,6 +39,17 @@ Depois, o app (o Gradle compila libslic3r + JNI para as duas ABIs no build debug
 ./gradlew :slicer-core:connectedDebugAndroidTest      # testes no aparelho/emulador
 ANDROID_ABI=x86_64 scripts/build-native.sh slice_cli && ANDROID_ABI=x86_64 scripts/test-device.sh  # paridade
 ```
+
+APK de release (só `arm64-v8a`), assinado com a chave criada uma vez por
+`scripts/make-release-key.sh` em `~/.android-slicer/` (faça backup: sem ela não dá para
+publicar atualizações):
+
+```bash
+./gradlew :app:assembleRelease                        # app/build/outputs/apk/release/
+```
+
+A compilação nativa usa um job para cada 4 GB de RAM (`-DSLICER_COMPILE_JOBS=N` muda): com um
+job por núcleo, libslic3r passava de 25 GB e o sistema matava processos.
 
 ## Licença e créditos
 GNU AGPL-3.0 ([LICENSE](LICENSE)). Baseado em OrcaSlicer (SoftFever), Bambu Studio (Bambu Lab),

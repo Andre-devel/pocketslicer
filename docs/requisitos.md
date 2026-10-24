@@ -1,4 +1,4 @@
-# Requisitos — Android Slicer
+# Requisitos — PocketSlicer
 
 Fatiador 3D (FDM) para tablets Android, baseado no núcleo do OrcaSlicer (`libslic3r`),
 100% offline. Nenhum servidor externo: todo o processamento ocorre no dispositivo.
@@ -88,5 +88,4 @@ Fatiador 3D (FDM) para tablets Android, baseado no núcleo do OrcaSlicer (`libsl
 
 ## 6. Perguntas em aberto
 - Quais modelos de tablet estão disponíveis para teste? (define medições de RNF-02/03)
-- Nome do app e identificador (`applicationId`).
 - Distribuição: Play Store, F-Droid, GitHub Releases, ou os três.

@@ -10,6 +10,7 @@ captures/
 *.apk
 *.aab
 *.keystore
+*.jks
 
 # Native deps build output (gigabytes; rebuilt por script)
 native/deps/out-android-*/

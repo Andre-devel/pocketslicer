@@ -1,4 +1,4 @@
-# Roadmap — Android Slicer
+# Roadmap — PocketSlicer
 
 Fases sequenciais; cada uma tem critério de saída objetivo. Estimativas assumem 1 pessoa
 em tempo parcial com apoio de IA; são ordens de grandeza, não compromissos.
@@ -98,7 +98,9 @@ testes instrumentados. Casos: BBL A1, Creality Ender-3 V3, Prusa MK4 e Voron 2.4
 equivalentes ao Orca 2.4.2 desktop. Ainda não rodou no GitHub (o repositório não tem remoto);
 contra aparelho físico, só manualmente com `scripts/test-device.sh`.
 Item 5 em parte: `LICENSE` (AGPL-3.0), `NOTICE` com as licenças das bibliotecas do APK e README.
-Faltam a release no GitHub (remoto, assinatura do APK) e o nome/`applicationId` definitivos.
+Nome definitivo PocketSlicer (`applicationId` `io.github.andredevel.pocketslicer`; o pacote do
+código continua `io.github.andredevel.slicer`, que também nomeia as funções JNI). APK de release
+assinado com a chave de `scripts/make-release-key.sh`. Falta a release no GitHub.
 
 1. Salvar/abrir projeto 3MF com configuração e miniatura; "Abrir com" para STL/3MF/OBJ/G-code.
 2. Miniatura no G-code por perfil de impressora.

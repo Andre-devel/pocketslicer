@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -8,16 +10,31 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "io.github.andredevel.slicer"
+        applicationId = "io.github.andredevel.pocketslicer"
         minSdk = 29
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
     }
 
+    // Chave de release fora do repositório (scripts/make-release-key.sh). Sem ela, o
+    // assembleRelease gera um APK não assinado.
+    val releaseKey = File(System.getProperty("user.home"), ".android-slicer/keystore.properties")
+    signingConfigs {
+        if (releaseKey.isFile) {
+            create("release") {
+                val props = Properties().apply { releaseKey.inputStream().use(::load) }
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Sem assinatura de release ainda (fase 5); instale o build debug.
+            signingConfig = signingConfigs.findByName("release")
             ndk {
                 abiFilters.clear()
                 abiFilters += "arm64-v8a"

@@ -1,4 +1,4 @@
-# Arquitetura — Android Slicer
+# Arquitetura — PocketSlicer
 
 ## 1. Visão geral
 
