@@ -49,6 +49,9 @@ set(SLIC3R_ENC_CHECK OFF CACHE BOOL "" FORCE)
 set(SLIC3R_NO_OCCT_STUBS "${CMAKE_CURRENT_SOURCE_DIR}/src/android_stubs.cpp")
 
 add_compile_definitions("$<IF:$<CONFIG:Debug>,DEBUG,NDEBUG>")
+# O toolchain do NDK sempre passa -g; em Release isso dá ~4 GB de objetos e um
+# slice_cli de ~600 MB. Para depurar no aparelho, use RelWithDebInfo.
+add_compile_options($<$<CONFIG:Release>:-g0>)
 add_compile_definitions(BBL_RELEASE_TO_PUBLIC=1)
 add_compile_options(-fsigned-char -Wall -Wno-unused-variable -Wno-unused-but-set-variable
                     -Wno-sign-compare -Wno-reorder -Wno-unused-function -Wno-deprecated-declarations)

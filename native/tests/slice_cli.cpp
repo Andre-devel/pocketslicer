@@ -54,11 +54,14 @@ int main(int argc, char **argv)
     }
     const std::string profiles_dir = argv[1];
     const fs::path machine = argv[2], process = argv[3], filament = argv[4];
-    const std::string model_path = argv[5], out_path = argv[6];
+    const std::string model_path = argv[5];
+    // GCode::do_export cria o diretório pai da saída; com caminho relativo ele é vazio.
+    const std::string out_path = fs::absolute(argv[6]).string();
 
     boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::warning);
     set_resources_dir(profiles_dir + "/..");
-    set_data_dir(fs::temp_directory_path().string());
+    // No Android não há /tmp; o diretório de dados fica junto da saída.
+    set_data_dir(fs::path(out_path).parent_path().string());
 
     try {
         DynamicPrintConfig config;
@@ -80,6 +83,9 @@ int main(int argc, char **argv)
             config.opt<ConfigOptionPoints>("printable_area")->values.empty() ? 100.0 : BoundingBoxf(config.opt<ConfigOptionPoints>("printable_area")->values).center().y()));
 
         Print print;
+        // Igual ao CLI do Orca (OrcaSlicer.cpp): impressoras Bambu têm firmware
+        // próprio e pulam validações/ajustes feitos para Marlin.
+        print.is_BBL_printer() = config.opt_string("printer_model").rfind("Bambu Lab", 0) == 0;
         print.set_status_callback([](const PrintBase::SlicingStatus &s) {
             std::fprintf(stderr, "[%3d%%] %s\n", s.percent, s.text.c_str());
         });
