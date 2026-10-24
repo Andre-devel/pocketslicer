@@ -1,6 +1,8 @@
 # GMP 6.2.1 + MPFR 4.2.2 para Android (mesmas versões do Orca). CGAL precisa
 # deles para o kernel exato com raiz quadrada usado por MeshBoolean.cpp.
 # Autotools: usa o wrapper <triple><api>-clang do NDK, que já embute --target.
+# DOWNLOAD_EXTRACT_TIMESTAMP ON: mantém as datas do tarball; sem isso o make
+# acha configure/Makefile.in/*.info desatualizados e chama autoconf/makeinfo.
 
 string(REGEX REPLACE "^android-" "" _gmp_api "${ANDROID_PLATFORM}")
 if (ANDROID_ABI STREQUAL "arm64-v8a")
@@ -27,6 +29,7 @@ ExternalProject_Add(dep_GMP
     URL https://github.com/SoftFever/OrcaSlicer_deps/releases/download/gmp-6.2.1/gmp-6.2.1.tar.bz2
     URL_HASH SHA256=eae9326beb4158c386e39a356818031bd28f3124cf915f8c5b1dc4c7a36b4d7c
     DOWNLOAD_DIR ${DEP_DOWNLOAD_DIR}/GMP
+    DOWNLOAD_EXTRACT_TIMESTAMP ON
     BUILD_IN_SOURCE ON
     CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${_gmp_env}
         ./configure --host=${_gmp_host} --enable-shared=no --enable-static=yes --enable-cxx=yes "--prefix=${DESTDIR}"
@@ -40,6 +43,7 @@ ExternalProject_Add(dep_MPFR
         https://www.mpfr.org/mpfr-4.2.2/mpfr-4.2.2.tar.bz2
     URL_HASH SHA256=9ad62c7dc910303cd384ff8f1f4767a655124980bb6d8650fe62c815a231bb7b
     DOWNLOAD_DIR ${DEP_DOWNLOAD_DIR}/MPFR
+    DOWNLOAD_EXTRACT_TIMESTAMP ON
     BUILD_IN_SOURCE ON
     CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${_gmp_env}
         ./configure --host=${_gmp_host} --enable-shared=no --enable-static=yes "--prefix=${DESTDIR}" "--with-gmp=${DESTDIR}"
