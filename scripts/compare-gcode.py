@@ -6,12 +6,18 @@ Android (clang/libc++): desempates de ordenação e arredondamentos mudam a orde
 e o sentido das linhas. Então compara o que importa para a peça: número de
 camadas e filamento extrudado por camada e no total.
 
-Uso: compare-gcode.py <referencia.gcode> <teste.gcode> [tolerância relativa]
-Sai com 1 se alguma camada passar da tolerância (padrão 0,5%).
+Paredes e preenchimento sólido saem iguais; o preenchimento esparso varia até
+~1,5% por camada (a ligação das linhas depende de arredondamento), mas a soma
+fica estável. Daí uma tolerância folgada por camada e uma apertada no total.
+
+Uso: compare-gcode.py <referencia.gcode> <teste.gcode>
+Sai com 1 se o número de camadas diferir ou alguma tolerância for excedida.
 """
 import re
 import sys
 
+LAYER_TOL = 0.02
+TOTAL_TOL = 0.001
 MOVE = re.compile(r'([XYE])(-?[\d.]+)')
 
 
@@ -19,7 +25,8 @@ def extrusion_per_layer(path):
     layers = []
     with open(path) as f:
         for line in f:
-            if line.startswith('; CHANGE_LAYER'):
+            # Bambu: "; CHANGE_LAYER"; demais firmwares: ";LAYER_CHANGE".
+            if line.startswith(('; CHANGE_LAYER', ';LAYER_CHANGE')):
                 layers.append(0.0)
                 continue
             if not layers or not line.startswith('G1'):
@@ -35,7 +42,6 @@ def extrusion_per_layer(path):
 
 def main():
     ref_path, test_path = sys.argv[1], sys.argv[2]
-    tol = float(sys.argv[3]) if len(sys.argv) > 3 else 0.005
     ref, test = extrusion_per_layer(ref_path), extrusion_per_layer(test_path)
 
     ok = True
@@ -46,14 +52,17 @@ def main():
     for i, (a, b) in enumerate(zip(ref, test)):
         rel = abs(a - b) / a if a else abs(b)
         worst = max(worst, (rel, i))
-        if rel > tol:
+        if rel > LAYER_TOL:
             print(f'camada {i}: extrusão {a:.3f} vs {b:.3f} mm ({rel:.2%})')
             ok = False
     total_ref, total_test = sum(ref), sum(test)
+    total_rel = abs(total_ref - total_test) / total_ref if total_ref else 1.0
+    if total_rel > TOTAL_TOL:
+        ok = False
     print(f'camadas: {len(test)}; extrusão total {total_ref:.2f} vs {total_test:.2f} mm '
-          f'({abs(total_ref - total_test) / total_ref:.3%}); '
-          f'pior camada {worst[1]} ({worst[0]:.3%})')
-    print('OK: equivalente à referência' if ok else f'FALHOU (tolerância {tol:.1%})')
+          f'({total_rel:.3%}); pior camada {worst[1]} ({worst[0]:.3%})')
+    print('OK: equivalente à referência' if ok else
+          f'FALHOU (tolerância {LAYER_TOL:.0%} por camada, {TOTAL_TOL:.1%} no total)')
     return 0 if ok else 1
 
 

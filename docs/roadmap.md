@@ -4,6 +4,7 @@ Fases sequenciais; cada uma tem critério de saída objetivo. Estimativas assume
 em tempo parcial com apoio de IA; são ordens de grandeza, não compromissos.
 
 ## Fase 0 — Prova de conceito nativa (2–4 semanas) — **gate do projeto**
+**Status:** aprovado no emulador em 2026-10-24; falta confirmar em tablet arm64. Ver [fase0-resultados.md](fase0-resultados.md).
 Objetivo: `libslic3r` fatiando um STL dentro de um Android arm64, sem UI.
 
 1. Preparar ambiente: instalar NDK + CMake via `sdkmanager`, liberar disco, `JAVA_HOME` = JDK 17.
