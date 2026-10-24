@@ -92,6 +92,11 @@ acompanha); app em inglês (padrão) e português, com escolha por app no Androi
 motor (rótulos e dicas das opções, progresso, tipos de extrusão, erros) vêm do catálogo `.po` do
 Orca, mais `native/i18n` para os da fachada. Erros de arquivo, falta de memória e falhas
 inesperadas viram mensagem em vez de fechar o app. Sem telemetria (nem permissão de internet).
+Item 4: `.github/workflows/parity.yml` (GitHub Actions) compila as dependências (em cache), o
+`slice_cli` e os testes, e num emulador x86_64 roda a paridade de `scripts/test-device.sh` e os
+testes instrumentados. Casos: BBL A1, Creality Ender-3 V3, Prusa MK4 e Voron 2.4, todos
+equivalentes ao Orca 2.4.2 desktop. Ainda não rodou no GitHub (o repositório não tem remoto);
+contra aparelho físico, só manualmente com `scripts/test-device.sh`.
 
 1. Salvar/abrir projeto 3MF com configuração e miniatura; "Abrir com" para STL/3MF/OBJ/G-code.
 2. Miniatura no G-code por perfil de impressora.

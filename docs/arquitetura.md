@@ -155,7 +155,7 @@ class Engine {
 - Projetos: 3MF via `engine_save_3mf`.
 
 ## 4. Testes
-- Paridade (RNF-05): `scripts/test-device.sh` fatia os casos de `testdata/cases.tsv` com `native/tests/slice_cli` no device via `adb` e compara camada a camada (`scripts/compare-gcode.py`) com o G-code do OrcaSlicer desktop gerado por `scripts/make-reference.sh`.
+- Paridade (RNF-05): `scripts/test-device.sh` fatia os casos de `testdata/cases.tsv` com `native/tests/slice_cli` no device via `adb` e compara camada a camada (`scripts/compare-gcode.py`) com o G-code do OrcaSlicer desktop gerado por `scripts/make-reference.sh`. Os casos cobrem impressoras BBL, Creality, Prusa e Voron. No GitHub, `.github/workflows/parity.yml` roda essa comparação e os testes instrumentados num emulador x86_64 a cada push e pull request, com as dependências nativas em cache.
 - Kotlin: testes instrumentados de `SlicerEngine` (`./gradlew :slicer-core:connectedDebugAndroidTest`) em tablet ou emulador. O build debug inclui x86_64 para o emulador; o release só arm64-v8a.
 
 ## 5. Ambiente de desenvolvimento

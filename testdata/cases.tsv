@@ -8,3 +8,5 @@
 cube20	cube20.stl	BBL	Bambu Lab A1 0.4 nozzle	0.20mm Standard @BBL A1	Bambu PLA Basic @BBL A1
 voron_cube	voron_cube_v7.stl	BBL	Bambu Lab A1 0.4 nozzle	0.20mm Standard @BBL A1	Bambu PLA Basic @BBL A1
 calicat	calicat.stl	Creality	Creality Ender-3 V3 0.4 nozzle	0.20mm Standard @Creality Ender-3 V3	Creality Generic PLA @Ender-3V3-all
+mk4_calicat	calicat.stl	Prusa	Prusa MK4 0.4 nozzle	0.20mm Standard @MK4	Prusa Generic PLA @MK4
+voron24_voron_cube	voron_cube_v7.stl	Voron	Voron 2.4 350 0.4 nozzle	0.20mm Standard @Voron	Generic PLA @System
