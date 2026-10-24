@@ -14,7 +14,32 @@ import java.util.concurrent.Executors
 /** Tipos de preset do OrcaSlicer. A ordem espelha `slicer::PresetKind` (native/src/engine.hpp). */
 enum class PresetKind { PRINTER, FILAMENT, PROCESS }
 
-data class SliceStats(val printTimeSeconds: Double, val filamentMm3: Double)
+data class SliceStats(
+    val printTimeSeconds: Double,
+    val filamentMm3: Double,
+    val filamentMeters: Double,
+    val filamentGrams: Double,
+    /** Na moeda do preset de filamento (filament_cost por kg). */
+    val cost: Double,
+)
+
+/**
+ * Caminhos do último fatiamento, na ordem do G-code. [extrusions]: 9 floats por segmento
+ * (x0 y0 z0 x1 y1 z1 largura altura velocidade em mm/s; z no topo do filete); [roles]: tipo
+ * de extrusão (índice em [SlicerEngine.roleNames]); [layers]: camada de cada segmento.
+ * [travels]: 6 floats por movimento sem extrusão. [layerZ]: topo de cada camada.
+ */
+class Toolpaths(
+    val extrusions: FloatArray,
+    val roles: ByteArray,
+    val layers: IntArray,
+    val travels: FloatArray,
+    val travelLayers: IntArray,
+    val layerZ: FloatArray,
+) {
+    val segmentCount get() = roles.size
+    val layerCount get() = layerZ.size
+}
 
 /** Área de impressão em mm: contorno com x, y intercalados e altura máxima. */
 class Bed(val shape: FloatArray, val maxHeight: Float)
@@ -174,8 +199,11 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
             nativeCancel(handle) // o fatiamento nativo não é interrompível de outra forma
             throw e
         }
-        SliceStats(printTimeSeconds = result[0], filamentMm3 = result[1])
+        SliceStats(result[0], result[1], result[2], result[3], result[4])
     }
+
+    /** Caminhos do último [slice] bem-sucedido. */
+    suspend fun toolpaths(): Toolpaths = call { nativeToolpaths(handle) }
 
     override fun close() {
         dispatcher.executor.execute { nativeDestroy(handle) }
@@ -193,6 +221,9 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
          * @param dataDir diretório gravável para os presets carregados. Contém symlinks para
          *   [resourcesDir]: não apague com File.deleteRecursively(), que os segue.
          */
+        /** Nome (em inglês, como no Orca) de cada tipo de extrusão de [Toolpaths.roles]. */
+        val roleNames: List<String> by lazy { nativeRoleNames().asList() }
+
         suspend fun create(resourcesDir: File, dataDir: File): SlicerEngine =
             SlicerEngine(withContext(dispatcher) { nativeCreate(resourcesDir.absolutePath, dataDir.absolutePath) })
 
@@ -260,3 +291,5 @@ private external fun nativeSetPlacement(handle: Long, objectIndex: Int, values: 
 private external fun nativeLayOnFace(handle: Long, objectIndex: Int, triangle: Int)
 private external fun nativeSlice(handle: Long, gcodePath: String, listener: SliceProgressListener): DoubleArray
 private external fun nativeCancel(handle: Long)
+private external fun nativeToolpaths(handle: Long): Toolpaths
+private external fun nativeRoleNames(): Array<String>

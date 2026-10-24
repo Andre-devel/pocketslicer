@@ -25,6 +25,20 @@ enum class PresetKind { Printer = 0, Filament = 1, Process = 2 };
 struct SliceStats {
     double print_time_s = 0.0;   // estimativa do modo normal
     double filament_mm3 = 0.0;   // volume total extrudado
+    double filament_m = 0.0;     // comprimento de filamento
+    double filament_g = 0.0;     // peso (densidade do filamento)
+    double cost = 0.0;           // filament_cost (por kg) × peso
+};
+
+// Caminhos do último fatiamento (GCodeProcessorResult), em buffers planos para a GPU.
+// Segmentos na ordem do G-code; camadas numeradas a partir de 0.
+struct Toolpaths {
+    std::vector<float>    extrusions;      // 9 por segmento: x0 y0 z0 x1 y1 z1 largura altura velocidade(mm/s)
+    std::vector<uint8_t>  roles;           // ExtrusionRole por segmento
+    std::vector<uint32_t> layers;          // camada por segmento
+    std::vector<float>    travels;         // 6 por movimento sem extrusão: x0 y0 z0 x1 y1 z1
+    std::vector<uint32_t> travel_layers;
+    std::vector<float>    layer_z;         // altura do topo de cada camada
 };
 
 // Área de impressão da impressora selecionada, em mm.
@@ -135,6 +149,11 @@ public:
     SliceStats slice(const std::string &gcode_path, const ProgressFn &progress);
     // Pode ser chamado de outra thread durante slice().
     void cancel();
+
+    // Do último slice() bem-sucedido (vazio antes dele).
+    Toolpaths toolpaths() const;
+    // Nome (em inglês, como no Orca) de cada ExtrusionRole, pelo índice.
+    static std::vector<std::string> role_names();
 
 private:
     struct Impl;

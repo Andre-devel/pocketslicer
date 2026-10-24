@@ -8,6 +8,7 @@
 #include <jni.h>
 
 #include <array>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -278,7 +279,7 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeLayOnFace(JNIEnv *env
     guarded(env, [&] { engine(handle)->lay_on_face(size_t(object), size_t(triangle)); });
 }
 
-// Retorna {tempo estimado em s, volume de filamento em mm³}.
+// Retorna {tempo estimado em s, volume em mm³, comprimento em m, peso em g, custo}.
 JNIEXPORT jdoubleArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSlice(JNIEnv *env, jclass, jlong handle, jstring gcode_path, jobject listener)
 {
@@ -297,11 +298,38 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSlice(JNIEnv *env, jc
                 env->ExceptionClear();
             }
         });
-        jdoubleArray out = env->NewDoubleArray(2);
-        const jdouble values[2] = {stats.print_time_s, stats.filament_mm3};
-        env->SetDoubleArrayRegion(out, 0, 2, values);
+        const jdouble values[] = {stats.print_time_s, stats.filament_mm3, stats.filament_m, stats.filament_g, stats.cost};
+        jdoubleArray out = env->NewDoubleArray(jsize(std::size(values)));
+        env->SetDoubleArrayRegion(out, 0, jsize(std::size(values)), values);
         return out;
     });
+}
+
+// Toolpaths(extrusions: FloatArray, roles: ByteArray, layers: IntArray, travels: FloatArray,
+//           travelLayers: IntArray, layerZ: FloatArray)
+JNIEXPORT jobject JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeToolpaths(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&]() -> jobject {
+        const slicer::Toolpaths t = engine(handle)->toolpaths();
+        auto ints = [env](const std::vector<uint32_t> &v) {
+            jintArray a = env->NewIntArray(jsize(v.size()));
+            env->SetIntArrayRegion(a, 0, jsize(v.size()), reinterpret_cast<const jint *>(v.data()));
+            return a;
+        };
+        jbyteArray roles = env->NewByteArray(jsize(t.roles.size()));
+        env->SetByteArrayRegion(roles, 0, jsize(t.roles.size()), reinterpret_cast<const jbyte *>(t.roles.data()));
+        jclass cls = env->FindClass("io/github/andredevel/slicer/core/Toolpaths");
+        jmethodID init = env->GetMethodID(cls, "<init>", "([F[B[I[F[I[F)V");
+        return env->NewObject(cls, init, to_float_array(env, t.extrusions), roles, ints(t.layers),
+                              to_float_array(env, t.travels), ints(t.travel_layers), to_float_array(env, t.layer_z));
+    });
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRoleNames(JNIEnv *env, jclass)
+{
+    return guarded(env, [&] { return to_array(env, Engine::role_names()); });
 }
 
 JNIEXPORT void JNICALL

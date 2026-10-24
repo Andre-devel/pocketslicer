@@ -216,6 +216,16 @@ class SlicerEngineTest {
         val layers = Regex("; total layer number: [0-9]+").find(reference)!!.value
         assertTrue(layers in gcode.readText())
         assertTrue(progress.isNotEmpty())
+        assertTrue(stats.filamentMeters > 0 && stats.filamentGrams > 0 && stats.cost > 0)
+
+        // Caminhos para a pré-visualização: 100 camadas até 20 mm, com paredes externas.
+        val toolpaths = engine.toolpaths()
+        assertEquals(100, toolpaths.layerCount)
+        assertEquals(20f, toolpaths.layerZ.last(), 0.01f)
+        assertEquals(toolpaths.segmentCount * 9, toolpaths.extrusions.size)
+        val outerWall = SlicerEngine.roleNames.indexOf("Outer wall")
+        assertTrue(toolpaths.roles.any { it.toInt() == outerWall })
+        assertTrue(toolpaths.travels.isNotEmpty())
     }
 
     // Regressão: com uma thread nativa por motor, motores criados depois do primeiro

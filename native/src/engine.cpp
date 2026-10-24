@@ -14,6 +14,7 @@
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/BuildVolume.hpp"
+#include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -34,6 +35,7 @@ struct Engine::Impl {
     std::unique_ptr<PresetBundle> bundle;
     Model                         model;
     Print                         print;
+    GCodeProcessorResult          result; // do último slice()
 
     PresetCollection &collection(PresetKind kind)
     {
@@ -623,6 +625,7 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
         throw std::runtime_error(err.string);
 
     GCodeProcessorResult result;
+    m->result = GCodeProcessorResult();
     try {
         print.process();
         // GCode::do_export cria o diretório pai; com caminho relativo ele seria vazio.
@@ -637,12 +640,54 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     stats.print_time_s = result.print_statistics.modes.front().time;
     for (const auto &kv : result.print_statistics.total_volumes_per_extruder)
         stats.filament_mm3 += kv.second;
+    for (const auto &[role, used] : result.print_statistics.used_filaments_per_role) {
+        stats.filament_m += used.first;
+        stats.filament_g += used.second;
+    }
+    if (const auto *cost = config.opt<ConfigOptionFloats>("filament_cost"); cost != nullptr && !cost->values.empty())
+        stats.cost = cost->values.front() * stats.filament_g / 1000.0;
+    m->result = std::move(result);
     return stats;
 }
 
 void Engine::cancel()
 {
     m->print.cancel();
+}
+
+Toolpaths Engine::toolpaths() const
+{
+    using Move = GCodeProcessorResult::MoveVertex;
+    Toolpaths out;
+    const std::vector<Move> &moves = m->result.moves;
+    for (size_t i = 1; i < moves.size(); ++i) {
+        const Move &prev = moves[i - 1];
+        const Move &move = moves[i];
+        const uint32_t layer = move.layer_id;
+        if (out.layer_z.size() <= layer)
+            out.layer_z.resize(layer + 1, 0.f);
+        if (move.type == EMoveType::Extrude && move.width > 0.f && move.height > 0.f) {
+            out.extrusions.insert(out.extrusions.end(), {prev.position.x(), prev.position.y(), prev.position.z(),
+                                                         move.position.x(), move.position.y(), move.position.z(),
+                                                         move.width, move.height, move.feedrate});
+            out.roles.push_back(uint8_t(move.extrusion_role));
+            out.layers.push_back(layer);
+            out.layer_z[layer] = std::max(out.layer_z[layer], move.position.z());
+        } else if (move.type == EMoveType::Travel && prev.position != move.position) {
+            out.travels.insert(out.travels.end(), {prev.position.x(), prev.position.y(), prev.position.z(),
+                                                   move.position.x(), move.position.y(), move.position.z()});
+            out.travel_layers.push_back(layer);
+        }
+    }
+    return out;
+}
+
+std::vector<std::string> Engine::role_names()
+{
+    std::vector<std::string> out;
+    for (int role = 0; role < erCount; ++role)
+        out.push_back(ExtrusionEntity::role_to_string(ExtrusionRole(role)));
+    return out;
 }
 
 } // namespace slicer
