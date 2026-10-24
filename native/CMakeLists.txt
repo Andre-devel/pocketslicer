@@ -1,4 +1,4 @@
-# libslic3r (OrcaSlicer) para Android + bridge JNI + executável de teste.
+# libslic3r (OrcaSlicer) para Android: fachada engine.hpp, biblioteca JNI e executável de teste.
 #
 # Substitui o CMakeLists.txt raiz do OrcaSlicer, que arrasta GUI (wxWidgets),
 # Python e desktop integration. Aqui só entra o que libslic3r precisa.
@@ -127,6 +127,17 @@ add_subdirectory("${ORCA_DIR}/src/libslic3r" "${CMAKE_CURRENT_BINARY_DIR}/libsli
 target_include_directories(libslic3r PUBLIC "${ORCA_DIR}/src")
 target_link_libraries(libslic3r PUBLIC log)
 
-# --- Executável de teste (Fase 0): fatia um modelo via adb shell --------------
+# --- Fachada C++ (engine.hpp), usada pelo JNI e pelo slice_cli ----------------
+add_library(slicer_engine STATIC src/engine.cpp)
+target_include_directories(slicer_engine PUBLIC src)
+target_link_libraries(slicer_engine PUBLIC libslic3r boost_libs)
+
+# --- Executável de teste: fatia um modelo via adb shell -----------------------
 add_executable(slice_cli tests/slice_cli.cpp)
-target_link_libraries(slice_cli PRIVATE libslic3r boost_libs)
+target_link_libraries(slice_cli PRIVATE slicer_engine)
+
+# --- Biblioteca JNI do app (módulo Gradle :slicer-core) ------------------------
+add_library(slicer_jni SHARED src/jni_bridge.cpp)
+target_link_libraries(slicer_jni PRIVATE slicer_engine)
+# Só os símbolos JNI ficam exportados; o resto das libs estáticas some no gc-sections.
+target_link_options(slicer_jni PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections)

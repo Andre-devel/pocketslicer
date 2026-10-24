@@ -28,9 +28,17 @@ Emulador Android 14 x86_64 (Pixel Tablet, API 34), OrcaSlicer v2.4.2 dos dois la
 
 | Caso | Impressora / perfil | Camadas | Extrusão total (desktop × Android) | Pior camada |
 |---|---|---|---|---|
-| `cube20` — cubo 20 mm | Bambu A1 0.4, 0.20mm Standard, Bambu PLA Basic | 100 = 100 | 1321,36 × 1321,13 mm (0,017%) | 0,09% |
-| `voron_cube` — Voron Design Cube v7 | Bambu A1 0.4, 0.20mm Standard, Bambu PLA Basic | 150 = 150 | 3900,08 × 3899,16 mm (0,023%) | 1,39% |
-| `calicat` — calicat | Creality Ender-3 V3 0.4 (Klipper), 0.20mm Standard, Generic PLA | 174 = 174 | 2447,18 × 2447,12 mm (0,002%) | 0,28% |
+| `cube20` — cubo 20 mm | Bambu A1 0.4, 0.20mm Standard, Bambu PLA Basic | 100 = 100 | 1189,57 × 1190,16 mm (0,050%) | 0,61% |
+| `voron_cube` — Voron Design Cube v7 | Bambu A1 0.4, 0.20mm Standard, Bambu PLA Basic | 150 = 150 | 3059,50 × 3059,67 mm (0,006%) | 0,67% |
+| `calicat` — calicat | Creality Ender-3 V3 0.4 (Klipper), 0.20mm Standard, Generic PLA | 174 = 174 | 2398,25 × 2398,19 mm (0,002%) | 0,28% |
+
+**Correção (fase 1):** a primeira versão desta tabela comparava perfis incompletos. O CLI do
+Orca desktop (`--load-settings`) não resolve `inherits`: usa só as chaves do JSON indicado mais
+os defaults (ex.: infill 20% em vez de 15%, 4 camadas de topo em vez de 5). O `slice_cli` da
+fase 0 tentava resolver a herança por conta própria, mas o G-code saía com os mesmos valores
+incompletos, e por isso "batia" com a referência. Agora o `slice_cli` usa `PresetBundle` (a mesma fachada
+`native/src/engine.hpp` do app) e `scripts/make-reference.sh` passa ao CLI perfis achatados por
+`scripts/flatten-profile.py`. Os números acima são os novos.
 
 O G-code não é idêntico byte a byte, e não se espera que seja:
 
@@ -80,13 +88,10 @@ TBB (paralelismo), NLopt, Qhull, OpenSSL, FreeType.
 
 - `GCode::do_export` tenta criar o diretório pai da saída; com caminho relativo esse pai é
   vazio e o `create_directory("")` falha. `slice_cli` passa caminho absoluto.
-- No Android não há `/tmp`; `slice_cli` usa o diretório da saída como diretório de dados.
+- No Android não há `/tmp`; o diretório de dados é sempre passado à fachada (`slice_cli` usa `./data`).
 - `Print::is_BBL_printer()` vem do `PresetBundle` no desktop; sem ele, a validação de
-  "G92 E0" feita para Marlin barra as Bambu. `slice_cli` replica a regra do CLI do Orca
-  (`printer_model` começando com "Bambu Lab"). A fase 1 deve usar o `PresetBundle` de verdade.
+  "G92 E0" feita para Marlin barra as Bambu. Desde a fase 1 vem de `PresetBundle::is_bbl_vendor()`.
 
 ## Pendências
 
 1. Rodar `scripts/test-device.sh` num tablet arm64 real e medir tempo de fatiamento.
-2. Fase 1: trocar o carregamento manual de perfis de `slice_cli` pelo `PresetBundle`
-   (herança, compatibilidade e flags de fabricante resolvidos pelo próprio Orca).

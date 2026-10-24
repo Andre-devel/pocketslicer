@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Fase 0: fatia os casos de testdata/cases.tsv com slice_cli num aparelho ou
-# emulador via adb e compara com o G-code de referência do OrcaSlicer desktop.
+# Fatia os casos de testdata/cases.tsv com slice_cli (mesma fachada engine.hpp
+# do app) num aparelho ou emulador via adb e compara com o G-code de referência
+# do OrcaSlicer desktop.
 #
 # Uso: [ANDROID_ABI=x86_64] scripts/test-device.sh [nome ...]
 #   Requer scripts/build-native.sh para a mesma ABI e um aparelho visível no adb.
@@ -27,7 +28,8 @@ mkdir -p "$OUT"
 "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" -o "$OUT/slice_cli" "$BIN"
 "$ADB" shell "rm -rf $DEV && mkdir -p $DEV/resources/profiles $DEV/models"
 "$ADB" push "$OUT/slice_cli" "$DEV/" >/dev/null
-"$ADB" push "$PROFILES/../info" "$DEV/resources/" >/dev/null
+"$ADB" push "$PROFILES/../info" "$PROFILES/../flush" "$DEV/resources/" >/dev/null
+"$ADB" push "$PROFILES/OrcaFilamentLibrary" "$PROFILES/OrcaFilamentLibrary.json" "$DEV/resources/profiles/" >/dev/null
 "$ADB" shell "chmod 755 $DEV/slice_cli"
 
 # Referências: CLI do Orca desktop. Esse CLI rebaixa as acelerações de
@@ -38,14 +40,13 @@ while IFS=$'\t' read -r name model vendor machine process filament; do
     if [ $# -gt 0 ] && [[ " $* " != *" $name "* ]]; then continue; fi
     echo "=== $name ($vendor / $machine)"
     if ! "$ADB" shell "[ -d $DEV/resources/profiles/$vendor ]" </dev/null; then
-        "$ADB" push "$PROFILES/$vendor" "$DEV/resources/profiles/" >/dev/null </dev/null
+        "$ADB" push "$PROFILES/$vendor" "$PROFILES/$vendor.json" "$DEV/resources/profiles/" >/dev/null </dev/null
     fi
     "$ADB" push "$ROOT/testdata/$model" "$DEV/models/" >/dev/null </dev/null
 
-    P="$DEV/resources/profiles/$vendor"
-    if ! "$ADB" shell "cd $DEV && time ./slice_cli resources/profiles \
-            '$P/machine/$machine.json' '$P/process/$process.json' '$P/filament/$filament.json' \
-            'models/$model' '$name.gcode' 2>&1 | grep -v '^\[ *[0-9]*%\]'" </dev/null; then
+    if ! "$ADB" shell "cd $DEV && time ./slice_cli resources '$vendor' \
+            '$machine' '$process' '$filament' 'models/$model' '$name.gcode' \
+            2>&1 | grep -v '^\[ *[0-9]*%\]'" </dev/null; then
         failed=1
         continue
     fi

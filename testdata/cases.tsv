@@ -1,9 +1,10 @@
-# Casos de comparação da Fase 0: G-code do slice_cli no Android x OrcaSlicer desktop.
+# Casos de comparação: G-code do slice_cli no Android x OrcaSlicer desktop.
 # Colunas (TAB): nome	modelo (em testdata/)	fabricante	máquina	processo	filamento
-# Perfis em third_party/OrcaSlicer/resources/profiles/<fabricante>/{machine,process,filament}/<nome>.json
+# Perfis: nomes de preset (campo "name" dos JSONs em third_party/OrcaSlicer/resources/profiles/<fabricante>/),
+# que nem sempre coincidem com o nome do arquivo.
 # Referência: testdata/reference/<nome>.gcode.gz, gerada por scripts/make-reference.sh.
 # Modelos: voron_cube_v7 e calicat exportados para STL de resources/handy_models/*.drc do OrcaSlicer
 # (mesma origem e licença do submódulo).
 cube20	cube20.stl	BBL	Bambu Lab A1 0.4 nozzle	0.20mm Standard @BBL A1	Bambu PLA Basic @BBL A1
 voron_cube	voron_cube_v7.stl	BBL	Bambu Lab A1 0.4 nozzle	0.20mm Standard @BBL A1	Bambu PLA Basic @BBL A1
-calicat	calicat.stl	Creality	Creality Ender-3 V3 0.4 nozzle	0.20mm Standard @Creality Ender3V3 0.4 nozzle	Creality Generic PLA @Ender-3V3-all
+calicat	calicat.stl	Creality	Creality Ender-3 V3 0.4 nozzle	0.20mm Standard @Creality Ender-3 V3	Creality Generic PLA @Ender-3V3-all
