@@ -320,20 +320,28 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, 
     return guarded(env, [&]() -> jobjectArray {
         const std::vector<slicer::ObjectMesh> meshes = engine(handle)->objects();
         jclass cls = env->FindClass("io/github/andredevel/slicer/core/ObjectMesh");
-        jmethodID init = env->GetMethodID(cls, "<init>", "([F[I)V");
+        jmethodID init = env->GetMethodID(cls, "<init>", "([F[I[B)V");
         jobjectArray out = env->NewObjectArray(jsize(meshes.size()), cls, nullptr);
         for (size_t i = 0; i < meshes.size(); ++i) {
             const slicer::ObjectMesh &mesh = meshes[i];
             jfloatArray positions = to_float_array(env, mesh.positions);
             jintArray indices = env->NewIntArray(jsize(mesh.indices.size()));
             env->SetIntArrayRegion(indices, 0, jsize(mesh.indices.size()), reinterpret_cast<const jint *>(mesh.indices.data()));
-            jobject object = env->NewObject(cls, init, positions, indices);
+            jbyteArray filaments = env->NewByteArray(jsize(mesh.filaments.size()));
+            env->SetByteArrayRegion(filaments, 0, jsize(mesh.filaments.size()), reinterpret_cast<const jbyte *>(mesh.filaments.data()));
+            jobject object = env->NewObject(cls, init, positions, indices, filaments);
             env->SetObjectArrayElement(out, jsize(i), object);
-            for (jobject ref : {jobject(positions), jobject(indices), object})
+            for (jobject ref : {jobject(positions), jobject(indices), jobject(filaments), object})
                 env->DeleteLocalRef(ref);
         }
         return out;
     });
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentColors(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return to_array(env, engine(handle)->filament_colors()); });
 }
 
 // Por objeto, 26 valores: matriz 4x4 (coluna), offset, rotação (graus), escala e

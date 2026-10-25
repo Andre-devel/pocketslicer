@@ -428,6 +428,56 @@ Bed Engine::bed() const
     return bed;
 }
 
+// Malha das partes do objeto em coordenadas do objeto, como raw_indexed_triangle_set(), mas
+// com as pintadas em várias cores (mmu_segmentation) divididas nos triângulos da pintura.
+// filaments recebe o filamento (a partir de 0) de cada triângulo: o da cor pintada ou o da peça;
+// com ele, os triângulos vêm agrupados por filamento, em ordem crescente.
+static indexed_triangle_set object_mesh(const ModelObject &object, std::vector<uint8_t> *filaments)
+{
+    indexed_triangle_set out;
+    auto append_its = [&](const indexed_triangle_set &its, const Transform3d &matrix, int filament) {
+        const size_t first = out.vertices.size();
+        for (const stl_vertex &v : its.vertices)
+            out.vertices.emplace_back((matrix * v.cast<double>()).cast<float>());
+        for (const stl_triangle_vertex_indices &t : its.indices)
+            out.indices.emplace_back(t + stl_triangle_vertex_indices::Constant(int(first)));
+        if (filaments != nullptr)
+            filaments->insert(filaments->end(), its.indices.size(), uint8_t(std::clamp(filament, 0, 255)));
+    };
+    for (const ModelVolume *volume : object.volumes) {
+        if (!volume->is_model_part())
+            continue;
+        const int part_filament = volume->extruder_id() - 1;
+        if (volume->mmu_segmentation_facets.empty()) {
+            append_its(volume->mesh().its, volume->get_matrix(), part_filament);
+            continue;
+        }
+        // Índice = estado do TriangleSelector: 0 sem pintura, n o filamento n.
+        std::vector<indexed_triangle_set> per_state;
+        volume->mmu_segmentation_facets.get_facets(*volume, per_state);
+        for (size_t state = 0; state < per_state.size(); ++state)
+            append_its(per_state[state], volume->get_matrix(), state == 0 ? part_filament : int(state) - 1);
+    }
+    if (filaments == nullptr)
+        return out;
+    // Triângulos agrupados por filamento (estável), para o app desenhar cada grupo de uma vez.
+    std::array<size_t, 257> start{};
+    for (uint8_t filament : *filaments)
+        ++start[filament + 1];
+    for (size_t i = 1; i < start.size(); ++i)
+        start[i] += start[i - 1];
+    std::vector<stl_triangle_vertex_indices> indices(out.indices.size());
+    std::vector<uint8_t>                     sorted(filaments->size());
+    for (size_t i = 0; i < out.indices.size(); ++i) {
+        const size_t to = start[(*filaments)[i]]++;
+        indices[to]     = out.indices[i];
+        sorted[to]      = (*filaments)[i];
+    }
+    out.indices = std::move(indices);
+    *filaments  = std::move(sorted);
+    return out;
+}
+
 void Engine::load_model(const std::string &path)
 {
     // Lê antes de limpar: se o arquivo for inválido, a mesa continua como estava.
@@ -624,8 +674,8 @@ std::vector<ObjectMesh> Engine::objects() const
 {
     std::vector<ObjectMesh> out;
     for (const ModelObject *object : m->model.objects) {
-        const indexed_triangle_set its = object->raw_indexed_triangle_set();
-        ObjectMesh mesh;
+        ObjectMesh                 mesh;
+        const indexed_triangle_set its = object_mesh(*object, &mesh.filaments);
         mesh.positions.reserve(its.vertices.size() * 3);
         for (const stl_vertex &v : its.vertices)
             mesh.positions.insert(mesh.positions.end(), {v.x(), v.y(), v.z()});
@@ -635,6 +685,14 @@ std::vector<ObjectMesh> Engine::objects() const
         out.push_back(std::move(mesh));
     }
     return out;
+}
+
+std::vector<std::string> Engine::filament_colors() const
+{
+    if (!m->bundle)
+        return {};
+    const auto *colors = m->bundle->project_config.option<ConfigOptionStrings>("filament_colour");
+    return colors != nullptr ? colors->values : std::vector<std::string>{};
 }
 
 std::vector<Placement> Engine::placements() const
@@ -711,7 +769,7 @@ void Engine::set_placement(size_t object, const Vec3 &offset, const Vec3 &rotati
 void Engine::lay_on_face(size_t object, size_t triangle)
 {
     ModelObject &o = m->object(object);
-    const indexed_triangle_set its = o.raw_indexed_triangle_set();
+    const indexed_triangle_set its = object_mesh(o, nullptr);
     if (triangle >= its.indices.size())
         throw std::out_of_range("no triangle " + std::to_string(triangle));
     const stl_triangle_vertex_indices &t = its.indices[triangle];

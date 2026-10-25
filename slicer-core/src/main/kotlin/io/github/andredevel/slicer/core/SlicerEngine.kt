@@ -47,8 +47,13 @@ class Thumbnail(val width: Int, val height: Int, val rgba: ByteArray)
 /** Área de impressão em mm: contorno com x, y intercalados e altura máxima. */
 class Bed(val shape: FloatArray, val maxHeight: Float)
 
-/** Malha de um objeto em coordenadas locais: x, y, z por vértice; 3 índices por triângulo. */
-class ObjectMesh(val positions: FloatArray, val indices: IntArray)
+/**
+ * Malha de um objeto em coordenadas locais: x, y, z por vértice; 3 índices por triângulo e o
+ * filamento (a partir de 0, índice em [SlicerEngine.filamentColors]) de cada triângulo, que vêm
+ * agrupados por filamento em ordem crescente. As partes pintadas em várias cores vêm divididas
+ * nos triângulos da pintura.
+ */
+class ObjectMesh(val positions: FloatArray, val indices: IntArray, val filaments: ByteArray)
 
 /**
  * Posição de um objeto na mesa: [transform] é a matriz 4x4 em ordem de coluna (OpenGL),
@@ -226,6 +231,9 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Malhas dos objetos, na mesma ordem de [placements]. */
     suspend fun objects(): List<ObjectMesh> = call { nativeObjects(handle).asList() }
 
+    /** Cor (`#RRGGBB`) de cada filamento do projeto, pelo índice de [ObjectMesh.filaments]. */
+    suspend fun filamentColors(): List<String> = call { nativeFilamentColors(handle).asList() }
+
     suspend fun placements(): List<Placement> = call {
         val v = nativePlacements(handle)
         List(v.size / 26) { i ->
@@ -357,6 +365,7 @@ private external fun nativeDuplicate(handle: Long, objectIndex: Int)
 private external fun nativeRemove(handle: Long, objectIndex: Int)
 private external fun nativeArrange(handle: Long)
 private external fun nativeObjects(handle: Long): Array<ObjectMesh>
+private external fun nativeFilamentColors(handle: Long): Array<String>
 private external fun nativePlacements(handle: Long): DoubleArray
 private external fun nativeSetTransform(handle: Long, objectIndex: Int, transform: DoubleArray)
 private external fun nativeSetPlacement(handle: Long, objectIndex: Int, values: DoubleArray)

@@ -56,6 +56,8 @@ int main(int argc, char **argv)
             std::printf("plates: %zu\n", engine.project_plates().size());
             if (argc == 6)
                 engine.select_plate(std::strtoul(argv[5], nullptr, 10) - 1);
+            for (const slicer::ObjectMesh &mesh : engine.objects())
+                std::printf("object mesh: %zu vertices, %zu triangles\n", mesh.positions.size() / 3, mesh.indices.size() / 3);
             for (const slicer::Placement &p : engine.placements())
                 std::printf("object at %.1f %.1f %.1f%s\n", p.offset[0], p.offset[1], p.offset[2], p.outside ? " (outside)" : "");
         } else {

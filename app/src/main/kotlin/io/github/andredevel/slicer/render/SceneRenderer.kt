@@ -18,12 +18,15 @@ import kotlin.math.sqrt
  * O que o viewport mostra: a mesa da impressora e os objetos sobre ela ([meshes] e
  * [placements] na mesma ordem). Para trocar só posições ou seleção, reutilize a
  * mesma lista [meshes]: as malhas só são reenviadas à GPU quando ela muda.
+ * [filamentColors]: RGBA de cada filamento; com mais de um, os objetos são pintados com
+ * a cor do filamento de cada triângulo, senão com a cor padrão.
  */
 data class Scene(
     val bed: Bed,
     val meshes: List<ObjectMesh> = emptyList(),
     val placements: List<Placement> = emptyList(),
     val selected: Int? = null,
+    val filamentColors: List<FloatArray> = emptyList(),
 )
 
 /**
@@ -208,12 +211,19 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
             glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
             val outside = highlight && scene.placements[i].outside
-            val color = when {
-                highlight && i == scene.selected -> if (outside) SELECTED_OUTSIDE else SELECTED
-                outside -> OUTSIDE
-                else -> OBJECT
+            val selected = highlight && i == scene.selected
+            val colors = scene.filamentColors.takeIf { it.size > 1 }
+            for ((filament, first, count) in gpu.objects[i].parts) {
+                val filamentColor = colors?.let { it.getOrNull(filament) ?: it.first() }
+                val color = when {
+                    selected && outside -> SELECTED_OUTSIDE
+                    outside -> OUTSIDE
+                    // Seleção como um tom laranja sobre a cor do filamento.
+                    selected -> filamentColor?.let { mix(it, SELECTED, 0.5f) } ?: SELECTED
+                    else -> filamentColor ?: OBJECT
+                }
+                gpu.objects[i].geometry.draw(colorLocation, color, first, count)
             }
-            gpu.objects[i].draw(colorLocation, color)
         }
     }
 
@@ -235,20 +245,40 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
             bedSurface = Geometry(GL_TRIANGLE_FAN, fan),
             bedOutline = Geometry(GL_LINE_LOOP, fan),
             bedGrid = Geometry(GL_LINES, gridLines(outline)),
-            objects = scene.meshes.map { Geometry(GL_TRIANGLES, it.positions, it.indices) },
+            objects = scene.meshes.map(::objectGeometry),
         )
     }
 
+    /** Um trecho por filamento (os triângulos já vêm agrupados), para desenhar cada um com a cor dele. */
+    private fun objectGeometry(mesh: ObjectMesh): ObjectGeometry {
+        val triangles = mesh.indices.size / 3
+        val parts = ArrayList<Part>()
+        var start = 0
+        while (start < triangles) {
+            val filament = mesh.filaments.getOrElse(start) { 0 }
+            var end = start + 1
+            while (end < triangles && mesh.filaments.getOrElse(end) { 0 } == filament) end++
+            parts += Part(filament.toInt() and 0xff, start * 3, (end - start) * 3)
+            start = end
+        }
+        return ObjectGeometry(Geometry(GL_TRIANGLES, mesh.positions, mesh.indices), parts)
+    }
+
     private fun release(gpu: GpuScene) {
-        (listOf(gpu.bedSurface, gpu.bedOutline, gpu.bedGrid) + gpu.objects).forEach(Geometry::release)
+        (listOf(gpu.bedSurface, gpu.bedOutline, gpu.bedGrid) + gpu.objects.map { it.geometry }).forEach(Geometry::release)
     }
 
     private class GpuScene(
         val bedSurface: Geometry,
         val bedOutline: Geometry,
         val bedGrid: Geometry,
-        val objects: List<Geometry>,
+        val objects: List<ObjectGeometry>,
     )
+
+    /** [count] índices a partir de [first], todos do [filament]. */
+    private data class Part(val filament: Int, val first: Int, val count: Int)
+
+    private class ObjectGeometry(val geometry: Geometry, val parts: List<Part>)
 
     /** VAO com posições (x, y, z) e, opcionalmente, índices de 32 bits. */
     private class Geometry(private val mode: Int, positions: FloatArray, indices: IntArray? = null) {
@@ -270,10 +300,11 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
             glBindVertexArray(0)
         }
 
-        fun draw(colorLocation: Int, color: FloatArray) {
+        /** Desenha [count] elementos a partir de [first] (padrão: todos). */
+        fun draw(colorLocation: Int, color: FloatArray, first: Int = 0, count: Int = this.count) {
             glUniform4fv(colorLocation, 1, color, 0)
             glBindVertexArray(vao)
-            if (indexed) glDrawElements(mode, count, GL_UNSIGNED_INT, 0) else glDrawArrays(mode, 0, count)
+            if (indexed) glDrawElements(mode, count, GL_UNSIGNED_INT, first * 4) else glDrawArrays(mode, first, count)
             glBindVertexArray(0)
         }
 
@@ -307,6 +338,8 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
         private val SELECTED = floatArrayOf(0.96f, 0.58f, 0.16f, 1f)
         private val OUTSIDE = floatArrayOf(0.80f, 0.18f, 0.18f, 1f)
         private val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
+
+        private fun mix(a: FloatArray, b: FloatArray, t: Float) = FloatArray(4) { a[it] + (b[it] - a[it]) * t }
 
         /** Linhas a cada [GRID_STEP] mm recortadas pelo contorno da mesa (que pode ser circular). */
         private fun gridLines(outline: FloatArray): FloatArray {

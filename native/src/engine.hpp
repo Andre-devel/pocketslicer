@@ -47,10 +47,12 @@ struct Bed {
     double max_height = 0.0;                  // printable_height
 };
 
-// Malha de um objeto em coordenadas locais, com os volumes já transformados.
+// Malha de um objeto em coordenadas locais, com os volumes já transformados. As partes
+// pintadas em várias cores vêm divididas nos triângulos da pintura.
 struct ObjectMesh {
     std::vector<float>    positions; // x, y, z por vértice
     std::vector<uint32_t> indices;   // 3 por triângulo
+    std::vector<uint8_t>  filaments; // filamento (a partir de 0) por triângulo, em ordem crescente
 };
 
 // Miniatura RGBA com as linhas de baixo para cima (a ordem do glReadPixels).
@@ -166,6 +168,9 @@ public:
     // Arranjo automático de todos os objetos na mesa (libnest2d).
     void arrange();
     std::vector<ObjectMesh> objects() const;
+    // Cor de cada filamento do projeto ("#RRGGBB", filament_colour), pelo índice de
+    // ObjectMesh::filaments.
+    std::vector<std::string> filament_colors() const;
     std::vector<Placement> placements() const;
 
     // As alterações de posição sempre apoiam o objeto na mesa (z mínimo = 0).

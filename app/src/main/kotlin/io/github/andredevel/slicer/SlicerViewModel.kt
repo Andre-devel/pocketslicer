@@ -352,9 +352,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val placements = engine.placements()
         // Objetos novos podem ter vindo de outro arquivo, que encerra as placas do projeto.
         val plates = if (meshes != null) engine.projectPlates() else _state.value.plates
+        val colors = engine.filamentColors().map(::rgba)
         _state.update { state ->
             val selected = state.scene?.selected?.takeIf { meshes == null && it < placements.size }
-            state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected), plates = plates)
+            state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors), plates = plates)
         }
     }
 
@@ -368,6 +369,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             // Também em caso de erro: descarta a pré-visualização do viewport.
             refreshScene(engine, meshes)
         }
+    }
+
+    /** `#RRGGBB` ou `#RRGGBBAA` do Orca em RGBA de 0 a 1; cinza se não for uma cor. */
+    private fun rgba(color: String): FloatArray {
+        val hex = color.removePrefix("#")
+        val value = hex.toLongOrNull(16)?.takeIf { hex.length == 6 || hex.length == 8 } ?: return floatArrayOf(0.6f, 0.6f, 0.6f, 1f)
+        val rgb = if (hex.length == 8) value shr 8 else value
+        return floatArrayOf(((rgb shr 16) and 0xff) / 255f, ((rgb shr 8) and 0xff) / 255f, (rgb and 0xff) / 255f, 1f)
     }
 
     private fun displayName(uri: Uri): String =
