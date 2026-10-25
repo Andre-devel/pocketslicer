@@ -245,6 +245,11 @@ class SlicerEngineTest {
         val outerWall = SlicerEngine.roleNames.indexOf("Outer wall")
         assertTrue(toolpaths.roles.any { it.toInt() == outerWall })
         assertTrue(toolpaths.travels.isNotEmpty())
+
+        // "Fatiar de novo" sem mudança: o Orca não refaz o G-code, e o resultado não pode sumir.
+        val again = engine.slice(gcode) { _, _ -> }
+        assertEquals(stats.filamentMm3, again.filamentMm3, 0.001)
+        assertEquals(toolpaths.segmentCount, engine.toolpaths().segmentCount)
     }
 
     @Test

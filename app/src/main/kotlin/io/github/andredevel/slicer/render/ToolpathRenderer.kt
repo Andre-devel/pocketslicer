@@ -33,7 +33,9 @@ class Preview(val toolpaths: Toolpaths) {
         }
     }
 
-    fun movesInLayer(layer: Int): Int = layerStart[layer + 1] - layerStart[layer]
+    /** Movimentos de extrusão da camada [layer]; 0 fora das camadas (G-code sem nenhuma). */
+    fun movesInLayer(layer: Int): Int =
+        if (layer in 0 until toolpaths.layerCount) layerStart[layer + 1] - layerStart[layer] else 0
 
     /** Faixa de valores do modo de cor (para legenda e escala), ou null em [ColorMode.FEATURE]. */
     fun range(mode: ColorMode): ClosedFloatingPointRange<Float>? {

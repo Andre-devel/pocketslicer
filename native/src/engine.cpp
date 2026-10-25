@@ -825,6 +825,11 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     if (!err.string.empty())
         throw std::runtime_error(err.string);
 
+    // Sem mudança desde o último slice, GCode::do_export() não refaz o arquivo e deixaria o
+    // resultado vazio ("Fatiar de novo" fechava o app na pré-visualização): vale o anterior.
+    if (print.is_step_done(psGCodeExport) && fs::exists(gcode_path) && !m->result.moves.empty())
+        return stats_of(m->result);
+
     GCodeProcessorResult result;
     m->result = GCodeProcessorResult();
     try {
