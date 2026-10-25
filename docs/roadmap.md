@@ -97,6 +97,8 @@ Item 4: `.github/workflows/parity.yml` (GitHub Actions) compila as dependências
 testes instrumentados. Casos: BBL A1, Creality Ender-3 V3, Prusa MK4 e Voron 2.4, todos
 equivalentes ao Orca 2.4.2 desktop. Ainda não rodou no GitHub (o repositório não tem remoto);
 contra aparelho físico, só manualmente com `scripts/test-device.sh`.
+Num aparelho físico (Galaxy S25, Android 16, arm64) os 5 casos passam, de 0,8 a 2 s cada, depois
+de desligar a fusão de multiplicação e soma (FMA) do clang no arm64 (`-ffp-contract=off`).
 Item 5 em parte: `LICENSE` (AGPL-3.0), `NOTICE` com as licenças das bibliotecas do APK e README.
 Nome definitivo PocketSlicer (`applicationId` `io.github.andredevel.pocketslicer`; o pacote do
 código continua `io.github.andredevel.slicer`, que também nomeia as funções JNI). APK de release

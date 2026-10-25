@@ -70,6 +70,10 @@ add_compile_definitions("$<IF:$<CONFIG:Debug>,DEBUG,NDEBUG>")
 # slice_cli de ~600 MB. Para depurar no aparelho, use RelWithDebInfo.
 add_compile_options($<$<CONFIG:Release>:-g0>)
 add_compile_definitions(BBL_RELEASE_TO_PUBLIC=1)
+# No arm64 o clang funde a*b+c numa instrução (FMA), que arredonda diferente do
+# desktop x86_64. No Galaxy S25 isso levava o cube20 a 0,124% de filamento de
+# diferença da referência (limite 0,1%); sem a fusão, 0,050%.
+add_compile_options(-ffp-contract=off)
 add_compile_options(-fsigned-char -Wall -Wno-unused-variable -Wno-unused-but-set-variable
                     -Wno-sign-compare -Wno-reorder -Wno-unused-function -Wno-deprecated-declarations)
 
