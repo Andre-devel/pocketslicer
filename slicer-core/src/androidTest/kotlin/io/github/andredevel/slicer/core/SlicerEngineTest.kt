@@ -282,6 +282,35 @@ class SlicerEngineTest {
         assertTrue(engine.slice(File(work, "project.gcode")) { _, _ -> }.filamentMm3 > 0)
     }
 
+    // Projetos do Bambu Studio 2.x (MakerWorld) gravam filament_notes como texto, lista no Orca.
+    @Test
+    fun opensBambuStudioProjectWithTextFilamentNotes() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val saved = File(work, "saved.3mf")
+        engine.saveProject(saved, Thumbnail(64, 64, ByteArray(64 * 64 * 4) { 0x7f }))
+
+        val project = File(work, "bambu-studio.3mf")
+        java.util.zip.ZipFile(saved).use { zip ->
+            java.util.zip.ZipOutputStream(project.outputStream()).use { out ->
+                for (entry in zip.entries()) {
+                    out.putNextEntry(java.util.zip.ZipEntry(entry.name))
+                    var bytes = zip.getInputStream(entry).use { it.readBytes() }
+                    if (entry.name == "Metadata/project_settings.config")
+                        bytes = Regex("\"filament_notes\": \\[[^\\]]*\\]").replace(bytes.decodeToString(), "\"filament_notes\": \"\"").encodeToByteArray()
+                    out.write(bytes)
+                    out.closeEntry()
+                }
+            }
+        }
+        assertTrue("\"filament_notes\": \"\"" in java.util.zip.ZipFile(project).use { zip ->
+            zip.getInputStream(zip.getEntry("Metadata/project_settings.config")).use { it.readBytes().decodeToString() }
+        })
+        assertEquals("BBL", engine.openProject(project))
+        assertEquals(1, engine.placements().size)
+    }
+
     @Test
     fun gcodeHasThumbnailsOfPrinterProfile() = runBlocking {
         engine.loadVendor("BBL")

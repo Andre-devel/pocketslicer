@@ -2,6 +2,7 @@
 //
 //   slice_cli <resources_dir> <vendor> <printer> <process> <filament> <model> <out.gcode>
 //   slice_cli <resources_dir> --list <vendor>
+//   slice_cli <resources_dir> --project <project.3mf> <out.gcode>
 //
 // resources_dir é uma cópia de resources/ do OrcaSlicer (profiles/, info/, flush/).
 // Os perfis são nomes de preset do fabricante (ex.: "Bambu Lab A1 0.4 nozzle").
@@ -31,11 +32,13 @@ static void list(Engine &engine, const std::string &vendor)
 int main(int argc, char **argv)
 {
     const bool listing = argc == 4 && std::string(argv[2]) == "--list";
-    if (argc != 8 && !listing) {
+    const bool project = argc == 5 && std::string(argv[2]) == "--project";
+    if (argc != 8 && !listing && !project) {
         std::fprintf(stderr,
                      "usage: %s <resources_dir> <vendor> <printer> <process> <filament> <model> <out.gcode>\n"
-                     "       %s <resources_dir> --list <vendor>\n",
-                     argv[0], argv[0]);
+                     "       %s <resources_dir> --list <vendor>\n"
+                     "       %s <resources_dir> --project <project.3mf> <out.gcode>\n",
+                     argv[0], argv[0], argv[0]);
         return 2;
     }
 
@@ -45,16 +48,23 @@ int main(int argc, char **argv)
             list(engine, argv[3]);
             return 0;
         }
-        engine.load_vendor(argv[2]);
-        engine.select(PresetKind::Printer, argv[3]);
-        engine.select(PresetKind::Process, argv[4]);
-        engine.select(PresetKind::Filament, argv[5]);
-        engine.load_model(argv[6]);
-        slicer::SliceStats stats = engine.slice(argv[7], [](int percent, const std::string &text) {
+        const char *gcode = argv[project ? 4 : 7];
+        if (project) {
+            std::printf("vendor: %s\n", engine.open_project(argv[3]).c_str());
+            for (const slicer::Placement &p : engine.placements())
+                std::printf("object at %.1f %.1f %.1f%s\n", p.offset[0], p.offset[1], p.offset[2], p.outside ? " (outside)" : "");
+        } else {
+            engine.load_vendor(argv[2]);
+            engine.select(PresetKind::Printer, argv[3]);
+            engine.select(PresetKind::Process, argv[4]);
+            engine.select(PresetKind::Filament, argv[5]);
+            engine.load_model(argv[6]);
+        }
+        slicer::SliceStats stats = engine.slice(gcode, [](int percent, const std::string &text) {
             std::fprintf(stderr, "[%3d%%] %s\n", percent, text.c_str());
         });
         std::printf("gcode: %s\nestimated time: %.0f s\nfilament: %.2f cm3\n",
-                    argv[7], stats.print_time_s, stats.filament_mm3 / 1000.0);
+                    gcode, stats.print_time_s, stats.filament_mm3 / 1000.0);
         return 0;
     } catch (const std::exception &e) {
         std::fprintf(stderr, "error: %s\n", e.what());

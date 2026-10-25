@@ -428,10 +428,7 @@ std::string Engine::open_project(const std::string &path)
         release_PlateData_list(plates);
         throw;
     }
-    // Instâncias (objeto, instância) da primeira placa; vazio = todas.
-    std::set<std::pair<int, int>> first_plate;
-    if (plates.size() > 1)
-        first_plate.insert(plates.front()->objects_and_instances.begin(), plates.front()->objects_and_instances.end());
+    const bool several_plates = plates.size() > 1;
     release_PlateData_list(plates);
 
     if (!config.has("printer_settings_id")) {
@@ -453,6 +450,14 @@ std::string Engine::open_project(const std::string &path)
                                         config.opt_string("printer_settings_id")));
     if (vendor != m->vendor)
         load_vendor(vendor);
+    // O Bambu Studio 2.x grava algumas opções de filamento como texto (filament_notes = ""),
+    // que no Orca são listas: "" vira lista vazia, e PresetBundle::load_config_file_config()
+    // falha ao espalhá-la pelos filamentos ("Assigning from an empty vector"). Sem a opção,
+    // cada filamento fica com o valor padrão, como numa opção que o arquivo não traz.
+    for (const std::string &key : m->bundle->filaments.default_preset().config.keys())
+        if (const ConfigOption *opt = config.option(key);
+            opt != nullptr && !opt->is_scalar() && static_cast<const ConfigOptionVectorBase *>(opt)->size() == 0)
+            config.erase(key);
     // Como Plater::load_files(): presets embutidos, depois a configuração do projeto.
     if (!project_presets.empty())
         m->bundle->load_project_embedded_presets(project_presets, ForwardCompatibilitySubstitutionRule::EnableSilent);
@@ -460,13 +465,21 @@ std::string Engine::open_project(const std::string &path)
     for (Preset &filament : m->bundle->filaments)
         filament.is_visible = true;
 
+    // Só a primeira placa. O arquivo diz a placa de cada objeto pelo id do 3MF, que o
+    // carregamento não devolve; mas as placas ficam lado a lado no espaço, com a primeira na
+    // origem, então são dela as instâncias com o centro sobre a mesa.
+    const BoundingBoxf bed = m->build_volume().bounding_volume2d();
+    auto on_first_plate = [&](const ModelObject &object, size_t instance) {
+        return !several_plates || bed.contains(to_2d(object.instance_bounding_box(instance).center()));
+    };
+
     // Uma instância por objeto, nas posições do arquivo.
     m->model.clear_objects();
     m->model.clear_materials();
     for (size_t i = 0; i < model.objects.size(); ++i) {
         const ModelObject *source = model.objects[i];
         for (size_t j = 0; j < source->instances.size(); ++j) {
-            if (!first_plate.empty() && first_plate.count({int(i), int(j)}) == 0)
+            if (!on_first_plate(*source, j))
                 continue;
             ModelObject *added = m->model.add_object(*source);
             const Transform3d transform = source->instances[j]->get_matrix();
