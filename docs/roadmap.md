@@ -113,7 +113,7 @@ assinado com a chave de `scripts/make-release-key.sh`. Falta a release no GitHub
 **Saída:** MVP v1.0.
 
 ## Pós-MVP (ordem sugerida)
-1. Envio LAN: Moonraker (HTTP upload + start), Bambu LAN mode (FTPS + MQTT), OctoPrint.
+1. Envio LAN: Moonraker (HTTP upload + start), Creality, Bambu LAN mode (FTPS + MQTT), OctoPrint — plano em [plano-envio.md](plano-envio.md).
 2. Modificadores por faixa de altura e volumes modificadores.
 3. Pintura de suportes/seam (gizmos de pintura do Orca são GUI; reimplementar sobre `TriangleSelector` de libslic3r).
 4. Multi-material (AMS/MMU) com torre de purga.
