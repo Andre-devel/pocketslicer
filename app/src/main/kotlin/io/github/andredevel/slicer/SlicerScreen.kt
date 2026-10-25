@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -480,14 +481,19 @@ private fun SliceControls(state: SlicerUiState, viewModel: SlicerViewModel, enab
         }
         is SliceState.Done -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stats(slice.stats), style = MaterialTheme.typography.bodyLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            var sending by rememberSaveable { mutableStateOf(false) }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { saveGcode(viewModel.gcodeName()) }, enabled = enabled) {
                     Text(stringResource(R.string.save_gcode))
+                }
+                Button(onClick = { sending = true }, enabled = enabled) {
+                    Text(stringResource(R.string.send_to_printer))
                 }
                 OutlinedButton(onClick = viewModel::slice, enabled = state.canSlice) {
                     Text(stringResource(R.string.slice_again))
                 }
             }
+            if (sending) SendDialog(state, viewModel) { sending = false }
         }
     }
 }

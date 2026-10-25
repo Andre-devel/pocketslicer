@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- As impressoras da rede local (Moonraker, Creality) só falam HTTP, num IP digitado pelo
+     usuário, então o texto puro não pode ficar restrito a domínios. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

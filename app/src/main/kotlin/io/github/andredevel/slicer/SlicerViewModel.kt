@@ -20,6 +20,10 @@ import io.github.andredevel.slicer.profiles.OrcaResources
 import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.Scene
 import io.github.andredevel.slicer.render.Tool
+import io.github.andredevel.slicer.send.PrinterHost
+import io.github.andredevel.slicer.send.PrinterStore
+import io.github.andredevel.slicer.send.SendException
+import io.github.andredevel.slicer.send.uploader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +37,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Presets de um tipo: [options] para escolher, o [selected], quais são de usuário ([user]) e os
@@ -46,6 +51,15 @@ data class PresetChoice(
 ) {
     val dirty get() = values.dirty.isNotEmpty()
     val selectedIsUser get() = selected in user
+}
+
+/** Diálogo de envio: operação em andamento ou o resultado da última. */
+sealed interface SendState {
+    data object Idle : SendState
+    /** [progress] de 0 a 1, ou null enquanto só conecta. */
+    data class Working(@StringRes val text: Int, val progress: Float? = null) : SendState
+    data class Done(@StringRes val text: Int, val printer: String) : SendState
+    data class Failed(val message: String) : SendState
 }
 
 sealed interface SliceState {
@@ -74,6 +88,9 @@ data class SlicerUiState(
     /** Viewport na pré-visualização do G-code (só com fatiamento concluído). */
     val showPreview: Boolean = false,
     val slice: SliceState = SliceState.Idle,
+    /** Impressoras salvas para o envio do G-code. */
+    val printers: List<PrinterHost> = emptyList(),
+    val send: SendState = SendState.Idle,
 ) {
     val objectCount get() = scene?.placements?.size ?: 0
     val anyOutside get() = scene?.placements?.any { it.outside } == true
@@ -99,6 +116,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
      */
     var thumbnails: (suspend (width: Int, height: Int) -> Thumbnail?)? = null
     private var sliceJob: Job? = null
+    private var sendJob: Job? = null
+    private val printerStore = PrinterStore(File(app.filesDir, "printers.json"))
 
     private val engine = viewModelScope.async {
         val resources = withContext(Dispatchers.IO) { OrcaResources.install(app) }
@@ -113,6 +132,13 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             _state.update { it.copy(vendors = PresetChoice(vendors)) }
             loadVendor(engine, vendor)
         }
+
+    init {
+        viewModelScope.launch {
+            val printers = withContext(Dispatchers.IO) { printerStore.load() }
+            _state.update { it.copy(printers = printers) }
+        }
+    }
 
     /**
      * Idioma do app (a Activity chama ao ser criada, inclusive depois de o usuário trocá-lo):
@@ -300,6 +326,71 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun saveGcode(uri: Uri) = launchEngine(R.string.busy_saving) { write(gcodeFile, uri) }
+
+    /** Acrescenta [host] ou substitui o de mesmo id. */
+    fun savePrinter(host: PrinterHost) = editPrinters { printers ->
+        if (printers.any { it.id == host.id }) printers.map { if (it.id == host.id) host else it } else printers + host
+    }
+
+    fun deletePrinter(id: String) = editPrinters { printers -> printers.filter { it.id != id } }
+
+    private fun editPrinters(edit: (List<PrinterHost>) -> List<PrinterHost>) {
+        val printers = edit(_state.value.printers)
+        _state.update { it.copy(printers = printers) }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { printerStore.save(printers) }
+            } catch (e: IOException) {
+                Log.w(TAG, e)
+                _state.update { it.copy(error = app.getString(R.string.error_write_file)) }
+            }
+        }
+    }
+
+    /** Novo id para [PrinterHost]. */
+    fun newPrinterId(): String = UUID.randomUUID().toString()
+
+    /** Perfil de impressora em uso, que o diálogo de envio usa para sugerir a impressora. */
+    fun printerPreset(): String? = _state.value.presets[PresetKind.PRINTER]?.selected
+
+    fun testPrinter(host: PrinterHost) = runSend(R.string.send_connecting) {
+        uploader(host.kind).test(host)
+        SendState.Done(R.string.send_test_ok, host.name)
+    }
+
+    /** Envia o G-code fatiado para [host], sem iniciar a impressão. */
+    fun sendGcode(host: PrinterHost) = runSend(R.string.send_connecting) {
+        uploader(host.kind).upload(host, gcodeFile, gcodeName()) { progress ->
+            _state.update { it.copy(send = SendState.Working(R.string.send_uploading, progress)) }
+        }
+        SendState.Done(R.string.send_done, host.name)
+    }
+
+    fun cancelSend() {
+        sendJob?.cancel()
+    }
+
+    fun clearSendState() = _state.update { it.copy(send = SendState.Idle) }
+
+    private fun runSend(@StringRes text: Int, block: suspend () -> SendState) {
+        sendJob?.cancel()
+        sendJob = viewModelScope.launch {
+            _state.update { it.copy(send = SendState.Working(text)) }
+            val result = try {
+                block()
+            } catch (e: SendException) {
+                Log.w(TAG, "send failed", e.cause)
+                SendState.Failed(app.getString(e.text, *e.args))
+            } catch (e: CancellationException) {
+                _state.update { it.copy(send = SendState.Idle) }
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "unexpected send error", e)
+                SendState.Failed(app.getString(R.string.error_unexpected, e.toString()))
+            }
+            _state.update { it.copy(send = result) }
+        }
+    }
 
     fun dismissError() = _state.update { it.copy(error = null) }
 

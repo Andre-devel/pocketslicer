@@ -71,4 +71,27 @@
     <string name="error_write_file">Não foi possível gravar o arquivo.</string>
     <string name="error_out_of_memory">Memória insuficiente para esta operação.</string>
     <string name="error_unexpected">Erro inesperado: %1$s</string>
+    <string name="send_to_printer">Enviar para impressora</string>
+    <string name="send_title">Enviar para impressora</string>
+    <string name="send_file">Arquivo: %1$s. Ele só é enviado; inicie a impressão na impressora.</string>
+    <string name="send">Enviar</string>
+    <string name="close">Fechar</string>
+    <string name="edit">Editar</string>
+    <string name="add_printer">Adicionar impressora</string>
+    <string name="edit_printer">Editar impressora</string>
+    <string name="printer_kind">Tipo: %1$s</string>
+    <string name="printer_name">Nome</string>
+    <string name="printer_address">Endereço IP (porta opcional)</string>
+    <string name="printer_api_key">API key (opcional)</string>
+    <string name="test_connection">Testar conexão</string>
+    <string name="send_connecting">Conectando…</string>
+    <string name="send_uploading">Enviando…</string>
+    <string name="send_test_ok">%1$s respondeu.</string>
+    <string name="send_done">Arquivo enviado para %1$s.</string>
+    <string name="send_error_address">Endereço inválido: %1$s</string>
+    <string name="send_error_unreachable">Não foi possível alcançar a impressora em %1$s. Confira o IP e se o celular está na mesma rede da impressora (alguns roteadores isolam os aparelhos no Wi-Fi).</string>
+    <string name="send_error_not_moonraker">%1$s não respondeu como Klipper (Moonraker). Confira o endereço e a porta.</string>
+    <string name="send_error_auth">A impressora recusou o acesso (HTTP %1$d). Confira a API key.</string>
+    <string name="send_error_http">A impressora recusou o pedido (HTTP %1$d): %2$s</string>
+    <string name="send_error_io">Falha na conexão com a impressora: %1$s</string>
 </resources>

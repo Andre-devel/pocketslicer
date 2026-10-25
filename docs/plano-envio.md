@@ -80,7 +80,7 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
 
 ## Ordem de implementação (cada passo com commit)
 
-1. **Base + Moonraker**: permissão/config de rede, `PrinterHost`, armazenamento, `MoonrakerUploader`,
+1. **Base + Moonraker** (feito; testado no emulador com `scripts/fake-moonraker.py`, falta a Q2 e a U1 reais): permissão/config de rede, `PrinterHost`, armazenamento, `MoonrakerUploader`,
    diálogo de envio. Teste: Qidi Q2 e Snapmaker U1 (pedir os IPs), arquivo aparece na lista
    de arquivos da impressora. Teste local antes: Moonraker falso com `python3 -m http.server` não
    serve; usar um servidor Flask/aiohttp mínimo em `scripts/` que aceite o multipart.

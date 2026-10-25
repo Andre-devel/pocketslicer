@@ -12,7 +12,7 @@ Fatiador 3D (FDM) para tablets Android, baseado no núcleo do OrcaSlicer (`libsl
 | UI | Kotlin + Jetpack Compose; viewport 3D em OpenGL ES 3.x |
 | Alvo | Android 10+ (API 29), ABI `arm64-v8a` apenas, layout para tablet (≥ 7") |
 | Perfis | Reuso integral de `resources/profiles` do OrcaSlicer (impressora / filamento / processo) |
-| Rede | Nenhuma dependência de rede no MVP. Envio LAN para impressora fica para fase posterior |
+| Rede | Só na rede local, para enviar o G-code à impressora (docs/plano-envio.md); nada vai para a internet |
 
 ## 2. Escopo do MVP
 
