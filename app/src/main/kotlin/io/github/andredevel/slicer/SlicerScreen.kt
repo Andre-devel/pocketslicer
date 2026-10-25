@@ -69,6 +69,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -120,34 +123,69 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
         val landscape = configuration.screenWidthDp > configuration.screenHeightDp
         val sheetMaxHeight = configuration.screenHeightDp.dp * 0.7f
         var panelVisible by rememberSaveable { mutableStateOf(true) }
+        // Num celular em retrato não cabem os botões ao lado do título (ele quebrava letra a
+        // letra): Projeto, Adicionar modelo e Arranjar vão para o menu "⋮".
+        val compactBar = configuration.screenWidthDp < COMPACT_BAR_WIDTH_DP
         val topBar = @Composable {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+                title = { Text(stringResource(R.string.app_name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 actions = {
-                    var projectMenu by remember { mutableStateOf(false) }
-                    Box {
-                        TextButton(onClick = { projectMenu = true }, enabled = enabled) { Text(stringResource(R.string.project)) }
-                        DropdownMenu(expanded = projectMenu, onDismissRequest = { projectMenu = false }) {
-                            DropdownMenuItem(text = { Text(stringResource(R.string.open_file)) }, onClick = {
-                                projectMenu = false
-                                openFile.launch(arrayOf("*/*"))
-                            })
-                            DropdownMenuItem(text = { Text(stringResource(R.string.save_project)) }, enabled = state.objectCount > 0, onClick = {
-                                projectMenu = false
-                                saveProject.launch(viewModel.projectName())
-                            })
-                        }
+                    val openItem = @Composable { close: () -> Unit ->
+                        DropdownMenuItem(text = { Text(stringResource(R.string.open_file)) }, onClick = {
+                            close()
+                            openFile.launch(arrayOf("*/*"))
+                        })
+                    }
+                    val saveItem = @Composable { close: () -> Unit ->
+                        DropdownMenuItem(text = { Text(stringResource(R.string.save_project)) }, enabled = state.objectCount > 0, onClick = {
+                            close()
+                            saveProject.launch(viewModel.projectName())
+                        })
                     }
                     // STL/3MF chegam com MIME variado (model/stl, application/octet-stream...).
-                    TextButton(onClick = { openModel.launch(arrayOf("*/*")) }, enabled = enabled) {
-                        Text(stringResource(R.string.add_model))
-                    }
+                    val addModel = { openModel.launch(arrayOf("*/*")) }
+                    val canArrange = enabled && state.objectCount > 0 && !state.previewVisible
                     if (state.preview != null) {
                         TextButton(onClick = { viewModel.showPreview(!state.showPreview) }) {
                             Text(stringResource(if (state.showPreview) R.string.prepare else R.string.preview))
                         }
                     }
-                    TextButton(onClick = viewModel::arrange, enabled = enabled && state.objectCount > 0 && !state.previewVisible) {
+                    if (compactBar) {
+                        var menu by remember { mutableStateOf(false) }
+                        val moreOptions = stringResource(R.string.more_options)
+                        Box {
+                            TextButton(onClick = { menu = true }, modifier = Modifier.semantics { contentDescription = moreOptions }) {
+                                Text("⋮", style = MaterialTheme.typography.titleLarge)
+                            }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.add_model)) }, enabled = enabled, onClick = {
+                                    menu = false
+                                    addModel()
+                                })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.arrange)) }, enabled = canArrange, onClick = {
+                                    menu = false
+                                    viewModel.arrange()
+                                })
+                                if (enabled) {
+                                    openItem { menu = false }
+                                    saveItem { menu = false }
+                                }
+                            }
+                        }
+                        return@TopAppBar
+                    }
+                    var projectMenu by remember { mutableStateOf(false) }
+                    Box {
+                        TextButton(onClick = { projectMenu = true }, enabled = enabled) { Text(stringResource(R.string.project)) }
+                        DropdownMenu(expanded = projectMenu, onDismissRequest = { projectMenu = false }) {
+                            openItem { projectMenu = false }
+                            saveItem { projectMenu = false }
+                        }
+                    }
+                    TextButton(onClick = addModel, enabled = enabled) {
+                        Text(stringResource(R.string.add_model))
+                    }
+                    TextButton(onClick = viewModel::arrange, enabled = canArrange) {
                         Text(stringResource(R.string.arrange))
                     }
                     if (landscape) {
@@ -434,6 +472,7 @@ private fun SliceControls(state: SlicerUiState, viewModel: SlicerViewModel, enab
 }
 
 private val PANEL_WIDTH = 360.dp
+private const val COMPACT_BAR_WIDTH_DP = 600
 private val SHEET_PEEK_HEIGHT = 160.dp
 
 private val ParameterFilterSaver = listSaver<ParameterFilter, Any>(

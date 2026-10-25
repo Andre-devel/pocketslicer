@@ -30,6 +30,7 @@
     <string name="rotation_deg">Rotação (°)</string>
     <string name="scale_percent">Escala (%)</string>
     <string name="uniform_scale">Escala uniforme</string>
+    <string name="more_options">Mais opções</string>
     <string name="arrange">Arranjar</string>
     <string name="duplicate">Duplicar</string>
     <string name="delete">Excluir</string>
@@ -60,6 +61,9 @@
     <string name="color_width">Largura</string>
     <string name="travels">Deslocamentos</string>
     <string name="layers_label">Camadas %1$d–%2$d de %3$d · z %4$.2f mm</string>
+    <string name="legend">Legenda</string>
+    <string name="layers_short">%1$d–%2$d / %3$d\n%4$.2f mm</string>
+    <string name="moves_short">Mov. %1$d / %2$d</string>
     <string name="moves_label">Movimentos da camada: %1$d de %2$d</string>
     <string name="preview_stats">Tempo: %1$s\nFilamento: %2$s m · %3$s g\nCusto: %4$s</string>
     <string name="error_read_file">Não foi possível ler o arquivo.</string>

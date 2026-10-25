@@ -3,6 +3,12 @@ package io.github.andredevel.slicer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -64,71 +70,118 @@ fun PreviewOverlay(
     val minLayer = settings.minLayer.coerceIn(0, maxLayer)
     val moves = preview.movesInLayer(maxLayer)
 
-    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                modifier = Modifier.width(260.dp),
-            ) {
-                Column(Modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for ((mode, label) in COLOR_MODES) {
-                            FilterChip(selected = settings.colorMode == mode, onClick = { onSettings(settings.copy(colorMode = mode)) },
-                                label = { Text(stringResource(label), style = MaterialTheme.typography.labelSmall) })
-                        }
-                    }
-                    if (settings.colorMode == ColorMode.FEATURE) {
-                        RoleLegend(preview, roleLabels, settings, onSettings)
-                    } else {
-                        RangeLegend(preview, settings.colorMode)
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = settings.showTravels, onCheckedChange = { onSettings(settings.copy(showTravels = it)) })
-                        Text(stringResource(R.string.travels), style = MaterialTheme.typography.bodySmall)
+    // Num celular (paisagem tem ~300 dp de altura) a legenda e as barras cobriam o modelo
+    // inteiro: lá a legenda fica recolhida num botão e cada barra divide a linha com o rótulo.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val width = maxWidth
+        val compact = maxHeight < COMPACT_HEIGHT || width < COMPACT_WIDTH
+        var legendOpen by rememberSaveable { mutableStateOf(!compact) }
+        val legend = @Composable {
+            Column(Modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for ((mode, label) in COLOR_MODES) {
+                        FilterChip(selected = settings.colorMode == mode, onClick = { onSettings(settings.copy(colorMode = mode)) },
+                            label = { Text(stringResource(label), style = MaterialTheme.typography.labelSmall) })
                     }
                 }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-            ) {
-                Text(statsText(stats), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
+                if (settings.colorMode == ColorMode.FEATURE) {
+                    RoleLegend(preview, roleLabels, settings, onSettings)
+                } else {
+                    RangeLegend(preview, settings.colorMode)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = settings.showTravels, onCheckedChange = { onSettings(settings.copy(showTravels = it)) })
+                    Text(stringResource(R.string.travels), style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                val z = toolpaths.layerZ.getOrElse(maxLayer) { 0f }
-                Text(stringResource(R.string.layers_label, minLayer + 1, maxLayer + 1, toolpaths.layerCount, z),
-                    style = MaterialTheme.typography.bodySmall)
-                if (lastLayer > 0) {
-                    RangeSlider(
-                        value = minLayer.toFloat()..maxLayer.toFloat(),
-                        onValueChange = { range ->
-                            // Ao trocar a camada de cima, ela aparece inteira.
-                            onSettings(settings.copy(minLayer = range.start.roundToInt(), maxLayer = range.endInclusive.roundToInt(), maxMove = Int.MAX_VALUE))
-                        },
-                        valueRange = 0f..lastLayer.toFloat(),
-                    )
+        Column(Modifier.fillMaxSize().padding(if (compact) 8.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                val legendWidth = if (legendOpen) Modifier.width(minOf(LEGEND_WIDTH, width - 16.dp)) else Modifier
+                Column(legendWidth, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (compact) {
+                        FilterChip(selected = legendOpen, onClick = { legendOpen = !legendOpen },
+                            label = { Text(stringResource(R.string.legend)) },
+                            colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)))
+                    }
+                    if (legendOpen) {
+                        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
+                            legend()
+                        }
+                    }
                 }
-                Text(stringResource(R.string.moves_label, settings.maxMove.coerceAtMost(moves), moves), style = MaterialTheme.typography.bodySmall)
-                if (moves > 0) {
-                    Slider(
-                        value = settings.maxMove.coerceAtMost(moves).toFloat(),
-                        onValueChange = { onSettings(settings.copy(maxMove = it.roundToInt())) },
-                        valueRange = 0f..moves.toFloat(),
-                    )
+                // Na tela estreita a legenda aberta ocupa a largura; as estatísticas voltam ao fechá-la.
+                if (!compact || !legendOpen || width >= LEGEND_WIDTH * 2) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        modifier = Modifier.padding(start = 8.dp).weight(1f, fill = false),
+                    ) {
+                        Text(statsText(stats), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(if (compact) 8.dp else 12.dp))
+                    }
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 0.dp else 8.dp)) {
+                    val z = toolpaths.layerZ.getOrElse(maxLayer) { 0f }
+                    val layers = if (compact) stringResource(R.string.layers_short, minLayer + 1, maxLayer + 1, toolpaths.layerCount, z)
+                    else stringResource(R.string.layers_label, minLayer + 1, maxLayer + 1, toolpaths.layerCount, z)
+                    val movesText = if (compact) stringResource(R.string.moves_short, settings.maxMove.coerceAtMost(moves), moves)
+                    else stringResource(R.string.moves_label, settings.maxMove.coerceAtMost(moves), moves)
+                    val layerSlider = @Composable { modifier: Modifier ->
+                        if (lastLayer > 0) {
+                            RangeSlider(
+                                value = minLayer.toFloat()..maxLayer.toFloat(),
+                                onValueChange = { range ->
+                                    // Ao trocar a camada de cima, ela aparece inteira.
+                                    onSettings(settings.copy(minLayer = range.start.roundToInt(), maxLayer = range.endInclusive.roundToInt(), maxMove = Int.MAX_VALUE))
+                                },
+                                valueRange = 0f..lastLayer.toFloat(),
+                                modifier = modifier,
+                            )
+                        }
+                    }
+                    val moveSlider = @Composable { modifier: Modifier ->
+                        if (moves > 0) {
+                            Slider(
+                                value = settings.maxMove.coerceAtMost(moves).toFloat(),
+                                onValueChange = { onSettings(settings.copy(maxMove = it.roundToInt())) },
+                                valueRange = 0f..moves.toFloat(),
+                                modifier = modifier,
+                            )
+                        }
+                    }
+                    if (compact) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(layers, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(COMPACT_LABEL_WIDTH))
+                            layerSlider(Modifier.weight(1f))
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(movesText, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(COMPACT_LABEL_WIDTH))
+                            moveSlider(Modifier.weight(1f))
+                        }
+                    } else {
+                        Text(layers, style = MaterialTheme.typography.bodySmall)
+                        layerSlider(Modifier)
+                        Text(movesText, style = MaterialTheme.typography.bodySmall)
+                        moveSlider(Modifier)
+                    }
                 }
             }
         }
     }
 }
+
+private val COMPACT_HEIGHT = 480.dp
+private val COMPACT_WIDTH = 560.dp
+private val LEGEND_WIDTH = 260.dp
+private val COMPACT_LABEL_WIDTH = 120.dp
 
 @Composable
 private fun RoleLegend(preview: Preview, roleLabels: List<String>, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {

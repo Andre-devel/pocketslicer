@@ -31,6 +31,7 @@
     <string name="rotation_deg">Rotation (°)</string>
     <string name="scale_percent">Scale (%)</string>
     <string name="uniform_scale">Uniform scale</string>
+    <string name="more_options">More options</string>
     <string name="arrange">Arrange</string>
     <string name="duplicate">Duplicate</string>
     <string name="delete">Delete</string>
@@ -61,6 +62,9 @@
     <string name="color_width">Width</string>
     <string name="travels">Travel moves</string>
     <string name="layers_label">Layers %1$d–%2$d of %3$d · z %4$.2f mm</string>
+    <string name="legend">Legend</string>
+    <string name="layers_short">%1$d–%2$d / %3$d\n%4$.2f mm</string>
+    <string name="moves_short">Moves %1$d / %2$d</string>
     <string name="moves_label">Layer moves: %1$d of %2$d</string>
     <string name="preview_stats">Time: %1$s\nFilament: %2$s m · %3$s g\nCost: %4$s</string>
     <string name="error_read_file">Could not read the file.</string>
