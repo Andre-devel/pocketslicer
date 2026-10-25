@@ -11,6 +11,7 @@ import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
 import io.github.andredevel.slicer.core.PresetValues
 import io.github.andredevel.slicer.core.PresetKind
+import io.github.andredevel.slicer.core.ProjectPlates
 import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.core.SlicerEngine
 import io.github.andredevel.slicer.core.SlicerException
@@ -67,6 +68,8 @@ data class SlicerUiState(
     /** Nome do primeiro modelo adicionado; dá nome ao G-code. */
     val modelName: String? = null,
     val scene: Scene? = null,
+    /** Placas do projeto 3MF aberto, quando ele tem mais de uma. */
+    val plates: ProjectPlates? = null,
     val tool: Tool = Tool.MOVE,
     /** Viewport na pré-visualização do G-code (só com fatiamento concluído). */
     val showPreview: Boolean = false,
@@ -236,6 +239,12 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** Nome sugerido para o projeto: o do modelo com a extensão trocada. */
     fun projectName(): String = (_state.value.modelName?.substringBeforeLast('.') ?: "model") + ".3mf"
 
+    /** Põe na mesa os objetos de outra placa do projeto, no lugar dos atuais. */
+    fun selectPlate(plate: Int) = editScene { engine ->
+        engine.selectPlate(plate)
+        engine.objects()
+    }
+
     fun duplicate(objectIndex: Int) = editScene { engine ->
         engine.duplicate(objectIndex)
         // A cópia vai para o fim, com a mesma malha.
@@ -341,9 +350,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun refreshScene(engine: SlicerEngine, meshes: List<ObjectMesh>? = null) {
         val bed = engine.bed()
         val placements = engine.placements()
+        // Objetos novos podem ter vindo de outro arquivo, que encerra as placas do projeto.
+        val plates = if (meshes != null) engine.projectPlates() else _state.value.plates
         _state.update { state ->
             val selected = state.scene?.selected?.takeIf { meshes == null && it < placements.size }
-            state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected))
+            state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected), plates = plates)
         }
     }
 

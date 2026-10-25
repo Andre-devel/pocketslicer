@@ -144,8 +144,16 @@ public:
     // Projeto 3MF do Orca/Bambu Studio: objetos nas posições salvas e perfis com as
     // alterações, como a GUI do Orca abre. Carrega o fabricante da impressora do projeto
     // e devolve o nome dele. Um 3MF sem configuração abre como load_model(); de um projeto
-    // com várias placas, só os objetos da primeira.
+    // com várias placas, só os objetos da primeira que tiver algum.
     std::string open_project(const std::string &path);
+    // Quantos objetos tem cada placa do projeto aberto por open_project(); vazio se ele tem
+    // só uma ou se, depois dele, vieram load_model() ou add_model().
+    std::vector<size_t> project_plates() const;
+    // A placa (a partir de 0) cujos objetos estão na mesa, quando project_plates() não é vazio.
+    size_t project_plate() const;
+    // Troca os objetos da mesa pelos da placa (a partir de 0) do projeto, nas posições do
+    // arquivo; as alterações feitas nos da placa anterior se perdem. Lança se ela estiver vazia.
+    void select_plate(size_t plate);
     // Grava os objetos, a configuração completa e a miniatura num 3MF que o Orca abre.
     void save_project(const std::string &path, const Thumbnail &thumbnail);
     // G-code pronto (para preview); substitui o resultado do último slice(). O tempo e o

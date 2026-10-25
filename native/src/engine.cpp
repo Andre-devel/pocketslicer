@@ -44,6 +44,15 @@ struct Engine::Impl {
     Model                         model;
     Print                         print;
     GCodeProcessorResult          result; // do último slice()
+    // Projeto aberto com várias placas: todos os objetos do arquivo e as placas, com a
+    // posição de cada uma e os pares (objeto, instância) dela em project.
+    struct Plate {
+        Vec2d                                 origin = Vec2d::Zero();
+        std::vector<std::pair<size_t, size_t>> instances;
+    };
+    Model              project;
+    std::vector<Plate> plates;
+    size_t             plate = 0; // a da mesa
 
     PresetCollection &collection(PresetKind kind)
     {
@@ -81,6 +90,31 @@ struct Engine::Impl {
 
     ModelObject &object(size_t index);
     void add(Model &&objects, bool keep_layout = true);
+
+    void forget_project()
+    {
+        project.clear_objects();
+        project.clear_materials();
+        plates.clear();
+    }
+
+    // Uma instância por objeto da placa, nas posições do arquivo em relação a ela.
+    void show_plate(size_t index)
+    {
+        const Plate &plate = plates[index];
+        this->plate = index;
+        model.clear_objects();
+        model.clear_materials();
+        for (const auto &[object, instance] : plate.instances) {
+            const ModelObject *source = project.objects[object];
+            ModelObject       *added = model.add_object(*source);
+            while (added->instances.size() > 1)
+                added->delete_instance(added->instances.size() - 1);
+            ModelInstance *placed = added->instances.front();
+            placed->set_transformation(source->instances[instance]->get_transformation());
+            placed->set_offset(placed->get_offset() - to_3d(plate.origin, 0.));
+        }
+    }
 
     const DynamicPrintConfig &printer() const { return bundle->printers.get_edited_preset().config; }
 
@@ -398,6 +432,7 @@ void Engine::load_model(const std::string &path)
 {
     // Lê antes de limpar: se o arquivo for inválido, a mesa continua como estava.
     Model model = read_model(path);
+    m->forget_project();
     m->model.clear_objects();
     m->model.clear_materials();
     m->add(std::move(model));
@@ -406,6 +441,7 @@ void Engine::load_model(const std::string &path)
 void Engine::add_model(const std::string &path)
 {
     m->add(read_model(path));
+    m->forget_project();
 }
 
 std::string Engine::open_project(const std::string &path)
@@ -428,7 +464,7 @@ std::string Engine::open_project(const std::string &path)
         release_PlateData_list(plates);
         throw;
     }
-    const bool several_plates = plates.size() > 1;
+    const size_t plate_count = std::max<size_t>(plates.size(), 1);
     release_PlateData_list(plates);
 
     if (!config.has("printer_settings_id")) {
@@ -465,32 +501,59 @@ std::string Engine::open_project(const std::string &path)
     for (Preset &filament : m->bundle->filaments)
         filament.is_visible = true;
 
-    // Só a primeira placa. O arquivo diz a placa de cada objeto pelo id do 3MF, que o
-    // carregamento não devolve; mas as placas ficam lado a lado no espaço, com a primeira na
-    // origem, então são dela as instâncias com o centro sobre a mesa.
-    const BoundingBoxf bed = m->build_volume().bounding_volume2d();
-    auto on_first_plate = [&](const ModelObject &object, size_t instance) {
-        return !several_plates || bed.contains(to_2d(object.instance_bounding_box(instance).center()));
-    };
-
-    // Uma instância por objeto, nas posições do arquivo.
-    m->model.clear_objects();
-    m->model.clear_materials();
-    for (size_t i = 0; i < model.objects.size(); ++i) {
-        const ModelObject *source = model.objects[i];
-        for (size_t j = 0; j < source->instances.size(); ++j) {
-            if (!on_first_plate(*source, j))
-                continue;
-            ModelObject *added = m->model.add_object(*source);
-            const Transform3d transform = source->instances[j]->get_matrix();
-            while (added->instances.size() > 1)
-                added->delete_instance(added->instances.size() - 1);
-            added->instances.front()->set_transformation(Geometry::Transformation(transform));
+    // O arquivo diz a placa de cada objeto pelo id do 3MF, que o carregamento não devolve;
+    // mas as placas ficam numa grade, como em PartPlateList::compute_shape_position():
+    // a primeira na origem, colunas para +x e linhas para -y, separadas por 1/5 da mesa.
+    // Cada instância vai para a placa mais próxima do seu centro.
+    const BoundingBoxf bed     = m->build_volume().bounding_volume2d();
+    const Vec2d        stride  = bed.size() * (1. + 1. / 5.);
+    const int          columns = int(std::ceil(std::sqrt(double(plate_count)) - 1e-6));
+    m->forget_project();
+    m->plates.resize(plate_count);
+    for (size_t i = 0; i < plate_count; ++i)
+        m->plates[i].origin = Vec2d(double(i % columns) * stride.x(), -double(i / columns) * stride.y());
+    for (size_t i = 0; i < model.objects.size(); ++i)
+        for (size_t j = 0; j < model.objects[i]->instances.size(); ++j) {
+            const Vec2d offset = to_2d(model.objects[i]->instance_bounding_box(j).center()) - bed.center();
+            const int   column = int(std::lround(offset.x() / stride.x()));
+            const int   row    = int(std::lround(-offset.y() / stride.y()));
+            const long  plate  = long(row) * columns + column;
+            if (plate_count == 1)
+                m->plates[0].instances.emplace_back(i, j);
+            else if (column >= 0 && column < columns && row >= 0 && plate < long(plate_count))
+                m->plates[plate].instances.emplace_back(i, j);
         }
-    }
-    if (m->model.objects.empty())
+    m->project = std::move(model);
+    // A primeira placa com objetos.
+    const auto first = std::find_if(m->plates.begin(), m->plates.end(), [](const Impl::Plate &p) { return !p.instances.empty(); });
+    if (first == m->plates.end())
         throw std::runtime_error(format(_u8L("No objects found in %1%."), fs::path(path).filename().string()));
+    m->show_plate(first - m->plates.begin());
+    if (m->plates.size() == 1)
+        m->forget_project();
     return m->vendor;
+}
+
+std::vector<size_t> Engine::project_plates() const
+{
+    std::vector<size_t> objects;
+    for (const Impl::Plate &plate : m->plates)
+        objects.push_back(plate.instances.size());
+    return objects;
+}
+
+size_t Engine::project_plate() const
+{
+    return m->plate;
+}
+
+void Engine::select_plate(size_t plate)
+{
+    if (plate >= m->plates.size())
+        throw std::out_of_range("invalid plate");
+    if (m->plates[plate].instances.empty())
+        throw std::runtime_error(format(_u8L("Plate %1% is empty."), plate + 1));
+    m->show_plate(plate);
 }
 
 void Engine::save_project(const std::string &path, const Thumbnail &thumbnail)

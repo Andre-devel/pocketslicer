@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="add_model">Adicionar modelo</string>
+    <string name="plate">Placa</string>
     <string name="no_model">Nenhum modelo (STL, 3MF, OBJ)</string>
     <string name="vendor">Fabricante</string>
     <string name="printer">Impressora</string>

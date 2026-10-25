@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name" translatable="false">PocketSlicer</string>
     <string name="add_model">Add model</string>
+    <string name="plate">Plate</string>
     <string name="no_model">No model (STL, 3MF, OBJ)</string>
     <string name="vendor">Vendor</string>
     <string name="printer">Printer</string>

@@ -79,6 +79,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.andredevel.slicer.core.PresetKind
+import io.github.andredevel.slicer.core.ProjectPlates
 import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.render.PreviewSettings
 import io.github.andredevel.slicer.core.Thumbnail
@@ -276,17 +277,20 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
             PreviewOverlay(preview, done.stats, state.roleLabels, previewSettings) { previewSettings = it }
             return@Box
         }
-        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state.scene?.selected != null) {
-                for ((tool, label) in TOOLS) {
-                    FilterChip(
-                        selected = state.tool == tool,
-                        onClick = { viewModel.selectTool(tool) },
-                        label = { Text(stringResource(label)) },
-                        colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface),
-                    )
+        Column(Modifier.padding(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (state.scene?.selected != null) {
+                    for ((tool, label) in TOOLS) {
+                        FilterChip(
+                            selected = state.tool == tool,
+                            onClick = { viewModel.selectTool(tool) },
+                            label = { Text(stringResource(label)) },
+                            colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface),
+                        )
+                    }
                 }
             }
+            state.plates?.let { PlateSelector(it, enabled = state.busy == null && state.slice !is SliceState.Running, viewModel::selectPlate) }
         }
         menu?.let { (objectIndex, position) ->
             Box(Modifier.offset { IntOffset(position.x.roundToInt(), position.y.roundToInt()) }) {
@@ -301,6 +305,23 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, modifier:
                     })
                 }
             }
+        }
+    }
+}
+
+/** Placas do projeto: trocar põe na mesa os objetos da escolhida; as vazias ficam desabilitadas. */
+@Composable
+private fun PlateSelector(plates: ProjectPlates, enabled: Boolean, onSelect: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.plate), style = MaterialTheme.typography.labelLarge)
+        plates.objects.forEachIndexed { plate, objects ->
+            FilterChip(
+                selected = plate == plates.selected,
+                onClick = { if (plate != plates.selected) onSelect(plate) },
+                label = { Text("${plate + 1}") },
+                enabled = enabled && objects > 0,
+                colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface),
+            )
         }
     }
 }

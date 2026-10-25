@@ -63,6 +63,9 @@ class Placement(
     val outside: Boolean,
 )
 
+/** Placas de um projeto 3MF: quantos objetos cada uma tem e a [selected] (a partir de 0), a da mesa. */
+data class ProjectPlates(val objects: List<Int>, val selected: Int)
+
 /** Tipo de valor de uma opção do Orca (ConfigOptionType sem a distinção escalar/vetor). */
 enum class OptionType { BOOL, INT, FLOAT, PERCENT, FLOAT_OR_PERCENT, STRING, ENUM, POINT, POINTS, OTHER }
 
@@ -176,9 +179,24 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /**
      * Projeto 3MF do Orca/Bambu Studio: objetos nas posições salvas e perfis com as alterações.
      * Carrega o fabricante da impressora do projeto e devolve o nome dele. Um 3MF sem
-     * configuração abre como [loadModel]; de várias placas, só a primeira.
+     * configuração abre como [loadModel]; de várias placas, só a primeira com objetos.
      */
     suspend fun openProject(file: File): String = call { nativeOpenProject(handle, file.absolutePath) }
+
+    /**
+     * Placas do projeto aberto por [openProject], ou null se ele tem só uma ou se, depois
+     * dele, vieram [loadModel] ou [addModel].
+     */
+    suspend fun projectPlates(): ProjectPlates? = call {
+        val objects = nativeProjectPlates(handle)
+        if (objects.isEmpty()) null else ProjectPlates(objects.asList(), nativeProjectPlate(handle))
+    }
+
+    /**
+     * Troca os objetos da mesa pelos da placa (a partir de 0) do projeto, nas posições do
+     * arquivo; as alterações nos da placa anterior se perdem.
+     */
+    suspend fun selectPlate(plate: Int) = call { nativeSelectPlate(handle, plate) }
 
     /** Grava objetos, configuração e miniatura num 3MF que o Orca abre. */
     suspend fun saveProject(file: File, thumbnail: Thumbnail?) = call {
@@ -329,6 +347,9 @@ private external fun nativeBed(handle: Long): Bed
 private external fun nativeLoadModel(handle: Long, path: String)
 private external fun nativeAddModel(handle: Long, path: String)
 private external fun nativeOpenProject(handle: Long, path: String): String
+private external fun nativeProjectPlates(handle: Long): IntArray
+private external fun nativeProjectPlate(handle: Long): Int
+private external fun nativeSelectPlate(handle: Long, plate: Int)
 private external fun nativeSaveProject(handle: Long, path: String, thumbnailSize: IntArray, thumbnail: Array<ByteArray>)
 private external fun nativeGcodeThumbnailSizes(handle: Long): IntArray
 private external fun nativeLoadGcode(handle: Long, path: String): DoubleArray

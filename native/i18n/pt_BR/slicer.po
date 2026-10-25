@@ -10,6 +10,9 @@ msgstr ""
 msgid "No objects found in %1%."
 msgstr "Nenhum objeto encontrado em %1%."
 
+msgid "Plate %1% is empty."
+msgstr "A placa %1% está vazia."
+
 msgid "The project printer %1% is not among the installed profiles."
 msgstr "A impressora do projeto, %1%, não está entre os perfis instalados."
 

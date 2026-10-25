@@ -2,13 +2,15 @@
 //
 //   slice_cli <resources_dir> <vendor> <printer> <process> <filament> <model> <out.gcode>
 //   slice_cli <resources_dir> --list <vendor>
-//   slice_cli <resources_dir> --project <project.3mf> <out.gcode>
+//   slice_cli <resources_dir> --project <project.3mf> <out.gcode> [plate]
 //
 // resources_dir é uma cópia de resources/ do OrcaSlicer (profiles/, info/, flush/).
 // Os perfis são nomes de preset do fabricante (ex.: "Bambu Lab A1 0.4 nozzle").
+// plate começa em 1 (padrão: a primeira com objetos).
 // O diretório de dados (presets carregados) fica em ./data.
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 #include "engine.hpp"
@@ -32,12 +34,12 @@ static void list(Engine &engine, const std::string &vendor)
 int main(int argc, char **argv)
 {
     const bool listing = argc == 4 && std::string(argv[2]) == "--list";
-    const bool project = argc == 5 && std::string(argv[2]) == "--project";
+    const bool project = (argc == 5 || argc == 6) && std::string(argv[2]) == "--project";
     if (argc != 8 && !listing && !project) {
         std::fprintf(stderr,
                      "usage: %s <resources_dir> <vendor> <printer> <process> <filament> <model> <out.gcode>\n"
                      "       %s <resources_dir> --list <vendor>\n"
-                     "       %s <resources_dir> --project <project.3mf> <out.gcode>\n",
+                     "       %s <resources_dir> --project <project.3mf> <out.gcode> [plate]\n",
                      argv[0], argv[0], argv[0]);
         return 2;
     }
@@ -51,6 +53,9 @@ int main(int argc, char **argv)
         const char *gcode = argv[project ? 4 : 7];
         if (project) {
             std::printf("vendor: %s\n", engine.open_project(argv[3]).c_str());
+            std::printf("plates: %zu\n", engine.project_plates().size());
+            if (argc == 6)
+                engine.select_plate(std::strtoul(argv[5], nullptr, 10) - 1);
             for (const slicer::Placement &p : engine.placements())
                 std::printf("object at %.1f %.1f %.1f%s\n", p.offset[0], p.offset[1], p.offset[2], p.outside ? " (outside)" : "");
         } else {
