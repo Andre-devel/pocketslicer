@@ -36,9 +36,10 @@ interface Uploader {
 
     /**
      * Envia [file] com o nome [name]; com [start], confere antes que a impressora está livre e
-     * depois inicia a impressão dele. [progress] de 0 a 1 durante o envio.
+     * depois inicia a impressão dele. [progress] de 0 a 1 durante o envio; [starting] quando o
+     * arquivo chegou e o pedido de iniciar vai sair.
      */
-    suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit)
+    suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit, starting: () -> Unit = {})
 }
 
 /** Resultado de [Uploader.test]: serviço que respondeu (com a versão, quando há) e tempo da resposta. */

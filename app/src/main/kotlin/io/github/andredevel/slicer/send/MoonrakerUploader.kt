@@ -34,7 +34,7 @@ object MoonrakerUploader : Uploader {
         return Connection(listOfNotNull("Moonraker", version).joinToString(" "), millis)
     }
 
-    override suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit) {
+    override suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit, starting: () -> Unit) {
         val api = api(host)
         if (start) checkIdle(api, host)
         val response = Http.postFile(
@@ -48,6 +48,7 @@ object MoonrakerUploader : Uploader {
         )
         check(response, host)
         if (start) {
+            starting()
             // O servidor pode renomear o arquivo (nome repetido): vale o caminho da resposta.
             val path = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("item")?.optString("path")?.takeIf { it.isNotEmpty() } ?: name
             check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)

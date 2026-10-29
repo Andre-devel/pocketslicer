@@ -84,6 +84,9 @@
     <string name="scan_running_subnet">Procurando em %1$s…</string>
     <string name="scan_running">Procurando impressoras…</string>
     <string name="scan_none">Nenhuma impressora encontrada. Confira se ela está ligada e no mesmo Wi-Fi.</string>
+    <string name="send_step_connect">Conectar</string>
+    <string name="send_step_upload">Enviar arquivo</string>
+    <string name="send_step_start">Iniciar impressão</string>
     <string name="send_connecting">Conectando…</string>
     <string name="send_uploading">Enviando…</string>
     <string name="send_test_ok">%1$s respondeu.</string>

@@ -1,16 +1,21 @@
 package io.github.andredevel.slicer
 
+import android.text.format.Formatter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -54,6 +59,8 @@ import io.github.andredevel.slicer.ui.components.SelectableCard
 import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.color
 import io.github.andredevel.slicer.ui.theme.MonoStyles
+import io.github.andredevel.slicer.ui.theme.PocketTheme
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 /**
@@ -359,17 +366,25 @@ private fun NetworkScan(saved: List<PrinterHost>, onPick: (FoundPrinter) -> Unit
 fun SendStatus(send: SendState) {
     when (send) {
         SendState.Idle -> {}
-        is SendState.Working -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val progress = send.progress
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_upload), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
-                Text(stringResource(send.text), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                if (progress != null) Text("${(progress * 100).toInt()}%", style = MonoStyles.small)
+        is SendState.Working -> {
+            val steps = send.steps
+            if (steps != null) {
+                SendStepList(steps, send.progress)
+                return
             }
-            if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
-            else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val progress = send.progress
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(R.drawable.ic_upload), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
+                    Text(stringResource(send.text), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                    if (progress != null) Text("${(progress * 100).toInt()}%", style = MonoStyles.small)
+                }
+                if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
         }
-        is SendState.Done -> {
+        is SendState.Done -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            send.steps?.let { SendStepList(it, null) }
             val connection = send.connection
             val text = if (connection != null) stringResource(R.string.send_test_detail, connection.service, connection.millis)
             else stringResource(send.text, send.printer)
@@ -378,6 +393,55 @@ fun SendStatus(send: SendState) {
         is SendState.Failed -> Banner(Tone.ERROR, send.message, Modifier.fillMaxWidth())
     }
 }
+
+/** Etapas do envio: ✓ com o tempo nas concluídas, bytes e barra na de envio em andamento. */
+@Composable
+private fun SendStepList(steps: SendSteps, progress: Float?) {
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (step in steps.all) {
+            val millis = steps.millis[step]
+            val current = step == steps.current
+            Row(Modifier.heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                    when {
+                        millis != null -> Icon(painterResource(R.drawable.ic_check_circle), null, tint = PocketTheme.colors.success)
+                        current -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        else -> Icon(painterResource(R.drawable.ic_radio_button_unchecked), null, tint = scheme.outline)
+                    }
+                }
+                Text(
+                    stringResource(SEND_STEP_LABELS.getValue(step)),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (millis == null && !current) scheme.onSurfaceVariant else scheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                val detail = when {
+                    millis != null && step == SendStep.UPLOAD -> "${Formatter.formatShortFileSize(context, steps.total)} · ${duration(millis)}"
+                    millis != null -> duration(millis)
+                    current && step == SendStep.UPLOAD ->
+                        "${Formatter.formatShortFileSize(context, steps.sent)} / ${Formatter.formatShortFileSize(context, steps.total)}"
+                    else -> null
+                }
+                if (detail != null) Text(detail, style = MonoStyles.small, color = scheme.onSurfaceVariant)
+            }
+            if (current && step == SendStep.UPLOAD && progress != null) {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(start = 30.dp))
+            }
+        }
+    }
+}
+
+private val SEND_STEP_LABELS = mapOf(
+    SendStep.CONNECT to R.string.send_step_connect,
+    SendStep.UPLOAD to R.string.send_step_upload,
+    SendStep.START to R.string.send_step_start,
+)
+
+/** "84 ms" ou "1,2 s". */
+private fun duration(millis: Long): String =
+    if (millis < 1000) "$millis ms" else String.format(Locale.getDefault(), "%.1f s", millis / 1000.0)
 
 fun newHost(viewModel: SlicerViewModel) =
     PrinterHost(viewModel.newPrinterId(), name = viewModel.printerPreset().orEmpty(), kind = viewModel.printerKind(), address = "", preset = viewModel.printerPreset())

@@ -86,6 +86,9 @@
     <string name="scan_running_subnet">Searching %1$s…</string>
     <string name="scan_running">Searching for printers…</string>
     <string name="scan_none">No printer found. Check that the printer is on and on the same Wi-Fi.</string>
+    <string name="send_step_connect">Connect</string>
+    <string name="send_step_upload">Upload file</string>
+    <string name="send_step_start">Start print</string>
     <string name="send_connecting">Connecting…</string>
     <string name="send_uploading">Sending…</string>
     <string name="send_test_ok">%1$s responded.</string>

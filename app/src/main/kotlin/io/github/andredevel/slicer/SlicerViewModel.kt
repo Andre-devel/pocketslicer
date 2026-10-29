@@ -59,12 +59,26 @@ data class PresetChoice(
 /** Diálogo de envio: operação em andamento ou o resultado da última. */
 sealed interface SendState {
     data object Idle : SendState
-    /** [progress] de 0 a 1, ou null enquanto só conecta. */
-    data class Working(@StringRes val text: Int, val progress: Float? = null) : SendState
-    /** [connection]: o que respondeu ao teste de conexão. */
-    data class Done(@StringRes val text: Int, val printer: String, val connection: Connection? = null) : SendState
+    /** [progress] de 0 a 1, ou null enquanto só conecta; [steps] no envio do G-code. */
+    data class Working(@StringRes val text: Int, val progress: Float? = null, val steps: SendSteps? = null) : SendState
+    /** [connection]: o que respondeu ao teste de conexão; [steps]: as etapas do envio. */
+    data class Done(@StringRes val text: Int, val printer: String, val connection: Connection? = null, val steps: SendSteps? = null) : SendState
     data class Failed(val message: String) : SendState
 }
+
+enum class SendStep { CONNECT, UPLOAD, START }
+
+/**
+ * Andamento de um envio: [current] (null quando todas terminaram), bytes enviados de [total] e
+ * quanto durou cada etapa concluída.
+ */
+data class SendSteps(
+    val all: List<SendStep>,
+    val current: SendStep?,
+    val sent: Long,
+    val total: Long,
+    val millis: Map<SendStep, Long> = emptyMap(),
+)
 
 sealed interface SliceState {
     data object Idle : SliceState
@@ -445,11 +459,33 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** Envia o G-code fatiado para [host]; com [start], também inicia a impressão. */
     fun sendGcode(host: PrinterHost, start: Boolean = false) = runSend(R.string.send_connecting) {
         val file = printFile(engine.await())
-        uploader(host.kind, app.assets).upload(host, file, gcodeName(), start) { progress ->
-            val text = if (progress < 1f || !start) R.string.send_uploading else R.string.send_starting
-            _state.update { it.copy(send = SendState.Working(text, progress.takeIf { it < 1f || !start })) }
+        val all = if (start) listOf(SendStep.CONNECT, SendStep.UPLOAD, SendStep.START) else listOf(SendStep.CONNECT, SendStep.UPLOAD)
+        var steps = SendSteps(all, SendStep.CONNECT, 0, file.length())
+        var stepStart = System.nanoTime()
+        // Fecha a etapa atual com o tempo dela e passa para [next].
+        val advance = { next: SendStep? ->
+            val now = System.nanoTime()
+            steps = steps.copy(current = next, millis = steps.millis + (steps.current!! to (now - stepStart) / 1_000_000))
+            stepStart = now
         }
-        SendState.Done(if (start) R.string.send_started else R.string.send_done, host.name)
+        _state.update { it.copy(send = SendState.Working(R.string.send_connecting, steps = steps)) }
+        // O primeiro progresso chega com a conexão aberta.
+        uploader(host.kind, app.assets).upload(
+            host, file, gcodeName(), start,
+            progress = { progress ->
+                if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD)
+                steps = steps.copy(sent = (progress * steps.total).toLong())
+                _state.update { it.copy(send = SendState.Working(R.string.send_uploading, progress, steps)) }
+            },
+            starting = {
+                if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD)
+                advance(SendStep.START)
+                _state.update { it.copy(send = SendState.Working(R.string.send_starting, steps = steps)) }
+            },
+        )
+        if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD) // arquivo vazio: sem progresso
+        while (steps.current != null) advance(all.getOrNull(all.indexOf(steps.current) + 1))
+        SendState.Done(if (start) R.string.send_started else R.string.send_done, host.name, steps = steps)
     }
 
     fun cancelSend() {
