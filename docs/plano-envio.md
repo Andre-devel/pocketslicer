@@ -14,7 +14,7 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
 | Qidi Q2 | `Qidi/machine/Qidi Q2 *` (`printer_agent: qidi`) | Moonraker | `src/slic3r/Utils/Moonraker.cpp`; `QidiPrinterAgent` só acrescenta leitura de filamentos (box) |
 | Snapmaker U1 | `Snapmaker/machine/Snapmaker U1 *` (`printer_agent: snapmaker`) | Moonraker | idem; `SnapmakerPrinterAgent` só lê filamentos |
 | Creality K2 (Plus/Pro) | `Creality/machine/Creality K2 *` (`host_type: crealityprint`) | HTTP próprio da Creality | `src/slic3r/Utils/CrealityPrint.cpp` |
-| Creality K3 | **sem perfil no Orca 2.4.2** | provavelmente igual à K2 | confirmar no aparelho; o usuário precisa de um perfil (importar .json) |
+| Creality K3 | **sem perfil no Orca 2.4.2 nem no main** | Moonraker (porta 7125; testado: envio OK) | perfil no Creality Print (AGPL-3.0): `resources/profiles/Creality/{machine,process,filament}/*K3*` |
 | Bambu A1 | `BBL/machine/Bambu Lab A1 *` | FTPS (modo LAN) com `.gcode.3mf` | GUI do Orca: `Plater::export_gcode_3mf()`; envio pelo plugin de rede da Bambu (fechado) |
 
 ### Moonraker (Q2, U1)
@@ -31,6 +31,15 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
   cores do CFS.
 - Primeiro teste: `GET /server/info` na porta 7125/4408 para ver se há Moonraker também; se o
   upload da Creality funcionar, ele basta.
+
+### Creality K3 (2026-10-28)
+- Na rede do usuário (192.168.1.3): OpenWrt, Klipper com **4 extrusoras** (`extruder`..`extruder3`),
+  Moonraker na 7125 (o envio do app já funcionou), mais as portas 80, 4408, 8000 e 9999 (Creality).
+- Perfil: só no Creality Print — `Creality K3.json` (herda `fdm_creality_common` do Creality
+  Print, `host_type: octoprint`, 4 bicos 0.4, mesa 260x260x260), 6 processos e 43 filamentos
+  "@Creality K3". Tem chaves próprias do Creality Print que o libslic3r do Orca ignora.
+- Próximo passo: trazer esses perfis para o app (começando por uma cor, T0), comparar o G-code com
+  o do Creality Print desktop no PC que tem a K3 e só então imprimir uma peça pequena.
 
 ### Bambu A1 (modo LAN)
 - Formato: `.gcode.3mf` (3MF com `Metadata/plate_1.gcode`, miniatura, `slice_info.config`).
