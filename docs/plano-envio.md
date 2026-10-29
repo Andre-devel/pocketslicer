@@ -41,8 +41,7 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
 - Perfis copiados do Creality Print 7.3 instalado no PC (com os do Bambu Studio, QIDI Studio e
   Snapmaker Orca e os presets do usuário) em `profiles/imported/` (2026-10-29). No app, aparecem
   como `CrealityPrint/Creality` etc., antes dos do Orca; falta compilar e testar.
-- Próximo passo: trazer esses perfis para o app (começando por uma cor, T0), comparar o G-code com
-  o do Creality Print desktop no PC que tem a K3 e só então imprimir uma peça pequena.
+- Feito (2026-10-29): perfis no app, K3 envia e imprime pelo app.
 
 ### Bambu A1 (modo LAN)
 - Formato: `.gcode.3mf` (3MF com `Metadata/plate_1.gcode`, miniatura, `slice_info.config`).
@@ -93,12 +92,12 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
 
 ## Ordem de implementação (cada passo com commit)
 
-1. **Base + Moonraker** (feito; testado no emulador com `scripts/fake-moonraker.py`, falta a Q2 e a U1 reais): permissão/config de rede, `PrinterHost`, armazenamento, `MoonrakerUploader`,
+1. **Base + Moonraker** (feito; testado no emulador com `scripts/fake-moonraker.py` e nas Q2, U1, K2 e K3 reais): permissão/config de rede, `PrinterHost`, armazenamento, `MoonrakerUploader`,
    diálogo de envio. Teste: Qidi Q2 e Snapmaker U1 (pedir os IPs), arquivo aparece na lista
    de arquivos da impressora. Teste local antes: Moonraker falso com `python3 -m http.server` não
    serve; usar um servidor Flask/aiohttp mínimo em `scripts/` que aceite o multipart.
-2. **Creality**: `CrealityUploader`; testar K2 e K3 (pedir IPs). Se a K3 não tiver perfil,
-   avisar o usuário.
+2. **Creality** (feito): K2 e K3 têm Moonraker; enviam e imprimem pelo caminho do
+   Moonraker, sem `CrealityUploader`. Perfis vêm do Creality Print importado.
 3. **`.gcode.3mf` no motor** (feito): `Engine::export_gcode_3mf()`; "Salvar G-code" e "Enviar"
    usam esse formato quando a impressora pede (Bambu, ou `use_3mf` no perfil, como o Qidi Q2) e o
    Moonraker recebe `plateindex=1`, como no Orca. Testado no Qidi Q2 real: a Moonraker dele só
@@ -118,7 +117,8 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
    upload, como o Orca. O diálogo só pré-seleciona a impressora cadastrada com o perfil do
    fatiamento e avisa quando a escolhida foi cadastrada com outro. Testado com
    `scripts/fake-moonraker.py` (e `--state printing`); na impressora real, só com OK do usuário.
-6. Futuro: iniciar pela Creality (WebSocket) e Bambu (MQTT), descoberta automática, status da
+6. Situação em 2026-10-29: Q2, U1, K2 e K3 enviam e imprimem; a A1 só envia (iniciar exige modo
+   somente LAN + desenvolvedor). Descoberta na rede feita (`PrinterScanner`). Futuro: status da
    impressão.
 
 ## Riscos
