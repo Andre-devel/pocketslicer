@@ -373,13 +373,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         SendState.Done(R.string.send_test_ok, host.name)
     }
 
-    /** Envia o G-code fatiado para [host], sem iniciar a impressão. */
-    fun sendGcode(host: PrinterHost) = runSend(R.string.send_connecting) {
+    /** Envia o G-code fatiado para [host]; com [start], também inicia a impressão. */
+    fun sendGcode(host: PrinterHost, start: Boolean = false) = runSend(R.string.send_connecting) {
         val file = printFile(engine.await())
-        uploader(host.kind).upload(host, file, gcodeName()) { progress ->
-            _state.update { it.copy(send = SendState.Working(R.string.send_uploading, progress)) }
+        uploader(host.kind).upload(host, file, gcodeName(), start) { progress ->
+            val text = if (progress < 1f || !start) R.string.send_uploading else R.string.send_starting
+            _state.update { it.copy(send = SendState.Working(text, progress.takeIf { it < 1f || !start })) }
         }
-        SendState.Done(R.string.send_done, host.name)
+        SendState.Done(if (start) R.string.send_started else R.string.send_done, host.name)
     }
 
     fun cancelSend() {

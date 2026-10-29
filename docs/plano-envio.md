@@ -1,7 +1,8 @@
 # Plano: enviar o G-code para a impressora (Pós-MVP item 1)
 
-Escopo combinado com o usuário (2026-10-24): **só enviar** o arquivo para a impressora; iniciar a
-impressão fica para depois (não testar "enviar e imprimir" sem OK explícito). Computador, celular
+Escopo combinado com o usuário (2026-10-24): **só enviar** o arquivo para a impressora; em
+2026-10-28 o usuário pediu também "enviar e imprimir" (testar numa impressora real só com OK
+explícito, mesa livre e peça pequena). Computador, celular
 e impressoras estão na mesma rede; os IPs são pedidos ao usuário quando cada teste precisar.
 
 Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
@@ -91,8 +92,14 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
    Moonraker recebe `plateindex=1`, como no Orca. Testado no Qidi Q2 real: a Moonraker dele só
    extrai a miniatura (512x512) de um .gcode.3mf. Falta validar na A1.
 4. **Bambu LAN (FTPS)**: `BambuUploader`; usuário digita o código de acesso; testar na A1.
-5. Futuro (precisa de OK do usuário para testar): iniciar impressão (Moonraker
-   `print/start`, WebSocket Creality, MQTT Bambu), descoberta automática, status da impressão.
+5. **Enviar e imprimir (Moonraker)** (feito): botão no diálogo com confirmação ("mesa livre e
+   limpa, filamento certo"); antes do envio confere `print_stats.state` e recusa se a impressora
+   estiver imprimindo ou pausada; depois `POST /printer/print/start` com o caminho devolvido pelo
+   upload, como o Orca. O diálogo só pré-seleciona a impressora cadastrada com o perfil do
+   fatiamento e avisa quando a escolhida foi cadastrada com outro. Testado com
+   `scripts/fake-moonraker.py` (e `--state printing`); na impressora real, só com OK do usuário.
+6. Futuro: iniciar pela Creality (WebSocket) e Bambu (MQTT), descoberta automática, status da
+   impressão.
 
 ## Riscos
 - K3 sem perfil no Orca 2.4.2: o fatiamento para ela depende de perfil importado.

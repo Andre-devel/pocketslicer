@@ -28,8 +28,11 @@ interface Uploader {
     /** Confere que a impressora responde pelo protocolo; falha com [SendException]. */
     suspend fun test(host: PrinterHost)
 
-    /** Envia [file] com o nome [name], sem iniciar a impressão; [progress] de 0 a 1. */
-    suspend fun upload(host: PrinterHost, file: File, name: String, progress: (Float) -> Unit)
+    /**
+     * Envia [file] com o nome [name]; com [start], confere antes que a impressora está livre e
+     * depois inicia a impressão dele. [progress] de 0 a 1 durante o envio.
+     */
+    suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit)
 }
 
 fun uploader(kind: Kind): Uploader = when (kind) {

@@ -52,6 +52,16 @@ internal object Http {
         headers.forEach(connection::setRequestProperty)
     }
 
+    suspend fun postJson(url: URL, headers: Map<String, String>, json: String): Response = request(url) { connection ->
+        connection.requestMethod = "POST"
+        connection.doOutput = true
+        headers.forEach(connection::setRequestProperty)
+        connection.setRequestProperty("Content-Type", "application/json")
+        val body = json.toByteArray()
+        connection.setFixedLengthStreamingMode(body.size)
+        connection.outputStream.use { it.write(body) }
+    }
+
     /**
      * POST multipart/form-data com [fields] e o arquivo no campo [fileField], em streaming
      * (o G-code pode ter centenas de MB).

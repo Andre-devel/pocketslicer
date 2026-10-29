@@ -10,8 +10,10 @@ import java.net.URL
 
 /**
  * Moonraker (API do Klipper), como `src/slic3r/Utils/Moonraker.cpp` do Orca: o G-code vai para
- * `POST /server/files/upload` na raiz `gcodes`, com `print=false`. Num .gcode.3mf o G-code é o
- * `Metadata/plate_1.gcode`, que o campo `plateindex` indica (servidores sem suporte o ignoram).
+ * `POST /server/files/upload` na raiz `gcodes`, com `print=false`, e a impressão começa por
+ * `POST /printer/print/start` com o caminho que a resposta do envio devolve. Num .gcode.3mf o
+ * G-code é o `Metadata/plate_1.gcode`, que o campo `plateindex` indica (servidores sem suporte
+ * o ignoram).
  */
 object MoonrakerUploader : Uploader {
     /** Porta própria do Moonraker, quando o nginx do Fluidd/Mainsail (porta 80) não repassa a API. */
@@ -21,8 +23,9 @@ object MoonrakerUploader : Uploader {
         api(host)
     }
 
-    override suspend fun upload(host: PrinterHost, file: File, name: String, progress: (Float) -> Unit) {
+    override suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit) {
         val api = api(host)
+        if (start) checkIdle(api, host)
         val response = Http.postFile(
             api.resolve("/server/files/upload"),
             headers(host),
@@ -33,6 +36,26 @@ object MoonrakerUploader : Uploader {
             progress,
         )
         check(response, host)
+        if (start) {
+            // O servidor pode renomear o arquivo (nome repetido): vale o caminho da resposta.
+            val path = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("item")?.optString("path")?.takeIf { it.isNotEmpty() } ?: name
+            check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)
+        }
+    }
+
+    /** Falha se o Klipper estiver imprimindo ou pausado (print_stats.state). */
+    private suspend fun checkIdle(api: URL, host: PrinterHost) {
+        val response = Http.get(api.resolve("/printer/objects/query?print_stats"), headers(host))
+        check(response, host)
+        val state = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")
+            ?.optJSONObject("print_stats")?.optString("state").orEmpty()
+        if (state == "printing" || state == "paused") throw SendException(R.string.send_error_busy, host.name, state)
+    }
+
+    private fun jsonOrNull(body: String): JSONObject? = try {
+        JSONObject(body)
+    } catch (e: JSONException) {
+        null
     }
 
     /**

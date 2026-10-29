@@ -74,7 +74,15 @@
     <string name="error_unexpected">Unexpected error: %1$s</string>
     <string name="send_to_printer">Send to printer</string>
     <string name="send_title">Send to printer</string>
-    <string name="send_file">File: %1$s. It is only sent; start the print on the printer.</string>
+    <string name="send_file">File: %1$s</string>
+    <string name="send_and_print">Send and print</string>
+    <string name="send_preset_mismatch">This printer was added with the %1$s profile, but the file was sliced with %2$s.</string>
+    <string name="print_confirm_title">Start printing?</string>
+    <string name="print_confirm">%1$s will start printing as soon as it receives the file. Make sure the bed is clear and clean and the right filament is loaded.</string>
+    <string name="print_start">Print</string>
+    <string name="send_starting">Starting the print…</string>
+    <string name="send_started">Print started on %1$s.</string>
+    <string name="send_error_busy">%1$s is busy (%2$s). Wait for it to finish before starting another print.</string>
     <string name="send">Send</string>
     <string name="close">Close</string>
     <string name="edit">Edit</string>

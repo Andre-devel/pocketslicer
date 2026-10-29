@@ -31,18 +31,19 @@ import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
 
 /**
- * Enviar o G-code fatiado para uma impressora salva, ou cadastrar uma. Só envia: a impressão é
- * iniciada na impressora.
+ * Enviar o G-code fatiado para uma impressora salva, ou cadastrar uma; "Enviar e imprimir" pede
+ * confirmação antes de iniciar a impressão.
  */
 @Composable
 fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit) {
     val working = state.send is SendState.Working
     // Impressora em edição; começa no cadastro quando não há nenhuma salva.
     var editing by remember { mutableStateOf(if (state.printers.isEmpty()) newHost(viewModel) else null) }
-    var selectedId by remember {
-        val preset = viewModel.printerPreset()
-        mutableStateOf((state.printers.find { it.preset == preset } ?: state.printers.firstOrNull())?.id)
-    }
+    // Só vem escolhida a impressora cadastrada com o perfil do fatiamento: outra receberia um
+    // G-code feito para outra máquina.
+    val preset = viewModel.printerPreset()
+    var selectedId by remember { mutableStateOf(state.printers.find { it.preset == preset }?.id) }
+    var confirmPrint by remember { mutableStateOf(false) }
     val close = {
         viewModel.cancelSend()
         viewModel.clearSendState()
@@ -79,6 +80,21 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -
     }
 
     val selected = state.printers.find { it.id == selectedId }
+    if (confirmPrint && selected != null) {
+        AlertDialog(
+            onDismissRequest = { confirmPrint = false },
+            title = { Text(stringResource(R.string.print_confirm_title)) },
+            text = { Text(stringResource(R.string.print_confirm, selected.name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmPrint = false
+                    viewModel.sendGcode(selected, start = true)
+                }) { Text(stringResource(R.string.print_start)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmPrint = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+        return
+    }
     AlertDialog(
         onDismissRequest = { if (!working) close() },
         title = { Text(stringResource(R.string.send_title)) },
@@ -87,7 +103,10 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -
                 Text(stringResource(R.string.send_file, viewModel.gcodeName()), style = MaterialTheme.typography.bodyMedium)
                 for (host in state.printers) {
                     Row(
-                        Modifier.fillMaxWidth().selectable(selected = host.id == selectedId, enabled = !working) { selectedId = host.id },
+                        Modifier.fillMaxWidth().selectable(selected = host.id == selectedId, enabled = !working) {
+                            if (selectedId != host.id) viewModel.clearSendState()
+                            selectedId = host.id
+                        },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = host.id == selectedId, onClick = null, enabled = !working)
@@ -99,12 +118,20 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -
                     }
                 }
                 TextButton(onClick = { edit(newHost(viewModel)) }, enabled = !working) { Text(stringResource(R.string.add_printer)) }
+                if (selected?.preset != null && preset != null && selected.preset != preset) {
+                    Text(stringResource(R.string.send_preset_mismatch, selected.preset, preset), color = MaterialTheme.colorScheme.error)
+                }
                 SendStatus(state.send)
             }
         },
         confirmButton = {
-            TextButton(onClick = { selected?.let(viewModel::sendGcode) }, enabled = selected != null && !working) {
-                Text(stringResource(R.string.send))
+            Row {
+                TextButton(onClick = { confirmPrint = true }, enabled = selected != null && !working) {
+                    Text(stringResource(R.string.send_and_print))
+                }
+                TextButton(onClick = { selected?.let { viewModel.sendGcode(it) } }, enabled = selected != null && !working) {
+                    Text(stringResource(R.string.send))
+                }
             }
         },
         dismissButton = {

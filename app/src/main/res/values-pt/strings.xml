@@ -73,7 +73,15 @@
     <string name="error_unexpected">Erro inesperado: %1$s</string>
     <string name="send_to_printer">Enviar para impressora</string>
     <string name="send_title">Enviar para impressora</string>
-    <string name="send_file">Arquivo: %1$s. Ele só é enviado; inicie a impressão na impressora.</string>
+    <string name="send_file">Arquivo: %1$s</string>
+    <string name="send_and_print">Enviar e imprimir</string>
+    <string name="send_preset_mismatch">Esta impressora foi cadastrada com o perfil %1$s, mas o arquivo foi fatiado com %2$s.</string>
+    <string name="print_confirm_title">Iniciar a impressão?</string>
+    <string name="print_confirm">%1$s vai começar a imprimir assim que receber o arquivo. Confira se a mesa está livre e limpa e se o filamento certo está carregado.</string>
+    <string name="print_start">Imprimir</string>
+    <string name="send_starting">Iniciando a impressão…</string>
+    <string name="send_started">Impressão iniciada em %1$s.</string>
+    <string name="send_error_busy">%1$s está ocupada (%2$s). Espere terminar antes de iniciar outra impressão.</string>
     <string name="send">Enviar</string>
     <string name="close">Fechar</string>
     <string name="edit">Editar</string>
