@@ -58,12 +58,9 @@ import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.SegmentedTabs
 import io.github.andredevel.slicer.ui.components.vertical
 import io.github.andredevel.slicer.ui.theme.MonoStyles
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 private val COLOR_MODES = listOf(
     ColorMode.FEATURE to R.string.color_feature,
@@ -121,6 +118,7 @@ private fun slicedAgo(slicedAt: Long): String {
 @Composable
 fun PreviewOverlay(
     preview: Preview,
+    stats: SliceStats,
     roleLabels: List<String>,
     settings: PreviewSettings,
     onSettings: (PreviewSettings) -> Unit,
@@ -149,7 +147,7 @@ fun PreviewOverlay(
             } else {
                 viewPicker(Modifier)
             }
-            if (legendOpen) Legend(preview, roleLabels, settings, onSettings, Modifier.weight(1f, fill = false))
+            if (legendOpen) Legend(preview, stats, roleLabels, settings, onSettings, Modifier.weight(1f, fill = false))
         }
 
         if (lastLayer > 0) {
@@ -179,7 +177,7 @@ fun PreviewOverlay(
 }
 
 @Composable
-private fun Legend(preview: Preview, roleLabels: List<String>, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit, modifier: Modifier) {
+private fun Legend(preview: Preview, stats: SliceStats, roleLabels: List<String>, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit, modifier: Modifier) {
     FloatingCard(modifier) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.color_by), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -190,7 +188,7 @@ private fun Legend(preview: Preview, roleLabels: List<String>, settings: Preview
                 check = false,
                 compact = true,
             )
-            if (settings.colorMode == ColorMode.FEATURE) RoleLegend(preview, roleLabels, settings, onSettings)
+            if (settings.colorMode == ColorMode.FEATURE) RoleLegend(preview, stats, roleLabels, settings, onSettings)
             else RangeLegend(preview, settings.colorMode)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -201,12 +199,9 @@ private fun Legend(preview: Preview, roleLabels: List<String>, settings: Preview
     }
 }
 
-/** Tipos de extrusão presentes, com a fração do volume extrudado; tocar oculta/mostra. */
+/** Tipos de extrusão presentes, com a fração do tempo de impressão; tocar oculta/mostra. */
 @Composable
-private fun RoleLegend(preview: Preview, roleLabels: List<String>, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
-    val shares by produceState<Map<Int, Float>>(emptyMap(), preview) {
-        value = withContext(Dispatchers.Default) { roleShares(preview.toolpaths) }
-    }
+private fun RoleLegend(preview: Preview, stats: SliceStats, roleLabels: List<String>, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
     val present = remember(preview) { preview.toolpaths.roles.map { it.toInt() and 0xFF }.toSortedSet() }
     for (role in present) {
         val hidden = role in settings.hiddenRoles
@@ -226,24 +221,12 @@ private fun RoleLegend(preview: Preview, roleLabels: List<String>, settings: Pre
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(start = 10.dp),
             )
-            shares[role]?.let { Text(String.format(Locale.getDefault(), "%.1f%%", it * 100), style = MonoStyles.small) }
+            val time = stats.roleTimes.getOrNull(role)
+            if (time != null && stats.printTimeSeconds > 0) {
+                Text(String.format(Locale.getDefault(), "%.1f%%", time / stats.printTimeSeconds * 100), style = MonoStyles.small)
+            }
         }
     }
-}
-
-/** Fração do volume extrudado (comprimento × largura × altura) de cada tipo. */
-private fun roleShares(toolpaths: Toolpaths): Map<Int, Float> {
-    val volume = DoubleArray(256)
-    val e = toolpaths.extrusions
-    for (i in 0 until toolpaths.segmentCount) {
-        val o = i * 9
-        val dx = e[o + 3] - e[o]
-        val dy = e[o + 4] - e[o + 1]
-        val dz = e[o + 5] - e[o + 2]
-        volume[toolpaths.roles[i].toInt() and 0xFF] += sqrt(dx * dx + dy * dy + dz * dz).toDouble() * e[o + 6] * e[o + 7]
-    }
-    val total = volume.sum().takeIf { it > 0 } ?: return emptyMap()
-    return volume.withIndex().filter { it.value > 0 }.associate { it.index to (it.value / total).toFloat() }
 }
 
 @Composable

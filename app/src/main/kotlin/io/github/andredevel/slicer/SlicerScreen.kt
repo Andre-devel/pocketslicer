@@ -291,7 +291,7 @@ private fun Workspace(
             val preview = state.preview
             val done = state.slice as? SliceState.Done
             if (previewing && preview != null && done != null) {
-                PreviewOverlay(preview, state.roleLabels, previewSettings, { previewSettings = it }, compact = !wide, viewPicker)
+                PreviewOverlay(preview, done.stats, state.roleLabels, previewSettings, { previewSettings = it }, compact = !wide, viewPicker)
             } else {
                 PrepareOverlay(state, viewModel, pickers, compact = !wide, viewPicker)
             }

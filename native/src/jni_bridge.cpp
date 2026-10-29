@@ -48,10 +48,13 @@ jfloatArray to_float_array(JNIEnv *env, const std::vector<jfloat> &values)
     return out;
 }
 
-// 5 totais e, por filamento usado, 4 valores: índice, metros, gramas e custo.
+// 5 totais, a quantidade de tipos de extrusão e o tempo de cada um e, por filamento usado,
+// 4 valores: índice, metros, gramas e custo.
 jdoubleArray to_array(JNIEnv *env, const slicer::SliceStats &stats)
 {
     std::vector<jdouble> values{stats.print_time_s, stats.filament_mm3, stats.filament_m, stats.filament_g, stats.cost};
+    values.push_back(jdouble(stats.role_time_s.size()));
+    values.insert(values.end(), stats.role_time_s.begin(), stats.role_time_s.end());
     for (const slicer::FilamentUse &use : stats.filaments)
         values.insert(values.end(), {jdouble(use.index), use.m, use.g, use.cost});
     jdoubleArray out = env->NewDoubleArray(jsize(values.size()));

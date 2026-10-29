@@ -484,6 +484,11 @@ SliceStats stats_of(const GCodeProcessorResult &result)
         stats.cost += use.cost;
         stats.filaments.push_back(use);
     }
+    // Tempo de cada tipo de extrusão (modo normal), como a coluna de tempo da legenda do Orca.
+    stats.role_time_s.assign(size_t(erCount), 0.0);
+    for (const GCodeProcessorResult::MoveVertex &move : result.moves)
+        if (move.type == EMoveType::Extrude && size_t(move.extrusion_role) < stats.role_time_s.size())
+            stats.role_time_s[size_t(move.extrusion_role)] += move.time[0];
     return stats;
 }
 

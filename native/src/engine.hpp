@@ -36,6 +36,7 @@ struct SliceStats {
     double filament_m = 0.0;     // soma do comprimento dos filamentos
     double filament_g = 0.0;     // soma do peso
     double cost = 0.0;           // soma do custo
+    std::vector<double> role_time_s;    // tempo das extrusões por ExtrusionRole (índice)
     std::vector<FilamentUse> filaments; // os usados, em ordem de índice
 };
 

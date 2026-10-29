@@ -246,6 +246,11 @@ class SlicerEngineTest {
         assertEquals(stats.filamentGrams, use.grams, stats.filamentGrams * 0.01)
         assertEquals(stats.filamentMeters, use.meters, stats.filamentMeters * 0.01)
         assertEquals(stats.cost, use.cost, 1e-9)
+        // Tempo por tipo de extrusão: um por nome; no cubo pequeno, deslocamentos e trocas de
+        // camada levam mais da metade do tempo total.
+        assertEquals(SlicerEngine.roleNames.size, stats.roleTimes.size)
+        assertTrue(stats.roleTimes.sum() in 0.2 * stats.printTimeSeconds..stats.printTimeSeconds)
+        assertTrue(stats.roleTimes[SlicerEngine.roleNames.indexOf("Outer wall")] > 0)
 
         // Caminhos para a pré-visualização: 100 camadas até 20 mm, com paredes externas.
         val toolpaths = engine.toolpaths()
