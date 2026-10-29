@@ -63,6 +63,9 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
         onDismiss()
     }
     val selected = state.printers.find { it.id == selectedId }
+    WatchPrinterStatus(state.printers, viewModel)
+    // Imprimindo ou pausada: só dá para enviar.
+    val selectedBusy = selected?.let { state.printerStatus[it.id] }?.busy == true
     if (confirmPrint && selected != null) {
         ConfirmPrint(selected.name, state.presets[PresetKind.FILAMENT]?.selected, { confirmPrint = false }) {
             confirmPrint = false
@@ -100,6 +103,7 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
                         ) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 PrinterLabel(host)
+                                state.printerStatus[host.id]?.let { PrinterStatusDot(it) }
                                 if (host.preset != null && host.preset == preset) {
                                     Tag(stringResource(R.string.slice_profile), container = MaterialTheme.colorScheme.surfaceContainerHighest, content = MaterialTheme.colorScheme.onSurface)
                                 }
@@ -111,6 +115,9 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
                 val details: @Composable ColumnScope.() -> Unit = {
                     if (selected?.preset != null && preset != null && selected.preset != preset) {
                         Banner(Tone.WARNING, stringResource(R.string.send_preset_mismatch, selected.preset, preset), Modifier.fillMaxWidth(), title = stringResource(R.string.different_profile))
+                    }
+                    if (selected != null && selectedBusy) {
+                        Banner(Tone.WARNING, stringResource(R.string.send_printer_busy, selected.name), Modifier.fillMaxWidth())
                     }
                     if (selected?.kind == Kind.BAMBU_LAN) {
                         Banner(Tone.INFO, stringResource(R.string.bambu_send_note), Modifier.fillMaxWidth())
@@ -142,7 +149,7 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
                     if (selected == null || viewModel.canStart(selected)) {
                         AppButton(
                             stringResource(R.string.send_and_print), { confirmPrint = true },
-                            icon = R.drawable.ic_play_circle, enabled = selected != null && !working,
+                            icon = R.drawable.ic_play_circle, enabled = selected != null && !working && !selectedBusy,
                         )
                     }
                 }

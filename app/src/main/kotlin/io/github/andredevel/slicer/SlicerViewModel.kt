@@ -25,6 +25,7 @@ import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.send.Connection
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
+import io.github.andredevel.slicer.send.PrinterStatus
 import io.github.andredevel.slicer.send.PrinterStore
 import io.github.andredevel.slicer.send.SendException
 import io.github.andredevel.slicer.send.uploader
@@ -32,6 +33,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -147,6 +150,8 @@ data class SlicerUiState(
     /** Impressoras salvas para o envio do G-code. */
     val printers: List<PrinterHost> = emptyList(),
     val send: SendState = SendState.Idle,
+    /** Estado ao vivo por [PrinterHost.id], enquanto alguma tela o acompanha (watchPrinterStatus). */
+    val printerStatus: Map<String, PrinterStatus> = emptyMap(),
     /** Arquivos abertos recentemente, o mais novo primeiro. */
     val recents: List<RecentFile> = emptyList(),
     /** Cena ou perfis mudaram desde que o projeto foi aberto ou salvo. */
@@ -579,6 +584,33 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** Se "Enviar e imprimir" vale para [host]. */
     fun canStart(host: PrinterHost): Boolean = uploader(host.kind, app.assets).canStart
 
+    /**
+     * Consulta o estado de cada uma de [printers] a cada [STATUS_INTERVAL_MS], em paralelo, até
+     * ser cancelada (a tela de Impressoras ou o diálogo de envio saem).
+     */
+    suspend fun watchPrinterStatus(printers: List<PrinterHost>) = coroutineScope {
+        for (host in printers) {
+            launch {
+                val uploader = uploader(host.kind, app.assets)
+                while (true) {
+                    val status = try {
+                        uploader.status(host)
+                    } catch (e: SendException) {
+                        if (e.text == R.string.send_error_unreachable) PrinterStatus(PrinterStatus.State.OFFLINE)
+                        else PrinterStatus(PrinterStatus.State.ERROR, raw = app.getString(e.text, *e.args))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "status of ${host.name}", e)
+                        PrinterStatus(PrinterStatus.State.ERROR, raw = e.toString())
+                    }
+                    _state.update { it.copy(printerStatus = it.printerStatus + (host.id to status)) }
+                    delay(STATUS_INTERVAL_MS)
+                }
+            }
+        }
+    }
+
     fun testPrinter(host: PrinterHost) = runSend(R.string.send_connecting) {
         val connection = uploader(host.kind, app.assets).test(host)
         SendState.Done(R.string.send_test_ok, host.name, connection)
@@ -792,6 +824,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val BAMBU_VENDOR = "BBL"
         /** Lado da miniatura do projeto, como THUMBNAIL_SIZE_3MF do Orca. */
         const val PROJECT_THUMBNAIL_SIZE = 512
+        /** Intervalo da consulta do estado das impressoras. */
+        const val STATUS_INTERVAL_MS = 5_000L
         /** Número da camada em "Generating G-code: layer N", em qualquer idioma. */
         val LAST_NUMBER = Regex("""\d+(?=\D*$)""")
 

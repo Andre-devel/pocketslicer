@@ -67,6 +67,12 @@
     <string name="send_to_printer">Enviar para impressora</string>
     <string name="send_title">Enviar para impressora</string>
     <string name="send_and_print">Enviar e imprimir</string>
+    <string name="send_printer_busy">%1$s está imprimindo: dá para só enviar o arquivo.</string>
+    <string name="printer_status_idle">Livre</string>
+    <string name="printer_status_printing">Imprimindo</string>
+    <string name="printer_status_paused">Pausada</string>
+    <string name="printer_status_error">Erro</string>
+    <string name="printer_status_offline">Sem resposta</string>
     <string name="send_preset_mismatch">Esta impressora foi cadastrada com o perfil %1$s, mas o arquivo foi fatiado com %2$s.</string>
     <string name="print_start">Imprimir</string>
     <string name="send_starting">Iniciando a impressão…</string>

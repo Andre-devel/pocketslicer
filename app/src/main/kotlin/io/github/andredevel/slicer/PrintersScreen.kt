@@ -40,11 +40,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.send.FoundPrinter
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterScanner
+import io.github.andredevel.slicer.send.PrinterStatus
+import io.github.andredevel.slicer.ui.components.StatusDot
 import io.github.andredevel.slicer.ui.components.StepRow
 import io.github.andredevel.slicer.ui.components.StepStatus
 import io.github.andredevel.slicer.ui.components.AppButton
@@ -85,6 +90,7 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
         edit(host.copy(name = found.name, kind = found.kind ?: host.kind, address = found.address))
     }
     val edited = editing
+    WatchPrinterStatus(state.printers, viewModel)
     val form = @Composable { host: PrinterHost, formModifier: Modifier ->
         PrinterForm(
             host, state, viewModel, formModifier,
@@ -123,7 +129,10 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
                 for (host in state.printers) {
                     SelectableCard(selected = host.id == edited?.id, onClick = { edit(host) }) {
                         Icon(painterResource(R.drawable.ic_print), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        PrinterLabel(host, Modifier.weight(1f))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            PrinterLabel(host)
+                            state.printerStatus[host.id]?.let { PrinterStatusDot(it) }
+                        }
                     }
                 }
                 if (!wide) NetworkScan(state.printers, pick, Modifier.padding(top = 8.dp))
@@ -153,6 +162,30 @@ fun PrinterLabel(host: PrinterHost, modifier: Modifier = Modifier) {
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/** Consulta o estado de [printers] enquanto a tela está composta e o app visível. */
+@Composable
+fun WatchPrinterStatus(printers: List<PrinterHost>, viewModel: SlicerViewModel) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(printers, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { viewModel.watchPrinterStatus(printers) }
+    }
+}
+
+/** "Livre", "Imprimindo 42% · arquivo", "Pausada", "Sem resposta" ou o erro, com a cor do estado. */
+@Composable
+fun PrinterStatusDot(status: PrinterStatus, modifier: Modifier = Modifier) {
+    val percent = status.progress?.let { " ${(it * 100).toInt()}%" }.orEmpty()
+    val file = status.file?.let { " · $it" }.orEmpty()
+    val (text, color) = when (status.state) {
+        PrinterStatus.State.IDLE -> stringResource(R.string.printer_status_idle) to PocketTheme.colors.success
+        PrinterStatus.State.PRINTING -> stringResource(R.string.printer_status_printing) + percent + file to MaterialTheme.colorScheme.primary
+        PrinterStatus.State.PAUSED -> stringResource(R.string.printer_status_paused) + percent + file to PocketTheme.colors.warning
+        PrinterStatus.State.ERROR -> stringResource(R.string.printer_status_error) + status.raw?.let { " · $it" }.orEmpty() to MaterialTheme.colorScheme.error
+        PrinterStatus.State.OFFLINE -> stringResource(R.string.printer_status_offline) to MaterialTheme.colorScheme.outline
+    }
+    StatusDot(text, color, modifier)
 }
 
 /** Cadastro ou edição de [host]; [onClose] (tela estreita) volta à lista. */

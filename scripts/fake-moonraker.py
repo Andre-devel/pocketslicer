@@ -3,7 +3,8 @@
 
 Responde GET /server/info e aceita POST /server/files/upload (multipart, campo "file"),
 gravando o arquivo em <pasta>. POST /printer/print/start só registra o pedido (e passa o estado
-para "printing"); --state define o print_stats.state inicial. No emulador, o endereço do PC é
+para "printing", com virtual_sdcard.progress subindo 1% a cada 3 s até "complete"); --state
+define o print_stats.state inicial. No emulador, o endereço do PC é
 10.0.2.2.
 
 Uso: scripts/fake-moonraker.py [--port 7125] [--api-key CHAVE] [--state standby] [pasta]
@@ -14,6 +15,7 @@ import email.policy
 import json
 import os
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -25,7 +27,17 @@ def main():
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
-    state = {"print_stats": args.state}
+    state = {"print_stats": args.state, "filename": "", "started": None}
+
+    def status():
+        """print_stats e virtual_sdcard; a impressão "termina" em 300 s."""
+        progress = 0.0
+        if state["started"] is not None:
+            progress = min((time.time() - state["started"]) / 300, 1.0)
+            if progress >= 1.0:
+                state["print_stats"], state["started"] = "complete", None
+        return {"print_stats": {"state": state["print_stats"], "filename": state["filename"]},
+                "virtual_sdcard": {"progress": progress}}
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self, code, body):
@@ -48,8 +60,9 @@ def main():
             if self.path == "/server/info":
                 self.reply(200, {"result": {"klippy_connected": True, "klippy_state": "ready",
                                             "moonraker_version": "v0.9.3-fake"}})
-            elif self.path == "/printer/objects/query?print_stats":
-                self.reply(200, {"result": {"status": {"print_stats": {"state": state["print_stats"]}}}})
+            elif self.path.startswith("/printer/objects/query?"):
+                wanted = self.path.split("?", 1)[1].split("&")
+                self.reply(200, {"result": {"status": {k: v for k, v in status().items() if k in wanted}}})
             else:
                 self.reply(404, {"error": {"code": 404, "message": "Not Found"}})
 
@@ -59,7 +72,7 @@ def main():
             if self.path == "/printer/print/start":
                 request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
                 print(f"iniciar impressão de {request.get('filename')}", file=sys.stderr)
-                state["print_stats"] = "printing"
+                state.update(print_stats="printing", filename=request.get("filename", ""), started=time.time())
                 self.reply(200, {"result": "ok"})
                 return
             if self.path != "/server/files/upload":

@@ -68,6 +68,12 @@
     <string name="send_to_printer">Send to printer</string>
     <string name="send_title">Send to printer</string>
     <string name="send_and_print">Send and print</string>
+    <string name="send_printer_busy">%1$s is printing: you can only send the file.</string>
+    <string name="printer_status_idle">Ready</string>
+    <string name="printer_status_printing">Printing</string>
+    <string name="printer_status_paused">Paused</string>
+    <string name="printer_status_error">Error</string>
+    <string name="printer_status_offline">No response</string>
     <string name="send_preset_mismatch">This printer was added with the %1$s profile, but the file was sliced with %2$s.</string>
     <string name="print_start">Print</string>
     <string name="send_starting">Starting the print…</string>

@@ -88,10 +88,12 @@ que faltar entra lá, sem depender do ViewModel.
 
 ### Etapa 3 — comportamento novo
 
-15. Estado ao vivo das impressoras: Moonraker `print_stats` (+ `virtual_sdcard.progress`) e
-    Bambu MQTT `pushall` (report com `gcode_state`, `mc_percent`), consultados enquanto
-    Impressoras ou o diálogo de envio estão abertos (a cada ~5 s, parar ao sair). Ponto colorido
-    na lista, aviso "está imprimindo: dá para só enviar" e "Enviar e imprimir" desabilitado.
+15. (Feito) Estado ao vivo das impressoras: `Uploader.status` (Moonraker `print_stats` +
+    `virtual_sdcard.progress`; Bambu MQTT `pushall` com `gcode_state`, `mc_percent`,
+    `subtask_name`), consultado a cada 5 s, em paralelo por impressora, enquanto Impressoras ou o
+    diálogo de envio estão abertos e o app visível (`repeatOnLifecycle(STARTED)`). Ponto colorido
+    (Livre, Imprimindo N% · arquivo, Pausada, Erro, Sem resposta) na lista e no diálogo; com a
+    escolhida imprimindo, aviso "dá para só enviar" e "Enviar e imprimir" desabilitado.
 16. (Feito) G-code desatualizado: `SliceState.Done.stale` (opção, perfil ou a mesa) em vez de
     descartar o fatiamento; aviso com "Fatiar de novo" no resumo de Visualizar, Fatiar volta a ser
     a ação de Preparar, salvar e enviar desabilitados até fatiar de novo (decisão 3). Trocar de

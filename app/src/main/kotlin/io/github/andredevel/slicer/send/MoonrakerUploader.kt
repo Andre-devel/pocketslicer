@@ -55,13 +55,35 @@ object MoonrakerUploader : Uploader {
         }
     }
 
+    override suspend fun status(host: PrinterHost): PrinterStatus = status(api(host), host)
+
     /** Falha se o Klipper estiver imprimindo ou pausado (print_stats.state). */
     private suspend fun checkIdle(api: URL, host: PrinterHost) {
-        val response = Http.get(api.resolve("/printer/objects/query?print_stats"), headers(host))
+        val status = status(api, host)
+        if (status.busy) throw SendException(R.string.send_error_busy, host.name, status.raw.orEmpty())
+    }
+
+    /** `print_stats` (estado e arquivo) e `virtual_sdcard.progress` (posição no arquivo). */
+    private suspend fun status(api: URL, host: PrinterHost): PrinterStatus {
+        val response = Http.get(api.resolve("/printer/objects/query?print_stats&virtual_sdcard"), headers(host))
         check(response, host)
-        val state = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")
-            ?.optJSONObject("print_stats")?.optString("state").orEmpty()
-        if (state == "printing" || state == "paused") throw SendException(R.string.send_error_busy, host.name, state)
+        val objects = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")
+        val stats = objects?.optJSONObject("print_stats")
+        val raw = stats?.optString("state").orEmpty()
+        val state = when (raw) {
+            "printing" -> PrinterStatus.State.PRINTING
+            "paused" -> PrinterStatus.State.PAUSED
+            "error" -> PrinterStatus.State.ERROR
+            // standby, complete, cancelled.
+            else -> PrinterStatus.State.IDLE
+        }
+        val active = state == PrinterStatus.State.PRINTING || state == PrinterStatus.State.PAUSED
+        return PrinterStatus(
+            state,
+            progress = objects?.optJSONObject("virtual_sdcard")?.optDouble("progress")?.takeIf { active && !it.isNaN() }?.toFloat(),
+            file = stats?.optString("filename")?.takeIf { active && it.isNotEmpty() },
+            raw = raw,
+        )
     }
 
     private fun jsonOrNull(body: String): JSONObject? = try {

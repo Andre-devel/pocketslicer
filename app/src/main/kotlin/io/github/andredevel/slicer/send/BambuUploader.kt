@@ -73,17 +73,39 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
         }
     }
 
+    override suspend fun status(host: PrinterHost): PrinterStatus {
+        val print = report(host)
+        val raw = print.optString("gcode_state")
+        val state = when (raw) {
+            "RUNNING", "PREPARE", "SLICING" -> PrinterStatus.State.PRINTING
+            "PAUSE" -> PrinterStatus.State.PAUSED
+            // IDLE, FINISH e FAILED (a última falhou; a impressora está livre).
+            else -> PrinterStatus.State.IDLE
+        }
+        return PrinterStatus(
+            state,
+            progress = print.optInt("mc_percent", -1).takeIf { print.has("mc_percent") && it >= 0 && state != PrinterStatus.State.IDLE }?.let { it / 100f },
+            file = print.optString("subtask_name").takeIf { it.isNotEmpty() && state != PrinterStatus.State.IDLE },
+            raw = raw,
+        )
+    }
+
     /**
      * Confere pelo estado da impressora (pushall) que ela está livre e devolve o `tray_now`:
      * 0 a 103 é um slot do AMS; 254/255, o carretel externo ou nenhum.
      */
-    private suspend fun idleTray(host: PrinterHost): Int = mqtt(host) { mqtt ->
-        mqtt.publish(JSONObject().put("pushing", JSONObject().put("sequence_id", "0").put("command", "pushall")))
-        val print = mqtt.awaitReport(REPORT_TIMEOUT_MS) { it.optJSONObject("print")?.has("gcode_state") == true }
-            ?.getJSONObject("print") ?: throw SendException(R.string.send_error_ftp, "MQTT: no status")
+    private suspend fun idleTray(host: PrinterHost): Int {
+        val print = report(host)
         val state = print.optString("gcode_state")
         if (state in BUSY_STATES) throw SendException(R.string.send_error_busy, host.name, state)
-        print.optJSONObject("ams")?.optString("tray_now")?.toIntOrNull() ?: EXTERNAL_TRAY
+        return print.optJSONObject("ams")?.optString("tray_now")?.toIntOrNull() ?: EXTERNAL_TRAY
+    }
+
+    /** Objeto `print` do estado completo (pushall), com `gcode_state`, `mc_percent` e `ams`. */
+    private suspend fun report(host: PrinterHost): JSONObject = mqtt(host) { mqtt ->
+        mqtt.publish(JSONObject().put("pushing", JSONObject().put("sequence_id", "0").put("command", "pushall")))
+        mqtt.awaitReport(REPORT_TIMEOUT_MS) { it.optJSONObject("print")?.has("gcode_state") == true }
+            ?.getJSONObject("print") ?: throw SendException(R.string.send_error_ftp, "MQTT: no status")
     }
 
     /** `project_file` como o Bambu Studio na rede local (A1/P1: arquivo em file:///sdcard/). */

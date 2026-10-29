@@ -40,6 +40,20 @@ interface Uploader {
      * arquivo chegou e o pedido de iniciar vai sair.
      */
     suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit, starting: () -> Unit = {})
+
+    /** Estado atual da impressora; falha com [SendException]. */
+    suspend fun status(host: PrinterHost): PrinterStatus
+}
+
+/**
+ * Estado ao vivo de uma impressora ([Uploader.status]). [progress] de 0 a 1 e [file] quando há
+ * impressão; [raw]: o estado como a impressora o informa ("printing", "RUNNING"...).
+ */
+data class PrinterStatus(val state: State, val progress: Float? = null, val file: String? = null, val raw: String? = null) {
+    enum class State { IDLE, PRINTING, PAUSED, ERROR, OFFLINE }
+
+    /** Imprimindo ou pausada: dá para enviar, não para iniciar outra impressão. */
+    val busy get() = state == State.PRINTING || state == State.PAUSED
 }
 
 /** Resultado de [Uploader.test]: serviço que respondeu (com a versão, quando há) e tempo da resposta. */
