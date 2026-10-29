@@ -1,6 +1,7 @@
 package io.github.andredevel.slicer
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -127,6 +128,8 @@ data class SlicerUiState(
     val recents: List<RecentFile> = emptyList(),
     /** Cena ou perfis mudaram desde que o projeto foi aberto ou salvo. */
     val dirty: Boolean = false,
+    /** Moeda do custo (ISO 4217) escolhida em Configurações; null segue o idioma. */
+    val currency: String? = null,
 ) {
     val objectCount get() = scene?.placements?.size ?: 0
     val anyOutside get() = scene?.placements?.any { it.outside } == true
@@ -162,6 +165,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private var sendJob: Job? = null
     private val printerStore = PrinterStore(File(app.filesDir, "printers.json"))
     private val recentStore = RecentFilesStore(File(app.filesDir, "recent.json"))
+    private val settings = SettingsStore(app.getSharedPreferences("settings", Context.MODE_PRIVATE))
 
     private val engine = viewModelScope.async {
         val resources = withContext(Dispatchers.IO) { OrcaResources.install(app) }
@@ -181,8 +185,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val printers = withContext(Dispatchers.IO) { printerStore.load() }
             val recents = withContext(Dispatchers.IO) { recentStore.load() }
-            _state.update { it.copy(printers = printers, recents = recents) }
+            val currency = withContext(Dispatchers.IO) { settings.currency }
+            _state.update { it.copy(printers = printers, recents = recents, currency = currency) }
         }
+    }
+
+    fun setCurrency(currency: String?) {
+        settings.currency = currency
+        _state.update { it.copy(currency = currency) }
     }
 
     /**

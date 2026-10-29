@@ -80,12 +80,13 @@ import io.github.andredevel.slicer.ui.components.blockTouches
 import io.github.andredevel.slicer.ui.theme.MonoStyles
 import kotlin.math.roundToInt
 
-/** Destinos da navegação principal. */
-enum class Destination(@DrawableRes val icon: Int, @StringRes val label: Int) {
+/** Destinos da navegação principal. [shortLabel]: na barra inferior do celular, mais estreita. */
+enum class Destination(@DrawableRes val icon: Int, @StringRes val label: Int, @StringRes val shortLabel: Int = label) {
     PREPARE(R.drawable.ic_deployed_code, R.string.prepare),
     PREVIEW(R.drawable.ic_layers, R.string.preview),
     PARAMETERS(R.drawable.ic_tune, R.string.parameters),
     PRINTERS(R.drawable.ic_print, R.string.printers),
+    SETTINGS(R.drawable.ic_settings, R.string.settings, R.string.settings_short),
 }
 
 /** Arquivos escolhidos pelo seletor do sistema; uma instância por tela. */
@@ -98,8 +99,8 @@ class FilePickers(
 
 /**
  * Tela principal (RF-50/52): navegação (lateral no tablet, inferior no celular) entre Preparar,
- * Visualizar, Parâmetros e Impressoras. Preparar e Visualizar dividem o mesmo viewport 3D, que
- * fica sempre composto: Parâmetros e Impressoras são desenhados por cima dele.
+ * Visualizar, Parâmetros, Impressoras e Configurações. Preparar e Visualizar dividem o mesmo
+ * viewport 3D, que fica sempre composto: as demais telas são desenhadas por cima dele.
  */
 @Composable
 fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
@@ -159,12 +160,11 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
         filter = filter.copy(kind = kind)
         page = Destination.PARAMETERS
     }
-    val items = Destination.entries.map {
-        NavItem(it.icon, stringResource(it.label), enabled = it != Destination.PREVIEW || state.preview != null)
-    }
-
     val configuration = LocalConfiguration.current
     val rail = configuration.screenWidthDp >= RAIL_MIN_WIDTH_DP
+    val items = Destination.entries.map {
+        NavItem(it.icon, stringResource(if (rail) it.label else it.shortLabel), enabled = it != Destination.PREVIEW || state.preview != null)
+    }
     Scaffold(
         snackbarHost = {
             SnackbarHost(snackbar) { data ->
@@ -199,6 +199,7 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
                 when (page) {
                     Destination.PARAMETERS -> ParametersScreen(state, viewModel, filter, { filter = it }, overlay)
                     Destination.PRINTERS -> PrintersScreen(state, viewModel, overlay)
+                    Destination.SETTINGS -> SettingsScreen(state, viewModel, overlay)
                     else -> {}
                 }
             }

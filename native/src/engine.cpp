@@ -466,14 +466,24 @@ SliceStats stats_of(const GCodeProcessorResult &result)
 {
     SliceStats stats;
     stats.print_time_s = result.print_statistics.modes.front().time;
-    for (const auto &kv : result.print_statistics.total_volumes_per_extruder)
-        stats.filament_mm3 += kv.second;
-    for (const auto &[role, used] : result.print_statistics.used_filaments_per_role) {
-        stats.filament_m += used.first;
-        stats.filament_g += used.second;
+    // Por filamento, do volume (com a purga das trocas), como o "filament used" no fim do
+    // G-code: diâmetro, densidade e preço de cada um. Os totais são a soma.
+    auto at = [](const std::vector<float> &values, size_t i, double fallback) {
+        return i < values.size() ? double(values[i]) : fallback;
+    };
+    for (const auto &[index, mm3] : result.print_statistics.total_volumes_per_extruder) {
+        stats.filament_mm3 += mm3;
+        FilamentUse use;
+        use.index = index;
+        const double radius = at(result.filament_diameters, index, 1.75) / 2.0;
+        use.m = mm3 / (M_PI * radius * radius) / 1000.0;
+        use.g = mm3 * at(result.filament_densities, index, 1.0) / 1000.0;
+        use.cost = at(result.filament_costs, index, 0.0) * use.g / 1000.0;
+        stats.filament_m += use.m;
+        stats.filament_g += use.g;
+        stats.cost += use.cost;
+        stats.filaments.push_back(use);
     }
-    if (!result.filament_costs.empty())
-        stats.cost = result.filament_costs.front() * stats.filament_g / 1000.0;
     return stats;
 }
 

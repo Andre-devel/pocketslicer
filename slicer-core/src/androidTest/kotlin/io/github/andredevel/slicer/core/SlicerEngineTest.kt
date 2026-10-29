@@ -240,6 +240,12 @@ class SlicerEngineTest {
         assertTrue(layers in gcode.readText())
         assertTrue(progress.isNotEmpty())
         assertTrue(stats.filamentMeters > 0 && stats.filamentGrams > 0 && stats.cost > 0)
+        // Um filamento: o gasto dele é o total.
+        val use = stats.filaments.single()
+        assertEquals(0, use.index)
+        assertEquals(stats.filamentGrams, use.grams, stats.filamentGrams * 0.01)
+        assertEquals(stats.filamentMeters, use.meters, stats.filamentMeters * 0.01)
+        assertEquals(stats.cost, use.cost, 1e-9)
 
         // Caminhos para a pré-visualização: 100 camadas até 20 mm, com paredes externas.
         val toolpaths = engine.toolpaths()

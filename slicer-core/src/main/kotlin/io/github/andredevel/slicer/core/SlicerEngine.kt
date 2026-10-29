@@ -19,9 +19,14 @@ data class SliceStats(
     val filamentMm3: Double,
     val filamentMeters: Double,
     val filamentGrams: Double,
-    /** Na moeda do preset de filamento (filament_cost por kg). */
+    /** Na moeda do preset de filamento (filament_cost por kg); soma de [filaments]. */
     val cost: Double,
+    /** Gasto de cada filamento usado, em ordem de índice. */
+    val filaments: List<FilamentUse> = emptyList(),
 )
+
+/** Gasto de um filamento: [index] como em [ObjectMesh.filaments]; [cost] por filament_cost (por kg). */
+data class FilamentUse(val index: Int, val meters: Double, val grams: Double, val cost: Double)
 
 /**
  * Caminhos do último fatiamento, na ordem do G-code. [extrusions]: 9 floats por segmento
@@ -323,7 +328,10 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
 private fun List<Thumbnail>.sizes() = flatMap { listOf(it.width, it.height) }.toIntArray()
 private fun List<Thumbnail>.pixels() = map { it.rgba }.toTypedArray()
 
-private fun DoubleArray.toStats() = SliceStats(this[0], this[1], this[2], this[3], this[4])
+private fun DoubleArray.toStats() = SliceStats(
+    this[0], this[1], this[2], this[3], this[4],
+    (5 until size step 4).map { FilamentUse(this[it].toInt(), this[it + 1], this[it + 2], this[it + 3]) },
+)
 
 private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
 

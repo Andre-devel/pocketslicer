@@ -160,6 +160,12 @@
     <string name="print_heats_note">A impressora começa a aquecer assim que o arquivo chegar.</string>
     <string name="printer_from">Impressora · %1$s</string>
     <string name="printers">Impressoras</string>
+    <string name="settings">Configurações</string>
+    <string name="settings_short">Ajustes</string>
+    <string name="currency">Moeda</string>
+    <string name="currency_from_language">Conforme o idioma (%1$s)</string>
+    <string name="currency_hint">Os perfis de filamento guardam só o preço por kg (filament_cost), sem moeda. O custo no resumo do fatiamento aparece nesta moeda.</string>
+    <string name="filament_n">Filamento %1$d</string>
     <string name="profile">Perfil</string>
     <string name="rotation">Rotação</string>
     <string name="save_as">Salvar como…</string>

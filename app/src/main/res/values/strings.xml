@@ -164,6 +164,12 @@
     <string name="print_heats_note">The printer starts heating as soon as the file arrives.</string>
     <string name="printer_from">Printer · %1$s</string>
     <string name="printers">Printers</string>
+    <string name="settings">Settings</string>
+    <string name="settings_short">Settings</string>
+    <string name="currency">Currency</string>
+    <string name="currency_from_language">Same as the language (%1$s)</string>
+    <string name="currency_hint">Filament profiles store only the price per kg (filament_cost), with no currency. The cost in the slicing summary is shown in this currency.</string>
+    <string name="filament_n">Filament %1$d</string>
     <string name="profile">Profile</string>
     <string name="rotation">Rotation</string>
     <string name="save_as">Save as…</string>

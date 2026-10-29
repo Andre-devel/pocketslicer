@@ -357,8 +357,8 @@ private fun ProfileSummary(state: SlicerUiState, openParameters: (PresetKind) ->
 
 /** Número e cor de um filamento do projeto, com [name] ao lado quando dado. */
 @Composable
-private fun FilamentLabel(index: Int, color: FloatArray?, name: String? = null) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+fun FilamentLabel(index: Int, color: FloatArray?, name: String? = null, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             Modifier.size(12.dp)
                 .background(color?.let { Color(it[0], it[1], it[2]) } ?: MaterialTheme.colorScheme.outline, CircleShape)

@@ -22,12 +22,21 @@ namespace slicer {
 
 enum class PresetKind { Printer = 0, Filament = 1, Process = 2 };
 
+// Gasto de um filamento do projeto (índice a partir de 0, como ObjectMesh::filaments).
+struct FilamentUse {
+    size_t index = 0;
+    double m = 0.0;    // comprimento
+    double g = 0.0;    // peso (filament_density)
+    double cost = 0.0; // filament_cost (por kg) × peso
+};
+
 struct SliceStats {
     double print_time_s = 0.0;   // estimativa do modo normal
     double filament_mm3 = 0.0;   // volume total extrudado
-    double filament_m = 0.0;     // comprimento de filamento
-    double filament_g = 0.0;     // peso (densidade do filamento)
-    double cost = 0.0;           // filament_cost (por kg) × peso
+    double filament_m = 0.0;     // soma do comprimento dos filamentos
+    double filament_g = 0.0;     // soma do peso
+    double cost = 0.0;           // soma do custo
+    std::vector<FilamentUse> filaments; // os usados, em ordem de índice
 };
 
 // Caminhos do último fatiamento (GCodeProcessorResult), em buffers planos para a GPU.

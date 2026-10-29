@@ -311,7 +311,7 @@ fun PreviewPanel(state: SlicerUiState, pickers: FilePickers, onSend: () -> Unit)
             Text(stringResource(R.string.estimated_time), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(formatDuration(stats.printTimeSeconds), style = MonoStyles.display)
         }
-        SummaryTiles(stats)
+        SummaryTiles(state, stats)
         Spacer(Modifier.weight(1f))
         GcodeActions(state, pickers, onSend)
     }
@@ -327,12 +327,13 @@ fun PreviewSheet(state: SlicerUiState, pickers: FilePickers, onSend: () -> Unit)
             Text(formatDuration(stats.printTimeSeconds), style = MonoStyles.title, modifier = Modifier.weight(1f))
         }
         GcodeActions(state, pickers, onSend, compact = true)
-        SummaryTiles(stats)
+        SummaryTiles(state, stats)
     }
 }
 
 @Composable
-private fun SummaryTiles(stats: SliceStats) {
+private fun SummaryTiles(state: SlicerUiState, stats: SliceStats) {
+    val cost = rememberCostFormat(state.currency)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         MetricTile(
             stringResource(R.string.filament),
@@ -340,7 +341,23 @@ private fun SummaryTiles(stats: SliceStats) {
             Modifier.weight(1f),
             detail = String.format(Locale.getDefault(), "%.1f g", stats.filamentGrams),
         )
-        MetricTile(stringResource(R.string.cost), String.format(Locale.getDefault(), "%.2f", stats.cost), Modifier.weight(1f))
+        MetricTile(stringResource(R.string.cost), cost(stats.cost), Modifier.weight(1f))
+    }
+    // Vários filamentos: peso e custo de cada um.
+    if (stats.filaments.size > 1) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (use in stats.filaments) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilamentLabel(
+                        use.index, state.scene?.filamentColors?.getOrNull(use.index),
+                        state.filaments.getOrNull(use.index) ?: stringResource(R.string.filament_n, use.index + 1),
+                        Modifier.weight(1f),
+                    )
+                    Text(String.format(Locale.getDefault(), "%.1f g", use.grams), style = MonoStyles.small, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(cost(use.cost), style = MonoStyles.small)
+                }
+            }
+        }
     }
 }
 
