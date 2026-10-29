@@ -104,6 +104,10 @@
     <string name="printer_address">IP address (port optional)</string>
     <string name="printer_api_key">API key (optional)</string>
     <string name="test_connection">Test connection</string>
+    <string name="scan_network">Search network</string>
+    <string name="scan_running">Searching for printers…</string>
+    <string name="scan_none">No printer found. Check that the printer is on and on the same Wi-Fi.</string>
+    <string name="scan_unsupported">%1$s · sending not supported yet</string>
     <string name="send_connecting">Connecting…</string>
     <string name="send_uploading">Sending…</string>
     <string name="send_test_ok">%1$s responded.</string>

@@ -20,15 +20,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import io.github.andredevel.slicer.send.FoundPrinter
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
+import io.github.andredevel.slicer.send.PrinterScanner
+import kotlinx.coroutines.launch
 
 /**
  * Enviar o G-code fatiado para uma impressora salva, ou cadastrar uma; "Enviar e imprimir" pede
@@ -167,6 +172,9 @@ private fun PrinterForm(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (isNew) {
+                    NetworkScan(enabled = !working) { found ->
+                        onChange(host.copy(name = found.name, kind = found.kind ?: host.kind, address = found.address))
+                    }
                     Text(stringResource(R.string.printer_kind, ""), style = MaterialTheme.typography.bodyMedium)
                     for (kind in Kind.entries) {
                         Row(
@@ -234,6 +242,47 @@ private fun PrinterForm(
             TextButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
         },
     )
+}
+
+/** "Procurar na rede" e as impressoras achadas; tocar numa preenche o cadastro com [onPick]. */
+@Composable
+private fun NetworkScan(enabled: Boolean, onPick: (FoundPrinter) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var scanning by remember { mutableStateOf(false) }
+    // null: ainda não procurou.
+    var found by remember { mutableStateOf<List<FoundPrinter>?>(null) }
+    TextButton(
+        onClick = {
+            scanning = true
+            scope.launch {
+                found = PrinterScanner.scan(context.applicationContext)
+                scanning = false
+            }
+        },
+        enabled = enabled && !scanning,
+    ) { Text(stringResource(R.string.scan_network)) }
+    if (scanning) {
+        LinearProgressIndicator(Modifier.fillMaxWidth())
+        Text(stringResource(R.string.scan_running), style = MaterialTheme.typography.bodyMedium)
+    }
+    val list = found ?: return
+    if (list.isEmpty()) Text(stringResource(R.string.scan_none), style = MaterialTheme.typography.bodyMedium)
+    for (printer in list) {
+        val kind = printer.kind
+        Column(
+            Modifier.fillMaxWidth().selectable(selected = false, enabled = enabled && kind != null) { onPick(printer) }
+                .padding(vertical = 4.dp),
+        ) {
+            Text(printer.name, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                if (kind != null) "${stringResource(kind.label)} · ${printer.address}"
+                else stringResource(R.string.scan_unsupported, printer.address),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (kind != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+            )
+        }
+    }
 }
 
 @Composable

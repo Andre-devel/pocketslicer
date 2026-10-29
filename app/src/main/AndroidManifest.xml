@@ -3,6 +3,9 @@
 
     <!-- Envio do G-code para impressoras da rede local (docs/plano-envio.md). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Procurar impressoras na rede: sub-rede do Wi-Fi e anúncios SSDP das Bambu (PrinterScanner). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <application
         android:allowBackup="false"
