@@ -5,11 +5,18 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.util.Log
-import android.widget.Toast
 import androidx.core.content.IntentCompat
-import io.github.andredevel.slicer.R
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 
-/** Resultado da sessão do PackageInstaller aberta por [AppUpdater.install]. */
+/** Resultado da instalação que não fecha o app. */
+sealed interface InstallResult {
+    /** Confirmação do sistema recusada. */
+    data object Aborted : InstallResult
+    data class Failed(val message: String) : InstallResult
+}
+
+/** Resultado da sessão do PackageInstaller aberta por [AppUpdater.install], repassado em [results]. */
 class UpdateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
@@ -20,16 +27,19 @@ class UpdateReceiver : BroadcastReceiver() {
             }
             // Não costuma chegar: o Android encerra o app ao substituí-lo.
             PackageInstaller.STATUS_SUCCESS -> {}
-            PackageInstaller.STATUS_FAILURE_ABORTED -> {}
+            PackageInstaller.STATUS_FAILURE_ABORTED -> _results.tryEmit(InstallResult.Aborted)
             else -> {
-                val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
+                val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: status.toString()
                 Log.w(TAG, "update failed: $status $message")
-                Toast.makeText(context, context.getString(R.string.update_install_failed, message ?: status.toString()), Toast.LENGTH_LONG).show()
+                _results.tryEmit(InstallResult.Failed(message))
             }
         }
     }
 
-    private companion object {
-        const val TAG = "UpdateReceiver"
+    companion object {
+        private const val TAG = "UpdateReceiver"
+        private val _results = MutableSharedFlow<InstallResult>(extraBufferCapacity = 4)
+        /** Coletado pelo SlicerViewModel, que vive no mesmo processo. */
+        val results: SharedFlow<InstallResult> = _results
     }
 }

@@ -113,14 +113,14 @@ private fun UpdateSection(state: SlicerUiState, viewModel: SlicerViewModel) {
         UpdateState.UpToDate -> stringResource(R.string.update_up_to_date)
         is UpdateState.Downloading -> stringResource(R.string.update_downloading, update.release.version, (update.progress * 100).toInt())
         is UpdateState.Ready -> stringResource(R.string.update_ready, update.release.version)
-        UpdateState.Installing -> stringResource(R.string.update_installing)
+        is UpdateState.Installing -> stringResource(R.string.update_installing)
         is UpdateState.Failed -> stringResource(R.string.update_failed, update.error)
     }
     LabeledRow(stringResource(R.string.update_installed_version, viewModel.installedVersion), detail = status) {
         if (update is UpdateState.Ready) {
             AppButton(stringResource(R.string.update_install), viewModel::promptUpdate, icon = R.drawable.ic_download)
         } else {
-            val busy = update == UpdateState.Checking || update is UpdateState.Downloading || update == UpdateState.Installing
+            val busy = update == UpdateState.Checking || update is UpdateState.Downloading || update is UpdateState.Installing
             AppButton(stringResource(R.string.update_check), { viewModel.checkUpdate() }, style = ButtonStyle.OUTLINED, icon = R.drawable.ic_refresh, enabled = !busy)
         }
     }

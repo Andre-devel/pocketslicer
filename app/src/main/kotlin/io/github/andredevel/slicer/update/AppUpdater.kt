@@ -40,7 +40,7 @@ class AppUpdater(private val context: Context) {
         if (compareVersions(version, installedVersion) <= 0) return@withContext null
         Release(
             version,
-            release.optString("body"),
+            plainText(release.optString("body")),
             apk.getString("browser_download_url"),
             apk.getLong("size"),
             apk.optString("digest").takeIf { it.startsWith("sha256:") }?.removePrefix("sha256:"),
@@ -148,6 +148,18 @@ class AppUpdater(private val context: Context) {
         const val TAG = "AppUpdater"
     }
 }
+
+/**
+ * Notas da release (markdown do GitHub) como texto simples: sem "#" dos títulos, "•" nas listas,
+ * sem crases, negrito nem a URL dos links.
+ */
+fun plainText(markdown: String): String = markdown.replace("\r\n", "\n").lines().joinToString("\n") { line ->
+    line.replace(Regex("""^#{1,6}\s+"""), "")
+        .replace(Regex("""^(\s*)[-*+]\s+"""), "$1• ")
+        .replace(Regex("""\[([^\]]+)]\([^)]*\)"""), "$1")
+        .replace(Regex("""\*\*([^*]+)\*\*|__([^_]+)__""")) { it.groupValues[1].ifEmpty { it.groupValues[2] } }
+        .replace("`", "")
+}.trim()
 
 /**
  * Compara "0.10.1" com "0.9" número a número. Com os números iguais, a versão com sufixo vem antes

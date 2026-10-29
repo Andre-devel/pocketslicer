@@ -30,6 +30,8 @@ import io.github.andredevel.slicer.send.PrinterStore
 import io.github.andredevel.slicer.send.SendException
 import io.github.andredevel.slicer.send.uploader
 import io.github.andredevel.slicer.update.AppUpdater
+import io.github.andredevel.slicer.update.InstallResult
+import io.github.andredevel.slicer.update.UpdateReceiver
 import io.github.andredevel.slicer.update.Release
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -88,7 +90,8 @@ sealed interface UpdateState {
     data class Downloading(val release: Release, val progress: Float) : UpdateState
     /** APK baixado e conferido, pronto para [SlicerViewModel.installUpdate]. */
     data class Ready(val release: Release, val apk: File) : UpdateState
-    data object Installing : UpdateState
+    /** [ready]: volta a ele se o usuário recusar a confirmação do sistema. */
+    data class Installing(val ready: Ready) : UpdateState
     data class Failed(val error: String) : UpdateState
 }
 
@@ -246,6 +249,22 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             val due = System.currentTimeMillis() - withContext(Dispatchers.IO) { settings.lastUpdateCheck } >= UPDATE_CHECK_INTERVAL_MS
             if (autoUpdate && due) checkUpdate(automatic = true)
         }
+        // Resultado da instalação (UpdateReceiver): recusada na confirmação do sistema volta a
+        // oferecer Instalar; falha vira mensagem. Sucesso não chega, o Android fecha o app.
+        viewModelScope.launch {
+            UpdateReceiver.results.collect { result ->
+                _state.update { state ->
+                    val ready = state.update as? UpdateState.Ready ?: (state.update as? UpdateState.Installing)?.ready
+                    when (result) {
+                        InstallResult.Aborted -> state.copy(update = ready ?: UpdateState.Idle)
+                        is InstallResult.Failed -> {
+                            val text = app.getString(R.string.update_install_failed, result.message)
+                            state.copy(update = UpdateState.Failed(result.message), message = UserMessage(text))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fun setCurrency(currency: String?) {
@@ -306,17 +325,15 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         viewModelScope.launch {
-            _state.update { it.copy(update = UpdateState.Installing) }
+            _state.update { it.copy(update = UpdateState.Installing(ready)) }
             try {
                 updater.install(ready.apk)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "update install failed", e)
                 _state.update { it.copy(update = UpdateState.Failed(e.message ?: e.toString())) }
-                return@launch
             }
-            // Se o usuário recusar a confirmação do sistema, o app continua aberto: volta a oferecer.
-            delay(INSTALL_RETRY_DELAY_MS)
-            _state.update { if (it.update == UpdateState.Installing) it.copy(update = ready) else it }
         }
     }
 
@@ -921,8 +938,6 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val STATUS_INTERVAL_MS = 5_000L
         /** Procura automática por versão nova no máximo a cada 12 h (a API do GitHub limita a 60/h). */
         const val UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000L
-        /** Sem resposta da instalação nesse tempo (confirmação recusada), volta a oferecer "Instalar". */
-        const val INSTALL_RETRY_DELAY_MS = 10_000L
         /** Número da camada em "Generating G-code: layer N", em qualquer idioma. */
         val LAST_NUMBER = Regex("""\d+(?=\D*$)""")
 
