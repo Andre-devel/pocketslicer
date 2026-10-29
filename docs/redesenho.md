@@ -105,5 +105,5 @@ que faltar entra lá, sem depender do ViewModel.
     - Arranjar e Fatiar agem na placa escolhida;
     - salvar o 3MF com as placas, conferindo que o OrcaSlicer 2.4.2 desktop abre igual;
     - no celular, "Placa 1 de 3 ▾" como menu.
-18. Reproduzir movimentos: botão ▶ na barra de movimentos que avança o slider até o fim da
-    camada.
+18. (Feito) Reproduzir movimentos: botão ▶/⏸ na barra de movimentos que avança o slider até o
+    fim da camada em 6 s (do fim, recomeça); trocar de camada para.

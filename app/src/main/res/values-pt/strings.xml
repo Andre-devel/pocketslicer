@@ -144,6 +144,8 @@
     <string name="local_network_note">Rede local · nada passa pela nuvem</string>
     <string name="modified_count">Modificado · %1$d</string>
     <string name="moves">Movimentos</string>
+    <string name="play_moves">Reproduzir movimentos</string>
+    <string name="pause_moves">Pausar</string>
     <string name="new_printer">Nova impressora</string>
     <string name="new_project">Projeto novo</string>
     <string name="no_printers">Nenhuma impressora salva. Adicione uma ou procure na rede.</string>

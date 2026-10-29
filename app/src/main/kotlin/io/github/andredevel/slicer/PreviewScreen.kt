@@ -26,12 +26,15 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -172,11 +175,44 @@ fun PreviewOverlay(
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
                     Text("${settings.maxMove.coerceAtMost(moves)} / $moves", style = MonoStyles.small)
+                    PlayMovesButton(moves, settings, onSettings)
                 }
             }
         }
     }
 }
+
+/**
+ * ▶ avança o slider de movimentos até o fim da camada em [PLAY_MILLIS]; do fim, recomeça do
+ * início. Tocar de novo pausa; trocar de camada também.
+ */
+@Composable
+private fun PlayMovesButton(moves: Int, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
+    var playing by remember(moves, settings.maxLayer) { mutableStateOf(false) }
+    val current by rememberUpdatedState(settings)
+    LaunchedEffect(playing) {
+        if (!playing) return@LaunchedEffect
+        val from = current.maxMove.takeIf { it < moves } ?: 0
+        val start = withFrameMillis { it }
+        while (true) {
+            val elapsed = withFrameMillis { it } - start
+            val move = from + ((moves - from) * elapsed / PLAY_MILLIS).toInt()
+            onSettings(current.copy(maxMove = move.coerceAtMost(moves)))
+            if (move >= moves) break
+        }
+        playing = false
+    }
+    AppIconButton(
+        if (playing) R.drawable.ic_pause else R.drawable.ic_play_arrow,
+        stringResource(if (playing) R.string.pause_moves else R.string.play_moves),
+        { playing = !playing },
+        Modifier.padding(start = 8.dp),
+        tonal = true,
+    )
+}
+
+/** Duração de "reproduzir" de um extremo a outro da camada. */
+private const val PLAY_MILLIS = 6000L
 
 @Composable
 private fun Legend(preview: Preview, stats: SliceStats, roleLabels: List<String>, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit, modifier: Modifier) {

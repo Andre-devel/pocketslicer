@@ -147,6 +147,8 @@
     <string name="local_network_note">Local network · nothing goes through the cloud</string>
     <string name="modified_count">Modified · %1$d</string>
     <string name="moves">Moves</string>
+    <string name="play_moves">Play moves</string>
+    <string name="pause_moves">Pause</string>
     <string name="new_printer">New printer</string>
     <string name="new_project">New project</string>
     <string name="no_printers">No saved printers yet. Add one or search the network.</string>
