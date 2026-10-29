@@ -51,7 +51,7 @@ que faltar entra lá, sem depender do ViewModel.
 2. (Feito) Projeto com alterações não salvas: `dirty` no `SlicerUiState`, ligado em cada edição de cena
    e de perfil, desligado ao abrir/salvar projeto; ponto laranja e "Alterações não salvas" no
    `ScreenHeader`.
-3. Arquivos recentes: guardar as URIs abertas (com `takePersistableUriPermission`) num JSON em
+3. (Feito) Arquivos recentes: guardar as URIs abertas (com `takePersistableUriPermission`) num JSON em
    `filesDir`, no máximo 5; seção "Recentes" no menu Arquivo e botão no estado vazio. URI que não
    abre mais sai da lista.
 4. "Fatiado há N min" no subtítulo de Visualizar (hora do fim do fatiamento no `SliceState.Done`).

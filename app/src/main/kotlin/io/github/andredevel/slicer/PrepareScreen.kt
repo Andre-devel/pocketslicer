@@ -78,7 +78,7 @@ fun PrepareHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
         modified = state.unsaved,
         busy = state.busy?.let { stringResource(it) },
     ) {
-        FileMenu(state, pickers)
+        FileMenu(state, pickers, viewModel::openRecent)
         AppIconButton(
             R.drawable.ic_save, stringResource(R.string.save_project), pickers.saveProject,
             enabled = state.editable && state.objectCount > 0,
@@ -92,7 +92,7 @@ fun PrepareHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
 
 /** Menu "Arquivo": abrir, adicionar modelo e salvar o projeto. */
 @Composable
-private fun FileMenu(state: SlicerUiState, pickers: FilePickers) {
+private fun FileMenu(state: SlicerUiState, pickers: FilePickers, openRecent: (RecentFile) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         AppIconButton(R.drawable.ic_folder_open, stringResource(R.string.file_menu), { open = true }, tonal = open)
@@ -110,6 +110,23 @@ private fun FileMenu(state: SlicerUiState, pickers: FilePickers) {
                 enabled = state.editable,
                 onClick = { open = false; pickers.addModel() },
             )
+            if (state.recents.isNotEmpty()) {
+                HorizontalDivider()
+                Text(
+                    stringResource(R.string.recent_files),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+                for (recent in state.recents) {
+                    DropdownMenuItem(
+                        text = { Text(recent.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_history), null) },
+                        enabled = state.editable,
+                        onClick = { open = false; openRecent(recent) },
+                    )
+                }
+            }
             HorizontalDivider()
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.save_project)) },
@@ -193,6 +210,12 @@ fun PrepareOverlay(
                 Modifier.align(Alignment.Center).padding(horizontal = 8.dp),
             ) {
                 AppButton(stringResource(R.string.open_file_short), pickers.openFile, icon = R.drawable.ic_file_open)
+                state.recents.firstOrNull()?.let { recent ->
+                    AppButton(
+                        recent.name, { viewModel.openRecent(recent) }, Modifier.widthIn(max = 200.dp),
+                        style = ButtonStyle.OUTLINED, icon = R.drawable.ic_history,
+                    )
+                }
             }
         }
         BottomControls(state, viewModel, compact, viewPicker)

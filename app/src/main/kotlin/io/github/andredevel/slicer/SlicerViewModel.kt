@@ -1,6 +1,7 @@
 package io.github.andredevel.slicer
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
@@ -95,6 +96,8 @@ data class SlicerUiState(
     /** Impressoras salvas para o envio do G-code. */
     val printers: List<PrinterHost> = emptyList(),
     val send: SendState = SendState.Idle,
+    /** Arquivos abertos recentemente, o mais novo primeiro. */
+    val recents: List<RecentFile> = emptyList(),
     /** Cena ou perfis mudaram desde que o projeto foi aberto ou salvo. */
     val dirty: Boolean = false,
 ) {
@@ -126,6 +129,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private var sliceJob: Job? = null
     private var sendJob: Job? = null
     private val printerStore = PrinterStore(File(app.filesDir, "printers.json"))
+    private val recentStore = RecentFilesStore(File(app.filesDir, "recent.json"))
 
     private val engine = viewModelScope.async {
         val resources = withContext(Dispatchers.IO) { OrcaResources.install(app) }
@@ -144,7 +148,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     init {
         viewModelScope.launch {
             val printers = withContext(Dispatchers.IO) { printerStore.load() }
-            _state.update { it.copy(printers = printers) }
+            val recents = withContext(Dispatchers.IO) { recentStore.load() }
+            _state.update { it.copy(printers = printers, recents = recents) }
         }
     }
 
@@ -245,10 +250,21 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
      * Abre pelo tipo do arquivo: projeto 3MF (substitui objetos e perfis), G-code (direto
      * na pré-visualização) ou modelo STL/OBJ (acrescentado como em [openModel]).
      */
-    fun open(uri: Uri) = launchEngine(R.string.busy_opening) { engine ->
+    fun open(uri: Uri) = launchEngine(R.string.busy_opening) { engine -> openFile(engine, uri, displayName(uri)) }
+
+    /** Como [open]; o arquivo sai da lista se não puder mais ser lido. */
+    fun openRecent(recent: RecentFile) = launchEngine(R.string.busy_opening) { engine ->
+        try {
+            openFile(engine, recent.uri, recent.name)
+        } catch (e: UserException) {
+            if (e.text == R.string.error_read_file) editRecents { files -> files.filter { it.uri != recent.uri } }
+            throw e
+        }
+    }
+
+    private suspend fun openFile(engine: SlicerEngine, uri: Uri, name: String) {
         setup.join()
         _state.update { it.copy(busy = R.string.busy_opening) }
-        val name = displayName(uri)
         when (name.substringAfterLast('.', "").lowercase()) {
             "3mf" -> {
                 val file = File(File(app.cacheDir, "model").apply { deleteRecursively(); mkdirs() }, name)
@@ -266,6 +282,38 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 _state.update { it.copy(modelName = name, slice = SliceState.Done(stats, preview), showPreview = true) }
             }
             else -> addModel(engine, uri, name)
+        }
+        rememberRecent(uri, name)
+    }
+
+    private fun rememberRecent(uri: Uri, name: String) {
+        try {
+            app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: SecurityException) {
+            // "Abrir com": a permissão vale só enquanto o app está aberto.
+            return
+        }
+        editRecents { files -> listOf(RecentFile(uri, name)) + files.filter { it.uri != uri } }
+    }
+
+    /** Altera e grava a lista; quem sai dela devolve a permissão persistente. */
+    private fun editRecents(edit: (List<RecentFile>) -> List<RecentFile>) {
+        val old = _state.value.recents
+        val recents = edit(old).take(RecentFilesStore.MAX)
+        _state.update { it.copy(recents = recents) }
+        for (dropped in old.filter { file -> recents.none { it.uri == file.uri } }) {
+            try {
+                app.contentResolver.releasePersistableUriPermission(dropped.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: SecurityException) { // já revogada
+                Log.w(TAG, e)
+            }
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { recentStore.save(recents) }
+            } catch (e: IOException) {
+                Log.w(TAG, e)
+            }
         }
     }
 
