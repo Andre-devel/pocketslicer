@@ -91,7 +91,11 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
    usam esse formato quando a impressora pede (Bambu, ou `use_3mf` no perfil, como o Qidi Q2) e o
    Moonraker recebe `plateindex=1`, como no Orca. Testado no Qidi Q2 real: a Moonraker dele só
    extrai a miniatura (512x512) de um .gcode.3mf. Falta validar na A1.
-4. **Bambu LAN (FTPS)**: `BambuUploader`; usuário digita o código de acesso; testar na A1.
+4. **Bambu LAN (FTPS)** (feito): `BambuUploader`, cliente FTPS mínimo (sem biblioteca), canal de
+   dados com `PROT P` retomando a sessão TLS do controle; certificado conferido contra as CAs da
+   Bambu (`resources/cert/printer.cer`, empacotado como asset), sem conferir o nome do host (o
+   certificado só tem o número de série). Testado na A1 real **sem** o modo somente LAN: o arquivo
+   chega ao cartão. Só envia; iniciar pede MQTT (item 6).
 5. **Enviar e imprimir (Moonraker)** (feito): botão no diálogo com confirmação ("mesa livre e
    limpa, filamento certo"); antes do envio confere `print_stats.state` e recusa se a impressora
    estiver imprimindo ou pausada; depois `POST /printer/print/start` com o caminho devolvido pelo

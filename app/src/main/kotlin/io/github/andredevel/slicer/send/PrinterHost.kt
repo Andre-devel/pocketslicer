@@ -1,5 +1,6 @@
 package io.github.andredevel.slicer.send
 
+import android.content.res.AssetManager
 import androidx.annotation.StringRes
 import io.github.andredevel.slicer.R
 import java.io.File
@@ -8,11 +9,13 @@ import java.io.File
 enum class Kind(@StringRes val label: Int) {
     /** Klipper com Moonraker: Qidi, Snapmaker U1, Voron... */
     MOONRAKER(R.string.kind_moonraker),
+    /** Bambu Lab pela rede local (FTPS, código de acesso). */
+    BAMBU_LAN(R.string.kind_bambu),
 }
 
 /**
  * Impressora salva pelo usuário. [address]: IP ou nome, com porta e `http://` opcionais;
- * [secret]: API key do Moonraker, quando exigida; [preset]: perfil de impressora com que foi
+ * [secret]: API key do Moonraker, quando exigida, ou código de acesso da Bambu; [preset]: perfil de impressora com que foi
  * cadastrada, para vir escolhida quando esse perfil estiver em uso.
  */
 data class PrinterHost(
@@ -25,6 +28,9 @@ data class PrinterHost(
 )
 
 interface Uploader {
+    /** Se [upload] pode iniciar a impressão (`start`). */
+    val canStart: Boolean
+
     /** Confere que a impressora responde pelo protocolo; falha com [SendException]. */
     suspend fun test(host: PrinterHost)
 
@@ -35,8 +41,10 @@ interface Uploader {
     suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit)
 }
 
-fun uploader(kind: Kind): Uploader = when (kind) {
+/** [assets]: do app, com as CAs das impressoras Bambu (BambuUploader). */
+fun uploader(kind: Kind, assets: AssetManager): Uploader = when (kind) {
     Kind.MOONRAKER -> MoonrakerUploader
+    Kind.BAMBU_LAN -> BambuUploader(assets)
 }
 
 /** Falha do envio com mensagem para o usuário ([text] com [args]); [cause] vai para o log. */

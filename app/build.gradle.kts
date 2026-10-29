@@ -52,6 +52,13 @@ android {
     }
 }
 
+androidComponents {
+    onVariants { variant ->
+        // CAs da Bambu Lab (printer.cer) para conferir o certificado das impressoras no envio.
+        variant.sources.assets?.addStaticSourceDirectory(rootProject.file("third_party/OrcaSlicer/resources/cert").path)
+    }
+}
+
 dependencies {
     implementation(project(":slicer-core"))
     implementation(project(":profiles"))

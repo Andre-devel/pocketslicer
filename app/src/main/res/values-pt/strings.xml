@@ -91,6 +91,12 @@
     <string name="printer_name">Nome</string>
     <string name="printer_address">Endereço IP (porta opcional)</string>
     <string name="printer_api_key">API key (opcional)</string>
+    <string name="kind_bambu">Bambu Lab (rede local)</string>
+    <string name="printer_access_code">Código de acesso</string>
+    <string name="printer_access_code_hint">Na tela da impressora: Configurações › Modo somente LAN (não precisa ligar). Ali também aparece o IP.</string>
+    <string name="send_error_access_code">A impressora recusou o código de acesso. Confira na tela dela (Configurações › Modo somente LAN); ele muda quando o modo LAN é ligado ou desligado.</string>
+    <string name="send_error_tls">Não foi possível abrir uma conexão segura com %1$s: %2$s</string>
+    <string name="send_error_ftp">Resposta inesperada da impressora: %1$s</string>
     <string name="test_connection">Testar conexão</string>
     <string name="send_connecting">Conectando…</string>
     <string name="send_uploading">Enviando…</string>

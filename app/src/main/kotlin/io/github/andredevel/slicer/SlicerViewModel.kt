@@ -20,6 +20,7 @@ import io.github.andredevel.slicer.profiles.OrcaResources
 import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.Scene
 import io.github.andredevel.slicer.render.Tool
+import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterStore
 import io.github.andredevel.slicer.send.SendException
@@ -368,15 +369,21 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** Perfil de impressora em uso, que o diálogo de envio usa para sugerir a impressora. */
     fun printerPreset(): String? = _state.value.presets[PresetKind.PRINTER]?.selected
 
+    /** Tipo de envio sugerido para uma impressora nova, pelo fabricante do perfil em uso. */
+    fun printerKind(): Kind = if (_state.value.vendors.selected == BAMBU_VENDOR) Kind.BAMBU_LAN else Kind.MOONRAKER
+
+    /** Se "Enviar e imprimir" vale para [host]. */
+    fun canStart(host: PrinterHost): Boolean = uploader(host.kind, app.assets).canStart
+
     fun testPrinter(host: PrinterHost) = runSend(R.string.send_connecting) {
-        uploader(host.kind).test(host)
+        uploader(host.kind, app.assets).test(host)
         SendState.Done(R.string.send_test_ok, host.name)
     }
 
     /** Envia o G-code fatiado para [host]; com [start], também inicia a impressão. */
     fun sendGcode(host: PrinterHost, start: Boolean = false) = runSend(R.string.send_connecting) {
         val file = printFile(engine.await())
-        uploader(host.kind).upload(host, file, gcodeName(), start) { progress ->
+        uploader(host.kind, app.assets).upload(host, file, gcodeName(), start) { progress ->
             val text = if (progress < 1f || !start) R.string.send_uploading else R.string.send_starting
             _state.update { it.copy(send = SendState.Working(text, progress.takeIf { it < 1f || !start })) }
         }
@@ -527,6 +534,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private companion object {
         const val TAG = "SlicerViewModel"
         const val DEFAULT_VENDOR = "BBL"
+        const val BAMBU_VENDOR = "BBL"
         /** Lado da miniatura do projeto, como THUMBNAIL_SIZE_3MF do Orca. */
         const val PROJECT_THUMBNAIL_SIZE = 512
 

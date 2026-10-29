@@ -16,6 +16,8 @@ import java.net.URL
  * o ignoram).
  */
 object MoonrakerUploader : Uploader {
+    override val canStart = true
+
     /** Porta própria do Moonraker, quando o nginx do Fluidd/Mainsail (porta 80) não repassa a API. */
     private const val MOONRAKER_PORT = 7125
 

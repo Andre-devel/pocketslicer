@@ -126,8 +126,10 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -
         },
         confirmButton = {
             Row {
-                TextButton(onClick = { confirmPrint = true }, enabled = selected != null && !working) {
-                    Text(stringResource(R.string.send_and_print))
+                if (selected == null || viewModel.canStart(selected)) {
+                    TextButton(onClick = { confirmPrint = true }, enabled = selected != null && !working) {
+                        Text(stringResource(R.string.send_and_print))
+                    }
                 }
                 TextButton(onClick = { selected?.let { viewModel.sendGcode(it) } }, enabled = selected != null && !working) {
                     Text(stringResource(R.string.send))
@@ -154,7 +156,9 @@ private fun PrinterForm(
     onBack: () -> Unit,
 ) {
     val working = send is SendState.Working
-    val valid = host.name.isNotBlank() && host.address.isNotBlank()
+    val bambu = host.kind == Kind.BAMBU_LAN
+    // A Bambu sempre pede o código de acesso; a API key do Moonraker é opcional.
+    val valid = host.name.isNotBlank() && host.address.isNotBlank() && (!bambu || !host.secret.isNullOrBlank())
     // Espaços nas pontas (teclado, colar) quebrariam o endereço.
     val withName = { host.copy(name = host.name.trim(), address = host.address.trim()) }
     AlertDialog(
@@ -162,7 +166,20 @@ private fun PrinterForm(
         title = { Text(stringResource(if (isNew) R.string.add_printer else R.string.edit_printer)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.printer_kind, stringResource(host.kind.label)), style = MaterialTheme.typography.bodyMedium)
+                if (isNew) {
+                    Text(stringResource(R.string.printer_kind, ""), style = MaterialTheme.typography.bodyMedium)
+                    for (kind in Kind.entries) {
+                        Row(
+                            Modifier.fillMaxWidth().selectable(selected = host.kind == kind, enabled = !working) { onChange(host.copy(kind = kind)) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = host.kind == kind, onClick = null, enabled = !working)
+                            Text(stringResource(kind.label), Modifier.padding(start = 8.dp))
+                        }
+                    }
+                } else {
+                    Text(stringResource(R.string.printer_kind, stringResource(host.kind.label)), style = MaterialTheme.typography.bodyMedium)
+                }
                 OutlinedTextField(
                     value = host.name,
                     onValueChange = { onChange(host.copy(name = it)) },
@@ -179,11 +196,12 @@ private fun PrinterForm(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (host.kind == Kind.MOONRAKER) {
+                run {
                     OutlinedTextField(
                         value = host.secret.orEmpty(),
                         onValueChange = { onChange(host.copy(secret = it.ifEmpty { null })) },
-                        label = { Text(stringResource(R.string.printer_api_key)) },
+                        label = { Text(stringResource(if (bambu) R.string.printer_access_code else R.string.printer_api_key)) },
+                        supportingText = if (bambu) ({ Text(stringResource(R.string.printer_access_code_hint)) }) else null,
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -229,4 +247,4 @@ private fun SendStatus(send: SendState) {
 }
 
 private fun newHost(viewModel: SlicerViewModel) =
-    PrinterHost(viewModel.newPrinterId(), name = viewModel.printerPreset().orEmpty(), kind = Kind.MOONRAKER, address = "", preset = viewModel.printerPreset())
+    PrinterHost(viewModel.newPrinterId(), name = viewModel.printerPreset().orEmpty(), kind = viewModel.printerKind(), address = "", preset = viewModel.printerPreset())
