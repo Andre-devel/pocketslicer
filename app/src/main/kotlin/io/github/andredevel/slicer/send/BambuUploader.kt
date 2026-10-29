@@ -1,7 +1,10 @@
 package io.github.andredevel.slicer.send
 
 import android.content.res.AssetManager
+import android.util.Log
 import io.github.andredevel.slicer.R
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -28,20 +31,21 @@ import kotlin.coroutines.coroutineContext
 /**
  * Impressoras Bambu Lab na rede local: FTPS implícito na porta 990, usuário `bblp` e o código de
  * acesso da tela da impressora como senha; o arquivo vai para a raiz do cartão. Funciona sem o
- * "modo somente LAN". Iniciar a impressão exigiria MQTT (fica para depois), então só envia.
+ * "modo somente LAN". Para imprimir, o comando `project_file` vai pelo MQTT ([BambuMqtt]), com o
+ * filamento que está no bico (`ams.tray_now`: um slot do AMS ou o carretel externo).
  *
  * O certificado da impressora (CN = número de série, sem IP) é conferido contra as CAs da Bambu
  * em `printer.cer` (resources/cert do Orca); o nome do host não, porque o certificado não o tem.
  */
 class BambuUploader(private val assets: AssetManager) : Uploader {
-    override val canStart = false
+    override val canStart = true
 
     override suspend fun test(host: PrinterHost) {
         session(host) { }
     }
 
     override suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit) {
-        require(!start) { "Bambu: start is not supported" }
+        val tray = if (start) idleTray(host) else null
         session(host) { control ->
             control.command("TYPE I", 200)
             // Canal de dados também cifrado, retomando a sessão TLS do controle (o servidor exige).
@@ -61,15 +65,89 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
             }
             control.reply(226)
         }
+        if (tray != null) startPrint(host, ftpName(name), tray)
     }
 
-    /** Conecta, entra com o código de acesso, roda [block] e sai. */
-    private suspend fun session(host: PrinterHost, block: suspend (Control) -> Unit) = withContext(Dispatchers.IO) {
+    /**
+     * Confere pelo estado da impressora (pushall) que ela está livre e devolve o `tray_now`:
+     * 0 a 103 é um slot do AMS; 254/255, o carretel externo ou nenhum.
+     */
+    private suspend fun idleTray(host: PrinterHost): Int = mqtt(host) { mqtt ->
+        mqtt.publish(JSONObject().put("pushing", JSONObject().put("sequence_id", "0").put("command", "pushall")))
+        val print = mqtt.awaitReport(REPORT_TIMEOUT_MS) { it.optJSONObject("print")?.has("gcode_state") == true }
+            ?.getJSONObject("print") ?: throw SendException(R.string.send_error_ftp, "MQTT: no status")
+        val state = print.optString("gcode_state")
+        if (state in BUSY_STATES) throw SendException(R.string.send_error_busy, host.name, state)
+        print.optJSONObject("ams")?.optString("tray_now")?.toIntOrNull() ?: EXTERNAL_TRAY
+    }
+
+    /** `project_file` como o Bambu Studio na rede local (A1/P1: arquivo em file:///sdcard/). */
+    private suspend fun startPrint(host: PrinterHost, name: String, tray: Int) = mqtt(host) { mqtt ->
+        val ams = tray in 0..103
+        val command = JSONObject()
+            .put("sequence_id", "0")
+            .put("command", "project_file")
+            .put("param", "Metadata/plate_1.gcode")
+            .put("url", "file:///sdcard/$name")
+            .put("subtask_name", name.removeSuffix(".gcode.3mf").removeSuffix(".3mf"))
+            .put("project_id", "0").put("profile_id", "0").put("task_id", "0").put("subtask_id", "0")
+            .put("md5", "")
+            .put("bed_type", "auto")
+            .put("bed_leveling", true)
+            .put("flow_cali", false)
+            .put("vibration_cali", true)
+            .put("layer_inspect", false)
+            .put("timelapse", false)
+            .put("use_ams", ams)
+            .put("ams_mapping", JSONArray().put(if (ams) tray else -1))
+            .put("ams_mapping2", JSONArray().put(
+                if (ams) JSONObject().put("ams_id", tray / 4).put("slot_id", tray % 4)
+                else JSONObject().put("ams_id", 255).put("slot_id", 255),
+            ))
+        mqtt.publish(JSONObject().put("print", command))
+        // Resposta ao comando, ou a impressora já preparando.
+        val reply = mqtt.awaitReport(REPORT_TIMEOUT_MS) { report ->
+            val print = report.optJSONObject("print") ?: return@awaitReport false
+            print.optString("command") == "project_file" || print.optString("gcode_state") in START_STATES
+        }?.getJSONObject("print")
+        if (reply == null) throw SendException(R.string.send_error_start_unconfirmed, host.name)
+        // A recusa vem como err_code (84033543: comando sem assinatura, firmware de 2025+ fora do
+        // modo desenvolvedor) ou result "fail".
+        val errorCode = reply.optLong("err_code")
+        val result = reply.optString("result")
+        if (errorCode != 0L || result.equals("fail", true) || result.equals("failed", true)) {
+            Log.w(TAG, "project_file refused: $reply")
+            val reason = reply.optString("reason").ifEmpty { if (errorCode != 0L) errorCode.toString() else result }
+            throw SendException(R.string.send_error_start, host.name, reason)
+        }
+    }
+
+    private suspend fun <T> mqtt(host: PrinterHost, block: (BambuMqtt) -> T): T =
+        connect(host, MQTT_PORT) { socket, code -> BambuMqtt(socket, code).use(block) }
+
+    /** FTPS: conecta, entra com o código de acesso, roda [block] e sai. */
+    private suspend fun session(host: PrinterHost, block: suspend (Control) -> Unit) {
+        val address = Http.baseUrl(host.address)
+        val port = address.port.takeIf { it != -1 } ?: PORT
+        connect(host, port) { socket, code ->
+            val control = Control(socket, address.host, port, this)
+            control.reply(220)
+            control.command("USER $USER", 331)
+            if (control.send("PASS $code").code != 230) throw SendException(R.string.send_error_access_code)
+            block(control)
+            runCatching { control.send("QUIT") }
+        }
+    }
+
+    /**
+     * Conexão TLS conferida contra as CAs da Bambu na [port] do host; [block] recebe o socket e o
+     * código de acesso. Erros de rede viram [SendException].
+     */
+    private suspend fun <T> connect(host: PrinterHost, port: Int, block: suspend SSLSocketFactory.(SSLSocket, String) -> T): T = withContext(Dispatchers.IO) {
         val code = host.secret?.trim().orEmpty()
         if (code.isEmpty()) throw SendException(R.string.send_error_access_code)
         val address = Http.baseUrl(host.address)
         val hostName = address.host
-        val port = if (address.port == -1) PORT else address.port
         val factory = sslContext().socketFactory
         try {
             val raw = Socket().apply {
@@ -78,12 +156,7 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
             }
             (factory.createSocket(raw, hostName, port, true) as SSLSocket).use { socket ->
                 socket.startHandshake()
-                val control = Control(socket, hostName, port, factory)
-                control.reply(220)
-                control.command("USER $USER", 331)
-                if (control.send("PASS $code").code != 230) throw SendException(R.string.send_error_access_code)
-                block(control)
-                runCatching { control.send("QUIT") }
+                factory.block(socket, code)
             }
         } catch (e: SSLException) {
             throw SendException(R.string.send_error_tls, address.authority, e.message ?: e.toString(), cause = e)
@@ -159,6 +232,14 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
 
     private companion object {
         const val PORT = 990
+        const val MQTT_PORT = 8883
+        const val TAG = "BambuUploader"
+        /** Espera pelo estado (pushall) e pela resposta ao project_file. */
+        const val REPORT_TIMEOUT_MS = 15_000L
+        /** tray_now do carretel externo (sem AMS). */
+        const val EXTERNAL_TRAY = 254
+        val BUSY_STATES = setOf("RUNNING", "PAUSE", "PREPARE", "SLICING")
+        val START_STATES = setOf("PREPARE", "RUNNING", "SLICING")
         const val USER = "bblp"
         const val CA_ASSET = "printer.cer"
         const val CONNECT_TIMEOUT_MS = 10_000

@@ -95,7 +95,11 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
    dados com `PROT P` retomando a sessão TLS do controle; certificado conferido contra as CAs da
    Bambu (`resources/cert/printer.cer`, empacotado como asset), sem conferir o nome do host (o
    certificado só tem o número de série). Testado na A1 real **sem** o modo somente LAN: o arquivo
-   chega ao cartão. Só envia; iniciar pede MQTT (item 6).
+   chega ao cartão. "Enviar e imprimir" manda `project_file` pelo MQTT (TLS 8883; série = CN do
+   certificado; filamento = `ams.tray_now`). Na A1 na nuvem (firmware 2025+) o comando é recusado
+   com `err_code` 84033543 (comando sem assinatura): só funciona com modo somente LAN + modo
+   desenvolvedor. Não assinar com chaves extraídas do software da Bambu. O app mostra a recusa e o
+   arquivo fica no cartão para iniciar pela tela.
 5. **Enviar e imprimir (Moonraker)** (feito): botão no diálogo com confirmação ("mesa livre e
    limpa, filamento certo"); antes do envio confere `print_stats.state` e recusa se a impressora
    estiver imprimindo ou pausada; depois `POST /printer/print/start` com o caminho devolvido pelo
