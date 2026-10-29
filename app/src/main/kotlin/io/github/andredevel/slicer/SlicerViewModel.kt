@@ -180,7 +180,10 @@ data class SlicerUiState(
     /** Pergunta se instala a versão baixada (ao terminar o download ou por Instalar em Configurações). */
     val updatePrompt: Boolean = false,
 ) {
+    /** Objetos da placa escolhida. */
     val objectCount get() = scene?.placements?.size ?: 0
+    /** Objetos de todas as placas: o que o projeto salva. */
+    val projectObjectCount get() = plates.objects.sum()
     val anyOutside get() = scene?.placements?.any { it.outside } == true
     /** Instalar agora fecha o app: perderia o projeto não salvo, o fatiamento ou o envio em andamento. */
     val updateLosesWork get() = dirty || slice is SliceState.Running || send is SendState.Working
@@ -192,8 +195,8 @@ data class SlicerUiState(
     /** Placa que Fatiar usa, a partir de 1. */
     val plateNumber get() = plates.selected + 1
     val selectedPlacement get() = scene?.selected?.let { scene.placements.getOrNull(it) }
-    /** Há o que salvar: mesa sem objetos não conta como alteração. */
-    val unsaved get() = dirty && objectCount > 0
+    /** Há o que salvar: projeto sem objetos não conta como alteração. */
+    val unsaved get() = dirty && projectObjectCount > 0
 }
 
 class SlicerViewModel(application: Application) : AndroidViewModel(application) {
@@ -447,7 +450,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         setup.join()
         val name = displayName(uri)
         val before = _state.value
-        val project = if (before.objectCount > 0) {
+        val project = if (before.projectObjectCount > 0) {
             _state.update { it.copy(busy = R.string.busy_opening) }
             File(app.cacheDir, "undo.3mf").also { engine.saveProject(it, null) }
         } else null

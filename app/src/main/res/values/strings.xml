@@ -43,6 +43,7 @@
     <string name="preset_name">Preset name</string>
     <string name="preset_copy_name">%1$s - copy</string>
     <string name="save">Save</string>
+    <string name="delete_printer_title">Delete printer “%1$s”?</string>
     <string name="delete_preset_title">Delete user preset?</string>
     <string name="prepare">Prepare</string>
     <string name="preview">Preview</string>

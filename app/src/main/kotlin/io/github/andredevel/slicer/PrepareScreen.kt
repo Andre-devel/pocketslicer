@@ -97,7 +97,7 @@ fun PrepareHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
         FileMenu(state, pickers, viewModel::openRecent)
         AppIconButton(
             R.drawable.ic_save, stringResource(R.string.save_project), pickers.saveProject,
-            enabled = state.editable && state.objectCount > 0,
+            enabled = state.editable && state.projectObjectCount > 0,
         )
         if (!compact) {
             Spacer(Modifier.padding(start = 4.dp))
@@ -147,7 +147,7 @@ private fun FileMenu(state: SlicerUiState, pickers: FilePickers, openRecent: (Re
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.save_project)) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_save), null) },
-                enabled = state.editable && state.objectCount > 0,
+                enabled = state.editable && state.projectObjectCount > 0,
                 onClick = { open = false; pickers.saveProject() },
             )
         }

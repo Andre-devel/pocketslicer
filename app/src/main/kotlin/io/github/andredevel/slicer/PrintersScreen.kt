@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,6 +92,7 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
         edit(host.copy(name = found.name, kind = found.kind ?: host.kind, address = found.address))
     }
     val edited = editing
+    var deleting by remember { mutableStateOf<PrinterHost?>(null) }
     WatchPrinterStatus(state.printers, viewModel)
     val form = @Composable { host: PrinterHost, formModifier: Modifier ->
         PrinterForm(
@@ -100,11 +103,27 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
                 viewModel.clearSendState()
                 editing = if (wide) it else null
             },
-            onDelete = {
-                viewModel.deletePrinter(host.id)
-                edit(if (wide) state.printers.firstOrNull { it.id != host.id } ?: newHost(viewModel) else null)
-            },
+            onDelete = { deleting = host },
             onClose = if (wide) null else ({ edit(null) }),
+        )
+    }
+
+    // Excluir não tem desfazer: confirma antes, com o nome da impressora.
+    deleting?.let { host ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text(stringResource(R.string.delete_printer_title, host.name)) },
+            text = { Text(host.address) },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleting = null
+                    viewModel.deletePrinter(host.id)
+                    edit(if (wide) state.printers.firstOrNull { it.id != host.id } ?: newHost(viewModel) else null)
+                }) {
+                    Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 

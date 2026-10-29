@@ -42,6 +42,7 @@
     <string name="preset_name">Nome do preset</string>
     <string name="preset_copy_name">%1$s - cópia</string>
     <string name="save">Salvar</string>
+    <string name="delete_printer_title">Excluir a impressora “%1$s”?</string>
     <string name="delete_preset_title">Excluir preset de usuário?</string>
     <string name="prepare">Preparar</string>
     <string name="preview">Visualizar</string>
