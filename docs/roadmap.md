@@ -102,7 +102,9 @@ de desligar a fusão de multiplicação e soma (FMA) do clang no arm64 (`-ffp-co
 Item 5 em parte: `LICENSE` (AGPL-3.0), `NOTICE` com as licenças das bibliotecas do APK e README.
 Nome definitivo PocketSlicer (`applicationId` `io.github.andredevel.pocketslicer`; o pacote do
 código continua `io.github.andredevel.slicer`, que também nomeia as funções JNI). APK de release
-assinado com a chave de `scripts/make-release-key.sh`. Falta a release no GitHub.
+assinado com a chave de `scripts/make-release-key.sh`. Release v0.1.0 no GitHub em 2026-10-29
+(pré-release). A partir da v0.1.1 o app se atualiza pelo GitHub Releases: ao abrir, baixa a versão
+nova e pergunta se instala (Configurações → Atualizações); `versionCode` sai do `versionName`.
 
 1. Salvar/abrir projeto 3MF com configuração e miniatura; "Abrir com" para STL/3MF/OBJ/G-code.
 2. Miniatura no G-code por perfil de impressora.
