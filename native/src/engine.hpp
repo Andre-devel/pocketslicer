@@ -158,6 +158,12 @@ public:
     void select_plate(size_t plate);
     // Grava os objetos, a configuração completa e a miniatura num 3MF que o Orca abre.
     void save_project(const std::string &path, const Thumbnail &thumbnail);
+    // Se a impressora selecionada recebe o G-code dentro de um .gcode.3mf (Bambu, ou a
+    // opção "use_3mf" do perfil) em vez do .gcode puro.
+    bool gcode_3mf() const;
+    // .gcode.3mf com o G-code do último slice() (gravado em gcode_path) e a miniatura da
+    // mesa (512x512), como "Exportar arquivo fatiado da placa" do Orca.
+    void export_gcode_3mf(const std::string &gcode_path, const std::string &path, const Thumbnail &thumbnail);
     // G-code pronto (para preview); substitui o resultado do último slice(). O tempo e o
     // filamento vêm dos comentários e da configuração no G-code, como no Orca.
     SliceStats load_gcode(const std::string &path);

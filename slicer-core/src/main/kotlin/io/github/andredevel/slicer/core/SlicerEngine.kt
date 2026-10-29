@@ -209,6 +209,18 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
         nativeSaveProject(handle, file.absolutePath, images.sizes(), images.pixels())
     }
 
+    /** Se a impressora selecionada recebe o G-code dentro de um .gcode.3mf em vez do .gcode puro. */
+    suspend fun gcode3mf(): Boolean = call { nativeGcode3mf(handle) }
+
+    /**
+     * .gcode.3mf com o G-code do último [slice] (gravado em [gcode]) e a miniatura da mesa
+     * (512x512), como "Exportar arquivo fatiado da placa" do Orca.
+     */
+    suspend fun exportGcode3mf(gcode: File, file: File, thumbnail: Thumbnail?) = call {
+        val images = listOfNotNull(thumbnail)
+        nativeExportGcode3mf(handle, gcode.absolutePath, file.absolutePath, images.sizes(), images.pixels())
+    }
+
     /**
      * Tamanhos (largura, altura) das miniaturas que o G-code da impressora selecionada leva,
      * a passar para [slice]. Vazio nas impressoras Bambu, cujo G-code não tem miniatura.
@@ -359,6 +371,8 @@ private external fun nativeProjectPlates(handle: Long): IntArray
 private external fun nativeProjectPlate(handle: Long): Int
 private external fun nativeSelectPlate(handle: Long, plate: Int)
 private external fun nativeSaveProject(handle: Long, path: String, thumbnailSize: IntArray, thumbnail: Array<ByteArray>)
+private external fun nativeGcode3mf(handle: Long): Boolean
+private external fun nativeExportGcode3mf(handle: Long, gcodePath: String, path: String, thumbnailSize: IntArray, thumbnail: Array<ByteArray>)
 private external fun nativeGcodeThumbnailSizes(handle: Long): IntArray
 private external fun nativeLoadGcode(handle: Long, path: String): DoubleArray
 private external fun nativeDuplicate(handle: Long, objectIndex: Int)

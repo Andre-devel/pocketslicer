@@ -86,8 +86,10 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
    serve; usar um servidor Flask/aiohttp mínimo em `scripts/` que aceite o multipart.
 2. **Creality**: `CrealityUploader`; testar K2 e K3 (pedir IPs). Se a K3 não tiver perfil,
    avisar o usuário.
-3. **`.gcode.3mf` no motor**: `Engine::export_gcode_3mf(path, thumbnail)` + "Salvar .gcode.3mf"
-   para impressoras Bambu; validar abrindo no Bambu Studio/Orca desktop e pelo cartão na A1.
+3. **`.gcode.3mf` no motor** (feito): `Engine::export_gcode_3mf()`; "Salvar G-code" e "Enviar"
+   usam esse formato quando a impressora pede (Bambu, ou `use_3mf` no perfil, como o Qidi Q2) e o
+   Moonraker recebe `plateindex=1`, como no Orca. Testado no Qidi Q2 real: a Moonraker dele só
+   extrai a miniatura (512x512) de um .gcode.3mf. Falta validar na A1.
 4. **Bambu LAN (FTPS)**: `BambuUploader`; usuário digita o código de acesso; testar na A1.
 5. Futuro (precisa de OK do usuário para testar): iniciar impressão (Moonraker
    `print/start`, WebSocket Creality, MQTT Bambu), descoberta automática, status da impressão.

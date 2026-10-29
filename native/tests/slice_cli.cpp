@@ -7,6 +7,8 @@
 // resources_dir é uma cópia de resources/ do OrcaSlicer (profiles/, info/, flush/).
 // Os perfis são nomes de preset do fabricante (ex.: "Bambu Lab A1 0.4 nozzle").
 // plate começa em 1 (padrão: a primeira com objetos).
+// Com out terminado em .gcode.3mf, grava também o .gcode.3mf (sem miniatura) e o G-code
+// fica ao lado, sem o ".3mf".
 // O diretório de dados (presets carregados) fica em ./data.
 
 #include <cstdio>
@@ -50,7 +52,11 @@ int main(int argc, char **argv)
             list(engine, argv[3]);
             return 0;
         }
-        const char *gcode = argv[project ? 4 : 7];
+        const std::string out = argv[project ? 4 : 7];
+        const std::string suffix = ".3mf";
+        const bool gcode_3mf = out.size() > suffix.size() && out.compare(out.size() - suffix.size(), suffix.size(), suffix) == 0;
+        const std::string gcode_path = gcode_3mf ? out.substr(0, out.size() - suffix.size()) : out;
+        const char *gcode = gcode_path.c_str();
         if (project) {
             std::printf("vendor: %s\n", engine.open_project(argv[3]).c_str());
             std::printf("plates: %zu\n", engine.project_plates().size());
@@ -72,6 +78,11 @@ int main(int argc, char **argv)
         });
         std::printf("gcode: %s\nestimated time: %.0f s\nfilament: %.2f cm3\n",
                     gcode, stats.print_time_s, stats.filament_mm3 / 1000.0);
+        std::printf("printer wants .gcode.3mf: %s\n", engine.gcode_3mf() ? "yes" : "no");
+        if (gcode_3mf) {
+            engine.export_gcode_3mf(gcode_path, out, {});
+            std::printf("gcode.3mf: %s\n", out.c_str());
+        }
         return 0;
     } catch (const std::exception &e) {
         std::fprintf(stderr, "error: %s\n", e.what());

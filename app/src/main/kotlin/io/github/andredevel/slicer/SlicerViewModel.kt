@@ -65,8 +65,11 @@ sealed interface SendState {
 sealed interface SliceState {
     data object Idle : SliceState
     data class Running(val percent: Int, val text: String) : SliceState
-    /** [preview]: caminhos do G-code gerado; deixa de valer com a próxima mudança de cena ou perfil. */
-    data class Done(val stats: SliceStats, val preview: Preview) : SliceState
+    /**
+     * [preview]: caminhos do G-code gerado; deixa de valer com a próxima mudança de cena ou perfil.
+     * [gcode3mf]: a impressora recebe o G-code num .gcode.3mf (só no fatiamento pelo app).
+     */
+    data class Done(val stats: SliceStats, val preview: Preview, val gcode3mf: Boolean = false) : SliceState
 }
 
 data class SlicerUiState(
@@ -314,7 +317,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 val toolpaths = engine.toolpaths()
                 val preview = withContext(Dispatchers.Default) { Preview(toolpaths) }
-                _state.update { it.copy(slice = SliceState.Done(stats, preview), showPreview = true) }
+                val gcode3mf = engine.gcode3mf()
+                _state.update { it.copy(slice = SliceState.Done(stats, preview, gcode3mf), showPreview = true) }
             } finally {
                 _state.update { if (it.slice is SliceState.Running) it.copy(slice = SliceState.Idle) else it }
             }
@@ -325,7 +329,18 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         sliceJob?.cancel()
     }
 
-    fun saveGcode(uri: Uri) = launchEngine(R.string.busy_saving) { write(gcodeFile, uri) }
+    fun saveGcode(uri: Uri) = launchEngine(R.string.busy_saving) { engine -> write(printFile(engine), uri) }
+
+    /**
+     * Arquivo do último fatiamento no formato da impressora: o G-code, ou o .gcode.3mf com ele
+     * e a miniatura da mesa.
+     */
+    private suspend fun printFile(engine: SlicerEngine): File {
+        if ((_state.value.slice as? SliceState.Done)?.gcode3mf != true) return gcodeFile
+        val file = File(app.cacheDir, "plate.gcode.3mf")
+        engine.exportGcode3mf(gcodeFile, file, thumbnails?.invoke(PROJECT_THUMBNAIL_SIZE, PROJECT_THUMBNAIL_SIZE))
+        return file
+    }
 
     /** Acrescenta [host] ou substitui o de mesmo id. */
     fun savePrinter(host: PrinterHost) = editPrinters { printers ->
@@ -360,7 +375,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Envia o G-code fatiado para [host], sem iniciar a impressão. */
     fun sendGcode(host: PrinterHost) = runSend(R.string.send_connecting) {
-        uploader(host.kind).upload(host, gcodeFile, gcodeName()) { progress ->
+        val file = printFile(engine.await())
+        uploader(host.kind).upload(host, file, gcodeName()) { progress ->
             _state.update { it.copy(send = SendState.Working(R.string.send_uploading, progress)) }
         }
         SendState.Done(R.string.send_done, host.name)
@@ -381,6 +397,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             } catch (e: SendException) {
                 Log.w(TAG, "send failed", e.cause)
                 SendState.Failed(app.getString(e.text, *e.args))
+            } catch (e: SlicerException) { // .gcode.3mf não gerado; já traduzida pelo motor
+                SendState.Failed(e.message.orEmpty())
             } catch (e: CancellationException) {
                 _state.update { it.copy(send = SendState.Idle) }
                 throw e
@@ -394,8 +412,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun dismissError() = _state.update { it.copy(error = null) }
 
-    /** Nome sugerido para o G-code: o do modelo com a extensão trocada. */
-    fun gcodeName(): String = (_state.value.modelName?.substringBeforeLast('.') ?: "model") + ".gcode"
+    /** Nome sugerido para o G-code: o do modelo com a extensão trocada (.gcode ou .gcode.3mf). */
+    fun gcodeName(): String {
+        val extension = if ((_state.value.slice as? SliceState.Done)?.gcode3mf == true) ".gcode.3mf" else ".gcode"
+        return (_state.value.modelName?.substringBeforeLast('.') ?: "model") + extension
+    }
 
     private suspend fun loadVendor(engine: SlicerEngine, vendor: String) {
         engine.loadVendor(vendor)

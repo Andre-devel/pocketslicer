@@ -20,6 +20,7 @@
 #include "libslic3r/GCode/ThumbnailData.hpp"
 #include "libslic3r/GCode/Thumbnails.hpp"
 #include "libslic3r/I18N.hpp"
+#include "libslic3r/LocalesUtils.hpp"
 #include "libslic3r/format.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -90,6 +91,9 @@ struct Engine::Impl {
 
     ModelObject &object(size_t index);
     void add(Model &&objects, bool keep_layout = true);
+    // 3MF dos objetos da mesa como uma placa. Com gcode_path, um .gcode.3mf como
+    // Plater::export_gcode_3mf(): sem as malhas, com o G-code e os dados do último slice().
+    void store_3mf(const std::string &path, const Thumbnail &thumbnail, const std::string &gcode_path = {});
 
     void forget_project()
     {
@@ -608,36 +612,23 @@ void Engine::select_plate(size_t plate)
 
 void Engine::save_project(const std::string &path, const Thumbnail &thumbnail)
 {
+    m->store_3mf(path, thumbnail);
+}
+
+bool Engine::gcode_3mf() const
+{
     if (!m->bundle)
         throw std::runtime_error("no vendor loaded");
-    DynamicPrintConfig config = m->bundle->full_config_secure();
+    // Bambu só imprime .gcode.3mf; nas demais, a opção "use_3mf" do perfil (ex.: Qidi Q2).
+    const auto *use_3mf = m->printer().option<ConfigOptionBool>("use_3mf");
+    return m->bundle->is_bbl_vendor() || (use_3mf != nullptr && use_3mf->value);
+}
 
-    ThumbnailData image;
-    if (thumbnail.width > 0 && thumbnail.rgba.size() == size_t(thumbnail.width) * thumbnail.height * 4) {
-        image.set(thumbnail.width, thumbnail.height);
-        image.pixels = thumbnail.rgba;
-    }
-    // Uma placa com todos os objetos, como PartPlateList::store_to_3mf_structure().
-    PlateData plate;
-    plate.plate_index = 0;
-    for (size_t i = 0; i < m->model.objects.size(); ++i)
-        plate.objects_and_instances.emplace_back(int(i), 0);
-    plate.printer_model_id = m->bundle->printers.get_edited_preset().get_printer_type(m->bundle.get());
-    if (const ConfigOption *nozzle = config.option("nozzle_diameter"))
-        plate.nozzle_diameters = nozzle->serialize();
-
-    StoreParams params;
-    const std::string absolute = fs::absolute(path).string();
-    params.path = absolute.c_str();
-    params.model = &m->model;
-    params.plate_data_list = {&plate};
-    params.project_presets = m->bundle->get_current_project_embedded_presets();
-    params.config = &config;
-    if (image.is_valid())
-        params.thumbnail_data = {&image};
-    params.strategy = SaveStrategy::Zip64;
-    if (!store_bbs_3mf(params))
-        throw std::runtime_error(format(_u8L("Could not write %1%."), fs::path(path).filename().string()));
+void Engine::export_gcode_3mf(const std::string &gcode_path, const std::string &path, const Thumbnail &thumbnail)
+{
+    if (m->result.moves.empty() || !fs::exists(gcode_path))
+        throw std::runtime_error("nothing sliced");
+    m->store_3mf(path, thumbnail, gcode_path);
 }
 
 SliceStats Engine::load_gcode(const std::string &path)
@@ -732,6 +723,76 @@ void Engine::Impl::add(Model &&objects, bool keep_layout)
     }
     if (bundle)
         arrange_all();
+}
+
+void Engine::Impl::store_3mf(const std::string &path, const Thumbnail &thumbnail, const std::string &gcode_path)
+{
+    if (!bundle)
+        throw std::runtime_error("no vendor loaded");
+    DynamicPrintConfig config = bundle->full_config_secure();
+
+    ThumbnailData image;
+    if (thumbnail.width > 0 && thumbnail.rgba.size() == size_t(thumbnail.width) * thumbnail.height * 4) {
+        image.set(thumbnail.width, thumbnail.height);
+        image.pixels = thumbnail.rgba;
+    }
+    // Uma placa com todos os objetos, como PartPlateList::store_to_3mf_structure().
+    PlateData plate;
+    plate.plate_index = 0;
+    for (size_t i = 0; i < model.objects.size(); ++i)
+        plate.objects_and_instances.emplace_back(int(i), 0);
+    plate.printer_model_id = bundle->printers.get_edited_preset().get_printer_type(bundle.get());
+    if (const ConfigOption *nozzle = config.option("nozzle_diameter"))
+        plate.nozzle_diameters = nozzle->serialize();
+
+    StoreParams  params;
+    SaveStrategy strategy = SaveStrategy::Zip64;
+    if (!gcode_path.empty()) {
+        params.export_plate_idx = 0;
+        strategy = strategy | SaveStrategy::Silence | SaveStrategy::SplitModel | SaveStrategy::WithGcode | SaveStrategy::SkipModel;
+        plate.plate_thumbnail.load_from(image);
+        plate.gcode_file = fs::absolute(gcode_path).string();
+        plate.is_sliced_valid = true;
+        plate.gcode_prediction = std::to_string(int(result.print_statistics.modes.front().time));
+        plate.toolpath_outside = result.toolpath_outside;
+        plate.timelapse_warning_code = result.timelapse_warning_code;
+        plate.is_label_object_enabled = result.label_object_enabled;
+        plate.limit_filament_maps = result.limit_filament_maps;
+        plate.layer_filaments = result.layer_filaments;
+        plate.filament_change_sequence = result.filament_change_sequence;
+        plate.nozzle_change_sequence = result.nozzle_change_sequence;
+        plate.optimal_assignment = result.optimal_assignment;
+        if (print.print_statistics().total_weight != 0.0)
+            plate.gcode_weight = float_to_string_decimal_point(print.print_statistics().total_weight, 2);
+        plate.is_support_used = print.is_support_used();
+        plate.parse_filament_info(&result);
+        // Tipo, id e cor de cada filamento usado, como Plater::export_3mf().
+        const auto *colors = config.option<ConfigOptionStrings>("filament_colour");
+        const auto *ids = config.option<ConfigOptionStrings>("filament_ids");
+        for (FilamentInfo &info : plate.slice_filaments_info) {
+            std::string displayed_type;
+            info.type = config.get_filament_type(displayed_type, info.id);
+            info.filament_id = ids != nullptr ? ids->get_at(info.id) : "";
+            info.color = colors != nullptr ? colors->get_at(info.id) : "#FFFFFF";
+        }
+    }
+
+    // get_current_project_embedded_presets() devolve cópias que o chamador apaga.
+    std::vector<std::unique_ptr<Preset>> presets;
+    for (Preset *preset : bundle->get_current_project_embedded_presets()) {
+        presets.emplace_back(preset);
+        params.project_presets.push_back(preset);
+    }
+    const std::string absolute = fs::absolute(path).string();
+    params.path = absolute.c_str();
+    params.model = &model;
+    params.plate_data_list = {&plate};
+    params.config = &config;
+    if (image.is_valid())
+        params.thumbnail_data = {&image};
+    params.strategy = strategy;
+    if (!store_bbs_3mf(params))
+        throw std::runtime_error(format(_u8L("Could not write %1%."), fs::path(path).filename().string()));
 }
 
 ModelObject &Engine::Impl::object(size_t index)

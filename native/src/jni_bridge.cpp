@@ -282,6 +282,24 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSaveProject(JNIEnv *e
     });
 }
 
+JNIEXPORT jboolean JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeGcode3mf(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return jboolean(engine(handle)->gcode_3mf()); });
+}
+
+// Miniatura como em nativeSaveProject().
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeExportGcode3mf(JNIEnv *env, jclass, jlong handle, jstring gcode_path,
+                                                                        jstring path, jintArray thumbnail_size, jobjectArray thumbnail)
+{
+    guarded(env, [&] {
+        const std::vector<slicer::Thumbnail> images = to_thumbnails(env, thumbnail_size, thumbnail);
+        engine(handle)->export_gcode_3mf(to_string(env, gcode_path), to_string(env, path),
+                                         images.empty() ? slicer::Thumbnail() : images.front());
+    });
+}
+
 // Largura e altura intercaladas.
 JNIEXPORT jintArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeGcodeThumbnailSizes(JNIEnv *env, jclass, jlong handle)

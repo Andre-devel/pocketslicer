@@ -10,7 +10,8 @@ import java.net.URL
 
 /**
  * Moonraker (API do Klipper), como `src/slic3r/Utils/Moonraker.cpp` do Orca: o G-code vai para
- * `POST /server/files/upload` na raiz `gcodes`, com `print=false`.
+ * `POST /server/files/upload` na raiz `gcodes`, com `print=false`. Num .gcode.3mf o G-code é o
+ * `Metadata/plate_1.gcode`, que o campo `plateindex` indica (servidores sem suporte o ignoram).
  */
 object MoonrakerUploader : Uploader {
     /** Porta própria do Moonraker, quando o nginx do Fluidd/Mainsail (porta 80) não repassa a API. */
@@ -25,7 +26,7 @@ object MoonrakerUploader : Uploader {
         val response = Http.postFile(
             api.resolve("/server/files/upload"),
             headers(host),
-            mapOf("root" to "gcodes", "print" to "false"),
+            mapOf("root" to "gcodes", "print" to "false") + if (name.endsWith(".3mf")) mapOf("plateindex" to "1") else emptyMap(),
             "file",
             file,
             name,
