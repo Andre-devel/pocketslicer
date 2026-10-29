@@ -59,6 +59,7 @@ import io.github.andredevel.slicer.ui.components.SegmentedTabs
 import io.github.andredevel.slicer.ui.components.vertical
 import io.github.andredevel.slicer.ui.theme.MonoStyles
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -78,7 +79,7 @@ fun PreviewHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
     val plate = stringResource(R.string.plate_n, (state.plates?.selected ?: 0) + 1)
     ScreenHeader(
         title = state.modelName ?: stringResource(R.string.untitled),
-        subtitle = listOfNotNull(plate, printer).joinToString(" · "),
+        subtitle = listOfNotNull(plate, (state.slice as? SliceState.Done)?.slicedAt?.let { slicedAgo(it) }, printer).joinToString(" · "),
         modified = state.unsaved,
         busy = state.busy?.let { stringResource(it) },
     ) {
@@ -93,6 +94,23 @@ fun PreviewHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
                 style = ButtonStyle.OUTLINED, icon = R.drawable.ic_deployed_code,
             )
         }
+    }
+}
+
+/** "Fatiado há N min", atualizado a cada meio minuto. */
+@Composable
+private fun slicedAgo(slicedAt: Long): String {
+    val now by produceState(System.currentTimeMillis(), slicedAt) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(30_000)
+        }
+    }
+    val minutes = ((now - slicedAt) / 60_000).toInt().coerceAtLeast(0)
+    return when {
+        minutes < 1 -> stringResource(R.string.sliced_now)
+        minutes < 60 -> stringResource(R.string.sliced_minutes_ago, minutes)
+        else -> stringResource(R.string.sliced_hours_ago, minutes / 60)
     }
 }
 

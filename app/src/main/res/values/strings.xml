@@ -163,6 +163,9 @@
     <string name="uniform">Uniform</string>
     <string name="unsaved_changes">Unsaved changes</string>
     <string name="recent_files">Recent</string>
+    <string name="sliced_now">Sliced just now</string>
+    <string name="sliced_minutes_ago">Sliced %1$d min ago</string>
+    <string name="sliced_hours_ago">Sliced %1$d h ago</string>
     <string name="untitled">Untitled</string>
     <string name="view_gcode">View G-code</string>
     <string name="printer_use_current_preset">Use the current profile</string>

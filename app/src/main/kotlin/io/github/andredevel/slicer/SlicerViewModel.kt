@@ -70,8 +70,9 @@ sealed interface SliceState {
     /**
      * [preview]: caminhos do G-code gerado; deixa de valer com a próxima mudança de cena ou perfil.
      * [gcode3mf]: a impressora recebe o G-code num .gcode.3mf (só no fatiamento pelo app).
+     * [slicedAt]: fim do fatiamento (System.currentTimeMillis); null num G-code aberto.
      */
-    data class Done(val stats: SliceStats, val preview: Preview, val gcode3mf: Boolean = false) : SliceState
+    data class Done(val stats: SliceStats, val preview: Preview, val gcode3mf: Boolean = false, val slicedAt: Long? = null) : SliceState
 }
 
 data class SlicerUiState(
@@ -378,7 +379,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 val toolpaths = engine.toolpaths()
                 val preview = withContext(Dispatchers.Default) { Preview(toolpaths) }
                 val gcode3mf = engine.gcode3mf()
-                _state.update { it.copy(slice = SliceState.Done(stats, preview, gcode3mf), showPreview = true) }
+                _state.update { it.copy(slice = SliceState.Done(stats, preview, gcode3mf, System.currentTimeMillis()), showPreview = true) }
             } finally {
                 _state.update { if (it.slice is SliceState.Running) it.copy(slice = SliceState.Idle) else it }
             }

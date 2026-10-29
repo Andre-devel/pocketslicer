@@ -160,6 +160,9 @@
     <string name="uniform">Uniforme</string>
     <string name="unsaved_changes">Alterações não salvas</string>
     <string name="recent_files">Recentes</string>
+    <string name="sliced_now">Fatiado agora</string>
+    <string name="sliced_minutes_ago">Fatiado há %1$d min</string>
+    <string name="sliced_hours_ago">Fatiado há %1$d h</string>
     <string name="untitled">Sem título</string>
     <string name="view_gcode">Ver G-code</string>
     <string name="printer_use_current_preset">Usar o perfil atual</string>

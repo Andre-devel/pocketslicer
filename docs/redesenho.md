@@ -54,7 +54,7 @@ que faltar entra lá, sem depender do ViewModel.
 3. (Feito) Arquivos recentes: guardar as URIs abertas (com `takePersistableUriPermission`) num JSON em
    `filesDir`, no máximo 5; seção "Recentes" no menu Arquivo e botão no estado vazio. URI que não
    abre mais sai da lista.
-4. "Fatiado há N min" no subtítulo de Visualizar (hora do fim do fatiamento no `SliceState.Done`).
+4. (Feito) "Fatiado há N min" no subtítulo de Visualizar (hora do fim do fatiamento no `SliceState.Done`).
 5. Impressoras: porta em campo separado (o `PrinterHost.address` continua "ip:porta"; o
    formulário divide e junta), validação do IP enquanto digita, busca na rede começando sozinha
    ao abrir a tela com a sub-rede no texto (expor `PrinterScanner.subnetHosts`).
