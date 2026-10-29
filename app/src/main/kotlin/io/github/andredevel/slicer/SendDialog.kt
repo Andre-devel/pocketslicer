@@ -2,48 +2,56 @@ package io.github.andredevel.slicer
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import io.github.andredevel.slicer.send.FoundPrinter
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.send.Kind
-import io.github.andredevel.slicer.send.PrinterHost
-import io.github.andredevel.slicer.send.PrinterScanner
-import kotlinx.coroutines.launch
+import io.github.andredevel.slicer.ui.components.AppButton
+import io.github.andredevel.slicer.ui.components.AppIconButton
+import io.github.andredevel.slicer.ui.components.Banner
+import io.github.andredevel.slicer.ui.components.ButtonStyle
+import io.github.andredevel.slicer.ui.components.SectionLabel
+import io.github.andredevel.slicer.ui.components.SelectableCard
+import io.github.andredevel.slicer.ui.components.Tag
+import io.github.andredevel.slicer.ui.components.Tone
 
 /**
- * Enviar o G-code fatiado para uma impressora salva, ou cadastrar uma; "Enviar e imprimir" pede
- * confirmação antes de iniciar a impressão.
+ * Enviar o G-code fatiado para uma impressora salva; "Enviar e imprimir" pede confirmação antes
+ * de iniciar. Sem impressoras, leva ao cadastro ([onAddPrinter]).
  */
 @Composable
-fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit) {
+fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: () -> Unit, onDismiss: () -> Unit) {
     val working = state.send is SendState.Working
-    // Impressora em edição; começa no cadastro quando não há nenhuma salva.
-    var editing by remember { mutableStateOf(if (state.printers.isEmpty()) newHost(viewModel) else null) }
     // Só vem escolhida a impressora cadastrada com o perfil do fatiamento: outra receberia um
     // G-code feito para outra máquina.
     val preset = viewModel.printerPreset()
@@ -54,254 +62,139 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -
         viewModel.clearSendState()
         onDismiss()
     }
-    // O resultado do último envio ou teste não vale para outra impressora.
-    val edit = { host: PrinterHost ->
-        viewModel.clearSendState()
-        editing = host
-    }
-    val edited = editing
-    if (edited != null) {
-        PrinterForm(edited, state.send, isNew = state.printers.none { it.id == edited.id }, viewModel,
-            onChange = { editing = it },
-            onSave = {
-                viewModel.savePrinter(it)
-                viewModel.clearSendState()
-                selectedId = it.id
-                editing = null
-            },
-            onDelete = {
-                viewModel.deletePrinter(edited.id)
-                viewModel.clearSendState()
-                if (selectedId == edited.id) selectedId = null
-                editing = null
-            },
-            onBack = {
-                viewModel.cancelSend()
-                viewModel.clearSendState()
-                if (state.printers.isEmpty()) close() else editing = null
-            },
-        )
-        return
-    }
-
     val selected = state.printers.find { it.id == selectedId }
     if (confirmPrint && selected != null) {
-        AlertDialog(
-            onDismissRequest = { confirmPrint = false },
-            title = { Text(stringResource(R.string.print_confirm_title)) },
-            text = { Text(stringResource(R.string.print_confirm, selected.name)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmPrint = false
-                    viewModel.sendGcode(selected, start = true)
-                }) { Text(stringResource(R.string.print_start)) }
-            },
-            dismissButton = { TextButton(onClick = { confirmPrint = false }) { Text(stringResource(R.string.cancel)) } },
-        )
+        ConfirmPrint(selected.name, state.presets[PresetKind.FILAMENT]?.selected, { confirmPrint = false }) {
+            confirmPrint = false
+            viewModel.sendGcode(selected, start = true)
+        }
         return
     }
-    AlertDialog(
-        onDismissRequest = { if (!working) close() },
-        title = { Text(stringResource(R.string.send_title)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.send_file, viewModel.gcodeName()), style = MaterialTheme.typography.bodyMedium)
-                for (host in state.printers) {
-                    Row(
-                        Modifier.fillMaxWidth().selectable(selected = host.id == selectedId, enabled = !working) {
-                            if (selectedId != host.id) viewModel.clearSendState()
-                            selectedId = host.id
-                        },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = host.id == selectedId, onClick = null, enabled = !working)
-                        Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                            Text(host.name, style = MaterialTheme.typography.bodyLarge)
-                            Text("${stringResource(host.kind.label)} · ${host.address}", style = MaterialTheme.typography.bodySmall)
-                        }
-                        TextButton(onClick = { edit(host) }, enabled = !working) { Text(stringResource(R.string.edit)) }
-                    }
-                }
-                TextButton(onClick = { edit(newHost(viewModel)) }, enabled = !working) { Text(stringResource(R.string.add_printer)) }
-                if (selected?.preset != null && preset != null && selected.preset != preset) {
-                    Text(stringResource(R.string.send_preset_mismatch, selected.preset, preset), color = MaterialTheme.colorScheme.error)
-                }
-                SendStatus(state.send)
-            }
-        },
-        confirmButton = {
-            Row {
-                if (selected == null || viewModel.canStart(selected)) {
-                    TextButton(onClick = { confirmPrint = true }, enabled = selected != null && !working) {
-                        Text(stringResource(R.string.send_and_print))
-                    }
-                }
-                TextButton(onClick = { selected?.let { viewModel.sendGcode(it) } }, enabled = selected != null && !working) {
-                    Text(stringResource(R.string.send))
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = if (working) viewModel::cancelSend else close) {
-                Text(stringResource(if (working) R.string.cancel else R.string.close))
-            }
-        },
-    )
-}
 
-@Composable
-private fun PrinterForm(
-    host: PrinterHost,
-    send: SendState,
-    isNew: Boolean,
-    viewModel: SlicerViewModel,
-    onChange: (PrinterHost) -> Unit,
-    onSave: (PrinterHost) -> Unit,
-    onDelete: () -> Unit,
-    onBack: () -> Unit,
-) {
-    val working = send is SendState.Working
-    val bambu = host.kind == Kind.BAMBU_LAN
-    // A Bambu sempre pede o código de acesso; a API key do Moonraker é opcional.
-    val valid = host.name.isNotBlank() && host.address.isNotBlank() && (!bambu || !host.secret.isNullOrBlank())
-    // Espaços nas pontas (teclado, colar) quebrariam o endereço.
-    val withName = { host.copy(name = host.name.trim(), address = host.address.trim()) }
-    AlertDialog(
-        onDismissRequest = { if (!working) onBack() },
-        title = { Text(stringResource(if (isNew) R.string.add_printer else R.string.edit_printer)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (isNew) {
-                    NetworkScan(enabled = !working) { found ->
-                        onChange(host.copy(name = found.name, kind = found.kind ?: host.kind, address = found.address))
+    val wide = LocalConfiguration.current.screenWidthDp >= 720
+    Dialog(onDismissRequest = { if (!working) close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            Modifier.padding(16.dp).widthIn(max = if (wide) 760.dp else 560.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column {
+                Row(Modifier.padding(start = 24.dp, end = 12.dp, top = 20.dp, bottom = 12.dp), verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.send_title), style = MaterialTheme.typography.titleLarge)
+                        Text(sendSubtitle(state, viewModel, preset), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(stringResource(R.string.printer_kind, ""), style = MaterialTheme.typography.bodyMedium)
-                    for (kind in Kind.entries) {
-                        Row(
-                            Modifier.fillMaxWidth().selectable(selected = host.kind == kind, enabled = !working) { onChange(host.copy(kind = kind)) },
-                            verticalAlignment = Alignment.CenterVertically,
+                    AppIconButton(R.drawable.ic_close, stringResource(R.string.close), close, enabled = !working)
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                val printers: @Composable ColumnScope.() -> Unit = {
+                    SectionLabel(stringResource(R.string.saved_printers))
+                    for (host in state.printers) {
+                        SelectableCard(
+                            selected = host.id == selectedId,
+                            onClick = {
+                                if (selectedId != host.id) viewModel.clearSendState()
+                                selectedId = host.id
+                            },
+                            enabled = !working, accent = true, radio = true,
                         ) {
-                            RadioButton(selected = host.kind == kind, onClick = null, enabled = !working)
-                            Text(stringResource(kind.label), Modifier.padding(start = 8.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                PrinterLabel(host)
+                                if (host.preset != null && host.preset == preset) {
+                                    Tag(stringResource(R.string.slice_profile), container = MaterialTheme.colorScheme.surfaceContainerHighest, content = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
                         }
+                    }
+                    AppButton(stringResource(R.string.add_printer), onAddPrinter, style = ButtonStyle.TEXT, icon = R.drawable.ic_add, enabled = !working)
+                }
+                val details: @Composable ColumnScope.() -> Unit = {
+                    if (selected?.preset != null && preset != null && selected.preset != preset) {
+                        Banner(Tone.WARNING, stringResource(R.string.send_preset_mismatch, selected.preset, preset), Modifier.fillMaxWidth(), title = stringResource(R.string.different_profile))
+                    }
+                    if (selected?.kind == Kind.BAMBU_LAN) {
+                        Banner(Tone.INFO, stringResource(R.string.bambu_send_note), Modifier.fillMaxWidth())
+                    }
+                    SendStatus(state.send)
+                }
+                if (wide) {
+                    Row(Modifier.heightIn(max = 420.dp)) {
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = printers)
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = details)
                     }
                 } else {
-                    Text(stringResource(R.string.printer_kind, stringResource(host.kind.label)), style = MaterialTheme.typography.bodyMedium)
-                    // Perfil com que a impressora vem escolhida no envio; troca pelo atual a pedido.
-                    val current = viewModel.printerPreset()
-                    Text(stringResource(R.string.printer_preset, host.preset ?: "-"), style = MaterialTheme.typography.bodyMedium)
-                    if (current != null && current != host.preset) {
-                        TextButton(onClick = { onChange(host.copy(preset = current)) }, enabled = !working) {
-                            Text(stringResource(R.string.printer_use_current_preset, current))
-                        }
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        printers()
+                        details()
                     }
                 }
-                OutlinedTextField(
-                    value = host.name,
-                    onValueChange = { onChange(host.copy(name = it)) },
-                    label = { Text(stringResource(R.string.printer_name)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = host.address,
-                    onValueChange = { onChange(host.copy(address = it)) },
-                    label = { Text(stringResource(R.string.printer_address)) },
-                    placeholder = { Text("192.168.0.50") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                run {
-                    OutlinedTextField(
-                        value = host.secret.orEmpty(),
-                        onValueChange = { onChange(host.copy(secret = it.ifEmpty { null })) },
-                        label = { Text(stringResource(if (bambu) R.string.printer_access_code else R.string.printer_api_key)) },
-                        supportingText = if (bambu) ({ Text(stringResource(R.string.printer_access_code_hint)) }) else null,
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth(),
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (wide) {
+                        Text(stringResource(R.string.local_network_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 12.dp))
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (working) AppButton(stringResource(R.string.cancel_send), viewModel::cancelSend, style = ButtonStyle.TEXT)
+                    AppButton(
+                        stringResource(R.string.send_only), { selected?.let { viewModel.sendGcode(it) } },
+                        style = ButtonStyle.OUTLINED, icon = R.drawable.ic_upload_file, enabled = selected != null && !working,
                     )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { viewModel.testPrinter(withName()) }, enabled = valid && !working) {
-                        Text(stringResource(R.string.test_connection))
-                    }
-                    if (!isNew) {
-                        TextButton(onClick = onDelete, enabled = !working) { Text(stringResource(R.string.delete)) }
+                    if (selected == null || viewModel.canStart(selected)) {
+                        AppButton(
+                            stringResource(R.string.send_and_print), { confirmPrint = true },
+                            icon = R.drawable.ic_play_circle, enabled = selected != null && !working,
+                        )
                     }
                 }
-                SendStatus(send)
+            }
+        }
+    }
+}
+
+@Composable
+private fun sendSubtitle(state: SlicerUiState, viewModel: SlicerViewModel, preset: String?): String {
+    val stats = (state.slice as? SliceState.Done)?.stats
+    return listOfNotNull(
+        viewModel.gcodeName(),
+        stats?.let { formatDuration(it.printTimeSeconds) },
+        stats?.let { String.format(java.util.Locale.getDefault(), "%.1f g", it.filamentGrams) },
+        preset?.let { stringResource(R.string.sliced_for, it) },
+    ).joinToString(" · ")
+}
+
+/** Confirmação de "Enviar e imprimir": só libera depois de conferir mesa e filamento. */
+@Composable
+private fun ConfirmPrint(printer: String, filament: String?, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    var bedClear by remember { mutableStateOf(false) }
+    var filamentLoaded by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(painterResource(R.drawable.ic_play_circle), null) },
+        title = { Text(stringResource(R.string.print_confirm_title_named, printer)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                CheckRow(stringResource(R.string.check_bed_clear), bedClear) { bedClear = it }
+                CheckRow(
+                    if (filament != null) stringResource(R.string.check_filament_named, filament) else stringResource(R.string.check_filament),
+                    filamentLoaded,
+                ) { filamentLoaded = it }
+                Text(stringResource(R.string.print_heats_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(withName()) }, enabled = valid && !working) { Text(stringResource(R.string.save)) }
+            TextButton(onClick = onConfirm, enabled = bedClear && filamentLoaded) { Text(stringResource(R.string.print_start)) }
         },
-        dismissButton = {
-            TextButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.back)) } },
     )
 }
 
-/** "Procurar na rede" e as impressoras achadas; tocar numa preenche o cadastro com [onPick]. */
 @Composable
-private fun NetworkScan(enabled: Boolean, onPick: (FoundPrinter) -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var scanning by remember { mutableStateOf(false) }
-    // null: ainda não procurou.
-    var found by remember { mutableStateOf<List<FoundPrinter>?>(null) }
-    TextButton(
-        onClick = {
-            scanning = true
-            scope.launch {
-                found = PrinterScanner.scan(context.applicationContext)
-                scanning = false
-            }
-        },
-        enabled = enabled && !scanning,
-    ) { Text(stringResource(R.string.scan_network)) }
-    if (scanning) {
-        LinearProgressIndicator(Modifier.fillMaxWidth())
-        Text(stringResource(R.string.scan_running), style = MaterialTheme.typography.bodyMedium)
-    }
-    val list = found ?: return
-    if (list.isEmpty()) Text(stringResource(R.string.scan_none), style = MaterialTheme.typography.bodyMedium)
-    for (printer in list) {
-        val kind = printer.kind
-        Column(
-            Modifier.fillMaxWidth().selectable(selected = false, enabled = enabled && kind != null) { onPick(printer) }
-                .padding(vertical = 4.dp),
-        ) {
-            Text(printer.name, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                if (kind != null) "${stringResource(kind.label)} · ${printer.address}"
-                else stringResource(R.string.scan_unsupported, printer.address),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (kind != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
-            )
-        }
+private fun CheckRow(text: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(checked, role = Role.Checkbox, onValueChange = onChange),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = null)
+        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))
     }
 }
-
-@Composable
-private fun SendStatus(send: SendState) {
-    when (send) {
-        SendState.Idle -> {}
-        is SendState.Working -> {
-            val progress = send.progress
-            if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
-            else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-            Text(
-                if (progress == null) stringResource(send.text) else stringResource(send.text) + " ${(progress * 100).toInt()}%",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        is SendState.Done -> Text(stringResource(send.text, send.printer), color = MaterialTheme.colorScheme.primary)
-        is SendState.Failed -> Text(send.message, color = MaterialTheme.colorScheme.error)
-    }
-}
-
-private fun newHost(viewModel: SlicerViewModel) =
-    PrinterHost(viewModel.newPrinterId(), name = viewModel.printerPreset().orEmpty(), kind = viewModel.printerKind(), address = "", preset = viewModel.printerPreset())

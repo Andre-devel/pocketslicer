@@ -6,11 +6,11 @@ import io.github.andredevel.slicer.R
 import java.io.File
 
 /** Protocolo de envio do G-code (docs/plano-envio.md). */
-enum class Kind(@StringRes val label: Int) {
+enum class Kind(@StringRes val label: Int, @StringRes val shortLabel: Int, @StringRes val description: Int) {
     /** Klipper com Moonraker: Qidi, Snapmaker U1, Voron... */
-    MOONRAKER(R.string.kind_moonraker),
+    MOONRAKER(R.string.kind_moonraker, R.string.kind_moonraker_short, R.string.kind_moonraker_description),
     /** Bambu Lab pela rede local (FTPS, código de acesso). */
-    BAMBU_LAN(R.string.kind_bambu),
+    BAMBU_LAN(R.string.kind_bambu, R.string.kind_bambu_short, R.string.kind_bambu_description),
 }
 
 /**

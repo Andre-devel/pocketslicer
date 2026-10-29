@@ -322,21 +322,22 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
     companion object {
         private const val GRID_STEP = 10f
 
+        // Cores do tema do app (ui/theme): fundo e mesa neutros para o modelo se destacar.
         private val DARK = Palette(
-            background = floatArrayOf(0.16f, 0.17f, 0.19f, 1f),
-            bedSurface = floatArrayOf(0.30f, 0.32f, 0.35f, 1f),
-            bedGrid = floatArrayOf(0.40f, 0.42f, 0.46f, 1f),
-            bedOutline = floatArrayOf(0.75f, 0.77f, 0.80f, 1f),
+            background = floatArrayOf(0.090f, 0.094f, 0.106f, 1f),
+            bedSurface = floatArrayOf(0.141f, 0.153f, 0.169f, 1f),
+            bedGrid = floatArrayOf(0.200f, 0.216f, 0.235f, 1f),
+            bedOutline = floatArrayOf(0.290f, 0.306f, 0.333f, 1f),
         )
         private val LIGHT = Palette(
-            background = floatArrayOf(0.93f, 0.94f, 0.95f, 1f),
-            bedSurface = floatArrayOf(0.78f, 0.80f, 0.83f, 1f),
-            bedGrid = floatArrayOf(0.66f, 0.68f, 0.72f, 1f),
-            bedOutline = floatArrayOf(0.30f, 0.32f, 0.36f, 1f),
+            background = floatArrayOf(0.937f, 0.929f, 0.914f, 1f),
+            bedSurface = floatArrayOf(0.886f, 0.875f, 0.851f, 1f),
+            bedGrid = floatArrayOf(0.820f, 0.804f, 0.773f, 1f),
+            bedOutline = floatArrayOf(0.780f, 0.761f, 0.725f, 1f),
         )
-        private val OBJECT = floatArrayOf(0.20f, 0.68f, 0.38f, 1f)
-        private val SELECTED = floatArrayOf(0.96f, 0.58f, 0.16f, 1f)
-        private val OUTSIDE = floatArrayOf(0.80f, 0.18f, 0.18f, 1f)
+        private val OBJECT = floatArrayOf(0.68f, 0.71f, 0.73f, 1f)
+        private val SELECTED = floatArrayOf(1.00f, 0.54f, 0.24f, 1f)
+        private val OUTSIDE = floatArrayOf(1.00f, 0.42f, 0.37f, 1f)
         private val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
 
         private fun mix(a: FloatArray, b: FloatArray, t: Float) = FloatArray(4) { a[it] + (b[it] - a[it]) * t }

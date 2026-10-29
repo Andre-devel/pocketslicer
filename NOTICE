@@ -66,3 +66,9 @@ Android libraries
 -----------------
 Kotlin standard library, kotlinx.coroutines, AndroidX (Core, Activity,
 Lifecycle, Compose, Material 3)    Apache-2.0
+
+Fonts and icons (app/src/main/res)
+----------------------------------
+IBM Plex Sans (IBM)               SIL Open Font License 1.1
+JetBrains Mono (JetBrains)        SIL Open Font License 1.1
+Material Symbols Rounded (Google) Apache-2.0

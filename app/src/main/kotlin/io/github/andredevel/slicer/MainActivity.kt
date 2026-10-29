@@ -2,20 +2,13 @@ package io.github.andredevel.slicer
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.IntentCompat
+import io.github.andredevel.slicer.ui.theme.PocketSlicerTheme
 
 class MainActivity : ComponentActivity() {
     private val viewModel: SlicerViewModel by viewModels()
@@ -28,15 +21,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) openFrom(intent)
         enableEdgeToEdge()
         setContent {
-            // Tema do sistema; no Android 12+, com as cores do papel de parede.
-            val dark = isSystemInDarkTheme()
-            val colors = when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-                    if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
-                dark -> darkColorScheme()
-                else -> lightColorScheme()
-            }
-            MaterialTheme(colorScheme = colors) {
+            // Claro ou escuro conforme o sistema, sempre com a paleta do app.
+            PocketSlicerTheme {
                 SlicerScreen(viewModel)
             }
         }

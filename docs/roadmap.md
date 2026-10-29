@@ -87,8 +87,8 @@ salvas; de projetos com várias placas, só a primeira. G-code aberto vai direto
 "Abrir com" e compartilhar aceitam 3MF, STL, OBJ e G-code. Item 2 também: o G-code leva as
 miniaturas da opção `thumbnails` da impressora (tamanhos e formatos PNG/QOI/... do perfil),
 renderizadas pelo app antes de fatiar; impressoras Bambu não têm miniatura no G-code, como no Orca.
-Item 3 também: tema claro/escuro do sistema (cores do papel de parede no Android 12+, viewport
-acompanha); app em inglês (padrão) e português, com escolha por app no Android 13+. Os textos do
+Item 3 também: tema claro/escuro do sistema (paleta fixa do redesenho, ver
+[redesenho.md](redesenho.md); viewport acompanha); app em inglês (padrão) e português, com escolha por app no Android 13+. Os textos do
 motor (rótulos e dicas das opções, progresso, tipos de extrusão, erros) vêm do catálogo `.po` do
 Orca, mais `native/i18n` para os da fachada. Erros de arquivo, falta de memória e falhas
 inesperadas viram mensagem em vez de fechar o app. Sem telemetria (nem permissão de internet).
