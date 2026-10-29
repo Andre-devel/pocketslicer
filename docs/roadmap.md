@@ -119,6 +119,13 @@ nova e pergunta se instala (Configurações → Atualizações); `versionCode` s
 2. Modificadores por faixa de altura e volumes modificadores.
 3. Pintura de suportes/seam (gizmos de pintura do Orca são GUI; reimplementar sobre `TriangleSelector` de libslic3r).
 4. Multi-material (AMS/MMU) com torre de purga.
+   - Feito (2026-10-29): 3MF multicolor do Orca/Bambu fatia igual ao Orca desktop; filamentos do
+     projeto (acrescentar, excluir, preset e cor), filamento do objeto, volumes de purga com o
+     cálculo pelas cores do Orca, torre de purga na mesa (estimada e arrastável) e pré-visualização
+     por filamento com o peso de cada um.
+   - Falta: mapear filamentos para os slots do AMS ao imprimir numa Bambu (o início de impressão
+     pela LAN ainda não funciona, ver plano-envio.md); troca de cor por altura (M600/pausa);
+     pintura com o dedo (adiada).
 5. Reativar OpenVDB (hollowing, reparo) e OCCT (STEP) se o tamanho do APK permitir.
 6. Ferramentas de calibração reaproveitando os geradores do Orca.
 7. Play Asset Delivery para perfis sob demanda; ABI x86_64 para emulador.
