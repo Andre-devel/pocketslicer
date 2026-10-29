@@ -182,6 +182,13 @@
     </plurals>
     <string name="position">Position</string>
     <string name="print_confirm_title_named">Start printing on %1$s?</string>
+    <string name="filament_mapping">Filaments on the printer</string>
+    <string name="mapping_loading">Reading the printer\'s filaments…</string>
+    <string name="mapping_failed">Couldn\'t read the printer\'s filaments: %1$s</string>
+    <string name="mapping_slot_empty">No filament detected in %1$s.</string>
+    <string name="check_mapping">Each filament is in the toolhead shown</string>
+    <string name="toolhead_n">Toolhead %1$d</string>
+    <string name="slot_empty">empty</string>
     <string name="print_heats_note">The printer starts heating as soon as the file arrives.</string>
     <string name="printer_from">Printer · %1$s</string>
     <string name="printers">Printers</string>

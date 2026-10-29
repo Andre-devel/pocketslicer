@@ -29,6 +29,7 @@ import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterStatus
 import io.github.andredevel.slicer.send.PrinterStore
 import io.github.andredevel.slicer.send.SendException
+import io.github.andredevel.slicer.send.Slot
 import io.github.andredevel.slicer.send.uploader
 import io.github.andredevel.slicer.update.AppUpdater
 import io.github.andredevel.slicer.update.InstallResult
@@ -798,8 +799,17 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         SendState.Done(R.string.send_test_ok, host.name, connection)
     }
 
-    /** Envia o G-code fatiado para [host]; com [start], também inicia a impressão. */
-    fun sendGcode(host: PrinterHost, start: Boolean = false) = runSend(R.string.send_connecting) {
+    /**
+     * Filamento em cada posição de [host] para o mapeamento ao iniciar (vazia se ela não mapeia);
+     * falha com [SendException].
+     */
+    suspend fun printerSlots(host: PrinterHost): List<Slot> = uploader(host.kind, app.assets).slots(host)
+
+    /**
+     * Envia o G-code fatiado para [host]; com [start], também inicia a impressão, com a posição
+     * da impressora de cada filamento do projeto em [mapping] (Uploader.upload).
+     */
+    fun sendGcode(host: PrinterHost, start: Boolean = false, mapping: List<Int>? = null) = runSend(R.string.send_connecting) {
         val file = printFile(engine.await())
         val all = if (start) listOf(SendStep.CONNECT, SendStep.UPLOAD, SendStep.START) else listOf(SendStep.CONNECT, SendStep.UPLOAD)
         var steps = SendSteps(all, SendStep.CONNECT, 0, file.length())
@@ -824,6 +834,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 advance(SendStep.START)
                 _state.update { it.copy(send = SendState.Working(R.string.send_starting, steps = steps)) }
             },
+            mapping = mapping,
         )
         if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD) // arquivo vazio: sem progresso
         while (steps.current != null) advance(all.getOrNull(all.indexOf(steps.current) + 1))

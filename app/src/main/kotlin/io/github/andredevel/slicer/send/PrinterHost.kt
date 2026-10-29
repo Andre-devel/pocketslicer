@@ -37,9 +37,19 @@ interface Uploader {
     /**
      * Envia [file] com o nome [name]; com [start], confere antes que a impressora está livre e
      * depois inicia a impressão dele. [progress] de 0 a 1 durante o envio; [starting] quando o
-     * arquivo chegou e o pedido de iniciar vai sair.
+     * arquivo chegou e o pedido de iniciar vai sair. [mapping]: posição em [slots] de cada
+     * filamento do projeto (pelo índice), só com [start] e numa impressora que mapeia.
      */
-    suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit, starting: () -> Unit = {})
+    suspend fun upload(
+        host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit,
+        starting: () -> Unit = {}, mapping: List<Int>? = null,
+    )
+
+    /**
+     * Filamento em cada posição da impressora (cabeça, slot), para escolher onde vai cada
+     * filamento do projeto ao iniciar; vazia se a impressora não aceita esse mapeamento.
+     */
+    suspend fun slots(host: PrinterHost): List<Slot> = emptyList()
 
     /** Estado atual da impressora; falha com [SendException]. */
     suspend fun status(host: PrinterHost): PrinterStatus
@@ -55,6 +65,12 @@ data class PrinterStatus(val state: State, val progress: Float? = null, val file
     /** Imprimindo ou pausada: dá para enviar, não para iniciar outra impressão. */
     val busy get() = state == State.PRINTING || state == State.PAUSED
 }
+
+/**
+ * Posição da impressora para filamento ([Uploader.slots]): [loaded] quando há filamento
+ * detectado; [type] como a impressora informa ("PLA") e [color] `#RRGGBB`, quando ela sabe.
+ */
+data class Slot(val loaded: Boolean, val type: String? = null, val color: String? = null)
 
 /** Resultado de [Uploader.test]: serviço que respondeu (com a versão, quando há) e tempo da resposta. */
 data class Connection(val service: String, val millis: Long)

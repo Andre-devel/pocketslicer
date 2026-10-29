@@ -7,14 +7,22 @@ para "printing", com virtual_sdcard.progress subindo 1% a cada 3 s até "complet
 define o print_stats.state inicial. No emulador, o endereço do PC é
 10.0.2.2.
 
-Uso: scripts/fake-moonraker.py [--port 7125] [--api-key CHAVE] [--state standby] [pasta]
+--u1 TIPO:RRGGBB,,... simula a Snapmaker U1: o objeto print_task_config com o filamento de cada
+cabeça (vazio = sem filamento), GET /server/files/metadata e POST /printer/gcode/script, que
+registra o SDCARD_PRINT_FILE_WITH_PARAMETERS recebido e inicia como /printer/print/start.
+
+Uso: scripts/fake-moonraker.py [--port 7125] [--api-key CHAVE] [--state standby]
+     [--u1 PLA:FF0000,PETG:000000,,] [pasta]
 """
 import argparse
 import email.parser
 import email.policy
 import json
 import os
+import re
 import sys
+import urllib.parse
+import zipfile
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -24,6 +32,7 @@ def main():
     parser.add_argument("--port", type=int, default=7125)
     parser.add_argument("--api-key", help="exige o cabeçalho X-Api-Key com este valor")
     parser.add_argument("--state", default="standby", help="print_stats.state informado")
+    parser.add_argument("--u1", help="filamento de cada cabeça, TIPO:RRGGBB separados por vírgula")
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
@@ -36,8 +45,39 @@ def main():
             progress = min((time.time() - state["started"]) / 300, 1.0)
             if progress >= 1.0:
                 state["print_stats"], state["started"] = "complete", None
-        return {"print_stats": {"state": state["print_stats"], "filename": state["filename"]},
-                "virtual_sdcard": {"progress": progress}}
+        result = {"print_stats": {"state": state["print_stats"], "filename": state["filename"]},
+                  "virtual_sdcard": {"progress": progress}}
+        if args.u1 is not None:
+            heads = [h.split(":") if h else None for h in args.u1.split(",")]
+            result["print_task_config"] = {
+                "filament_exist": [h is not None for h in heads],
+                "filament_type": [h[0] if h else "NONE" for h in heads],
+                "filament_color_rgba": [(h[1] + "FF") if h else "FFFFFFFF" for h in heads],
+            }
+        return result
+
+    def metadata(filename):
+        """Parte dos metadados que o Moonraker da U1 tira do rodapé do G-code do Orca."""
+        path = os.path.join(args.folder, os.path.basename(filename))
+        if not os.path.exists(path):
+            return None
+        if zipfile.is_zipfile(path):  # .gcode.3mf
+            with zipfile.ZipFile(path) as z:
+                footer = z.read("Metadata/plate_1.gcode").decode(errors="replace")
+        else:
+            with open(path, "rb") as f:
+                f.seek(max(0, os.path.getsize(path) - 200_000))
+                footer = f.read().decode(errors="replace")
+        def floats(key):
+            m = re.search(rf"; {re.escape(key)} = (.*)\n", footer)
+            return [float(v) for v in re.findall(r"[-\d.]+", m.group(1))] if m else None
+        m = re.search(r"; filament_type = (.*)\n", footer)
+        return {"slicer": "OrcaSlicer", "slicer_version": "2.4.2", "filename": filename,
+                "filament_type": m.group(1) if m else None,
+                "filament_used_mm": floats("filament used [mm]"),
+                "filament_weight": floats("filament used [g]"),
+                "nozzle_diameter_list": floats("nozzle_diameter"),
+                "print_sequence": "by layer"}
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self, code, body):
@@ -60,6 +100,13 @@ def main():
             if self.path == "/server/info":
                 self.reply(200, {"result": {"klippy_connected": True, "klippy_state": "ready",
                                             "moonraker_version": "v0.9.3-fake"}})
+            elif self.path.startswith("/server/files/metadata?") and args.u1 is not None:
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                result = metadata(query.get("filename", [""])[0])
+                if result is None:
+                    self.reply(404, {"error": {"code": 404, "message": "Metadata not available"}})
+                else:
+                    self.reply(200, {"result": result})
             elif self.path.startswith("/printer/objects/query?"):
                 wanted = self.path.split("?", 1)[1].split("&")
                 self.reply(200, {"result": {"status": {k: v for k, v in status().items() if k in wanted}}})
@@ -73,6 +120,14 @@ def main():
                 request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
                 print(f"iniciar impressão de {request.get('filename')}", file=sys.stderr)
                 state.update(print_stats="printing", filename=request.get("filename", ""), started=time.time())
+                self.reply(200, {"result": "ok"})
+                return
+            if self.path == "/printer/gcode/script" and args.u1 is not None:
+                script = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))["script"]
+                print(f"script: {script}", file=sys.stderr)
+                m = re.match(r'SDCARD_PRINT_FILE_WITH_PARAMETERS FILENAME="((?:[^"\\]|\\.)*)"', script)
+                if m:
+                    state.update(print_stats="printing", filename=m.group(1), started=time.time())
                 self.reply(200, {"result": "ok"})
                 return
             if self.path != "/server/files/upload":

@@ -126,6 +126,7 @@ nova e pergunta se instala (Configurações → Atualizações); `versionCode` s
      camadas do Orca: pausa (machine_pause_gcode), troca de filamento (com todos os objetos num
      filamento só) e G-code personalizado, guardadas por placa no 3MF. O M600 do "Color change"
      não entra: no Orca 2.4 ele está desligado no gerador de G-code (BBS).
+   - Mapeamento de filamento para cabeça ao imprimir: feito na Snapmaker U1 (plano-envio.md).
    - Falta: mapear filamentos para os slots do AMS ao imprimir numa Bambu (o início de impressão
      pela LAN ainda não funciona, ver plano-envio.md); pintura com o dedo (adiada).
 5. Reativar OpenVDB (hollowing, reparo) e OCCT (STEP) se o tamanho do APK permitir.

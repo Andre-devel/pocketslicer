@@ -178,6 +178,13 @@
     </plurals>
     <string name="position">Posição</string>
     <string name="print_confirm_title_named">Iniciar impressão na %1$s?</string>
+    <string name="filament_mapping">Filamentos na impressora</string>
+    <string name="mapping_loading">Lendo os filamentos da impressora…</string>
+    <string name="mapping_failed">Não deu para ler os filamentos da impressora: %1$s</string>
+    <string name="mapping_slot_empty">Nenhum filamento detectado na %1$s.</string>
+    <string name="check_mapping">Cada filamento está na cabeça indicada</string>
+    <string name="toolhead_n">Cabeça %1$d</string>
+    <string name="slot_empty">vazia</string>
     <string name="print_heats_note">A impressora começa a aquecer assim que o arquivo chegar.</string>
     <string name="printer_from">Impressora · %1$s</string>
     <string name="printers">Impressoras</string>

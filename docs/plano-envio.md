@@ -22,7 +22,22 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
   opcional `path` (subpasta) e `print=false`. Resposta: `{"result":{"item":{"path":..,"root":..}}}`.
 - Sem autenticação por padrão; se houver, cabeçalho `X-Api-Key`.
 - Porta: 80 (nginx do Fluidd/Mainsail) costuma repassar; senão 7125. Testar `GET /server/info`.
-- Iniciar (futuro): `POST /printer/print/start` com `{"filename": "<path>"}`.
+- Iniciar: `POST /printer/print/start` com `{"filename": "<path>"}`.
+
+### Mapeamento de filamentos na U1 (2026-10-29)
+- O Klipper da Snapmaker (github.com/Snapmaker/u1-klipper, `extras/print_task_config.py`) guarda
+  um mapa filamento lógico (até 32) -> cabeça física (4). `T`, `M104` e `M109` do G-code passam por
+  ele, então o G-code não muda.
+- Filamento de cada cabeça: `GET /printer/objects/query?print_task_config` (`filament_exist`,
+  `filament_type`, `filament_color_rgba` em RRGGBBAA). Klipper sem esse objeto não mapeia.
+- Iniciar com o mapa: `POST /printer/gcode/script` com
+  `SDCARD_PRINT_FILE_WITH_PARAMETERS FILENAME="..." <metadados> MAP_TABLE="[[0,3],[1,1]]"`, o
+  mesmo comando que o Moonraker da U1 monta (`klippy_apis.start_print_advanced`, com os campos de
+  `_fill_metadata` tirados de `GET /server/files/metadata`, no formato `str()` do Python). Os
+  metadados dão `extruders_used` e as conferências de bico. O mapa volta ao padrão no fim da
+  impressão. `/printer/print/start` usa `SDCARD_PRINT_FILE`, sem mapa (mapa identidade).
+- No app: a confirmação de "Enviar e imprimir" lista os filamentos usados com a cabeça escolhida
+  pela cor mais próxima e avisa de cabeça sem filamento.
 
 ### Creality K2 (e K3)
 - Envio: `POST http://<ip>/upload/<nome url-encoded>`, multipart com `file`
@@ -118,8 +133,9 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
    fatiamento e avisa quando a escolhida foi cadastrada com outro. Testado com
    `scripts/fake-moonraker.py` (e `--state printing`); na impressora real, só com OK do usuário.
 6. Situação em 2026-10-29: Q2, U1, K2 e K3 enviam e imprimem; a A1 só envia (iniciar exige modo
-   somente LAN + desenvolvedor). Descoberta na rede feita (`PrinterScanner`). Futuro: status da
-   impressão.
+   somente LAN + desenvolvedor). Descoberta na rede feita (`PrinterScanner`). Status ao vivo feito.
+   Mapeamento de filamentos ao iniciar: U1 feito (acima); Bambu (`ams_mapping` no project_file)
+   e K2/K3 (CFS) faltam.
 
 ## Riscos
 - K3 sem perfil no Orca 2.4.2: o fatiamento para ela depende de perfil importado.

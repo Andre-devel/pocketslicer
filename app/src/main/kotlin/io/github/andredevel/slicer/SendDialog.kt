@@ -1,6 +1,9 @@
 package io.github.andredevel.slicer
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -8,9 +11,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -25,11 +30,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -39,11 +48,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.send.Kind
+import io.github.andredevel.slicer.send.PrinterHost
+import io.github.andredevel.slicer.send.SendException
+import io.github.andredevel.slicer.send.Slot
 import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.Banner
 import io.github.andredevel.slicer.ui.components.ButtonStyle
 import io.github.andredevel.slicer.ui.components.SectionLabel
+import io.github.andredevel.slicer.ui.components.SelectField
 import io.github.andredevel.slicer.ui.components.SelectableCard
 import io.github.andredevel.slicer.ui.components.Tag
 import io.github.andredevel.slicer.ui.components.Tone
@@ -74,9 +87,9 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
     // Imprimindo ou pausada: só dá para enviar.
     val selectedBusy = selected?.let { state.printerStatus[it.id] }?.busy == true
     if (confirmPrint && selected != null) {
-        ConfirmPrint(selected.name, state.presets[PresetKind.FILAMENT]?.selected, { confirmPrint = false }) {
+        ConfirmPrint(selected, state, viewModel, { confirmPrint = false }) { mapping ->
             confirmPrint = false
-            viewModel.sendGcode(selected, start = true)
+            viewModel.sendGcode(selected, start = true, mapping = mapping)
         }
         return
     }
@@ -177,30 +190,125 @@ private fun sendSubtitle(state: SlicerUiState, viewModel: SlicerViewModel, prese
     ).joinToString(" · ")
 }
 
-/** Confirmação de "Enviar e imprimir": só libera depois de conferir mesa e filamento. */
+/** Leitura de [SlicerViewModel.printerSlots] na confirmação. */
+private sealed interface SlotsLoad {
+    data object Loading : SlotsLoad
+    data class Loaded(val slots: List<Slot>) : SlotsLoad
+    data class Failed(val message: String) : SlotsLoad
+}
+
+/**
+ * Confirmação de "Enviar e imprimir": só libera depois de conferir mesa e filamento. Numa
+ * impressora que mapeia filamentos ([SlicerViewModel.printerSlots]), mostra a posição de cada
+ * filamento usado, já escolhida pela cor, e [onConfirm] recebe o mapeamento; senão, null.
+ */
 @Composable
-private fun ConfirmPrint(printer: String, filament: String?, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun ConfirmPrint(host: PrinterHost, state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit, onConfirm: (List<Int>?) -> Unit) {
     var bedClear by remember { mutableStateOf(false) }
     var filamentLoaded by remember { mutableStateOf(false) }
+    var attempt by remember { mutableIntStateOf(0) }
+    var load by remember { mutableStateOf<SlotsLoad>(SlotsLoad.Loading) }
+    val context = LocalContext.current
+    LaunchedEffect(host.id, attempt) {
+        load = SlotsLoad.Loading
+        load = try {
+            SlotsLoad.Loaded(viewModel.printerSlots(host))
+        } catch (e: SendException) {
+            SlotsLoad.Failed(context.getString(e.text, *e.args))
+        }
+    }
+    val colors = state.scene?.filamentColors.orEmpty()
+    // Filamentos com gasto no fatiamento; um G-code sem esse dado usa o primeiro.
+    val used = (state.slice as? SliceState.Done)?.stats?.filaments?.filter { it.meters > 0 || it.grams > 0 }?.map { it.index }
+        ?.takeIf { it.isNotEmpty() } ?: listOf(0)
+    val slots = (load as? SlotsLoad.Loaded)?.slots.orEmpty()
+    val mapping = remember(slots) {
+        mutableStateListOf<Int>().apply { if (slots.isNotEmpty()) addAll(defaultMapping(maxOf(state.filaments.size, used.max() + 1), used, colors, slots)) }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(painterResource(R.drawable.ic_play_circle), null) },
-        title = { Text(stringResource(R.string.print_confirm_title_named, printer)) },
+        title = { Text(stringResource(R.string.print_confirm_title_named, host.name)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                when (val l = load) {
+                    SlotsLoad.Loading -> Text(stringResource(R.string.mapping_loading), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    is SlotsLoad.Failed -> {
+                        Banner(Tone.ERROR, stringResource(R.string.mapping_failed, l.message), Modifier.fillMaxWidth())
+                        AppButton(stringResource(R.string.action_retry), { attempt++ }, style = ButtonStyle.TEXT)
+                    }
+                    is SlotsLoad.Loaded -> if (mapping.isNotEmpty()) {
+                        SectionLabel(stringResource(R.string.filament_mapping))
+                        for (filament in used) {
+                            MappingRow(filament, colors.getOrNull(filament), state.filaments.getOrNull(filament), l.slots, mapping[filament]) { mapping[filament] = it }
+                        }
+                        for (slot in used.map { mapping[it] }.distinct().filter { !l.slots[it].loaded }) {
+                            Banner(Tone.WARNING, stringResource(R.string.mapping_slot_empty, stringResource(R.string.toolhead_n, slot + 1)), Modifier.fillMaxWidth())
+                        }
+                    }
+                }
                 CheckRow(stringResource(R.string.check_bed_clear), bedClear) { bedClear = it }
+                val filament = state.presets[PresetKind.FILAMENT]?.selected
                 CheckRow(
-                    if (filament != null) stringResource(R.string.check_filament_named, filament) else stringResource(R.string.check_filament),
+                    when {
+                        mapping.isNotEmpty() -> stringResource(R.string.check_mapping)
+                        filament != null -> stringResource(R.string.check_filament_named, filament)
+                        else -> stringResource(R.string.check_filament)
+                    },
                     filamentLoaded,
                 ) { filamentLoaded = it }
                 Text(stringResource(R.string.print_heats_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm, enabled = bedClear && filamentLoaded) { Text(stringResource(R.string.print_start)) }
+            TextButton(
+                onClick = { onConfirm(mapping.toList().takeIf { it.isNotEmpty() }) },
+                enabled = bedClear && filamentLoaded && load is SlotsLoad.Loaded,
+            ) { Text(stringResource(R.string.print_start)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.back)) } },
     )
+}
+
+/** Filamento do projeto e a posição da impressora escolhida para ele. */
+@Composable
+private fun MappingRow(filament: Int, color: FloatArray?, name: String?, slots: List<Slot>, slot: Int, onSelect: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilamentLabel(filament, color, name, Modifier.weight(1f))
+        Box(
+            Modifier.size(12.dp)
+                .background(slots[slot].color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.outline, CircleShape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+        )
+        val labels = slots.mapIndexed { i, s ->
+            listOf(stringResource(R.string.toolhead_n, i + 1), if (s.loaded) s.type else stringResource(R.string.slot_empty)).filterNotNull().joinToString(" · ")
+        }
+        SelectField(slot.toString(), slots.indices.map { it.toString() }, { onSelect(it.toInt()) }, Modifier.weight(1f), labels = labels)
+    }
+}
+
+/**
+ * Posição de cada filamento do projeto (0 até [count]): cada um de [used] vai para a posição
+ * carregada de cor mais próxima ainda livre; os outros, e os que sobram sem posição carregada,
+ * para a de mesmo número.
+ */
+private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?>, slots: List<Slot>): List<Int> {
+    val taken = mutableSetOf<Int>()
+    return List(count) { i ->
+        val fallback = i % slots.size
+        if (i !in used) return@List fallback
+        val color = colors.getOrNull(i)
+        val best = slots.indices.filter { slots[it].loaded && it !in taken }.minByOrNull { colorDistance(color, slots[it].color) }
+        (best ?: fallback).also { taken += it }
+    }
+}
+
+/** Distância RGB ao quadrado; sem uma das cores, maior que qualquer distância real. */
+private fun colorDistance(rgba: FloatArray?, hex: String?): Float {
+    if (rgba == null || hex == null) return 4f
+    val v = hex.removePrefix("#").toInt(16)
+    val rgb = floatArrayOf(((v shr 16) and 0xff) / 255f, ((v shr 8) and 0xff) / 255f, (v and 0xff) / 255f)
+    return (0..2).sumOf { ((rgba[it] - rgb[it]) * (rgba[it] - rgb[it])).toDouble() }.toFloat()
 }
 
 @Composable

@@ -46,7 +46,10 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
         return Connection("Bambu FTPS", (System.nanoTime() - start) / 1_000_000)
     }
 
-    override suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit, starting: () -> Unit) {
+    override suspend fun upload(
+        host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit,
+        starting: () -> Unit, mapping: List<Int>?,
+    ) {
         val tray = if (start) idleTray(host) else null
         session(host) { control ->
             control.command("TYPE I", 200)
