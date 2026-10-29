@@ -132,6 +132,8 @@
     <string name="different_profile">Perfil diferente</string>
     <string name="empty_text">Abra um STL, OBJ ou projeto 3MF. Um G-code abre direto na visualização. Você também pode usar \"Abrir com\" em outros apps.</string>
     <string name="empty_title">Nenhum modelo na mesa</string>
+    <string name="empty_plate_title">A placa %1$d está vazia</string>
+    <string name="empty_plate_text">Adicione um modelo ou traga objetos de outra placa (toque longo no objeto).</string>
     <string name="estimated_time">Tempo estimado</string>
     <string name="file_menu">Arquivo</string>
     <string name="hide">Ocultar</string>
@@ -157,6 +159,16 @@
     <string name="open_file_types">STL OBJ 3MF G-code</string>
     <string name="outside_detail">Mova, reduza ou use Arranjar para poder fatiar.</string>
     <string name="plate_n">Placa %1$d</string>
+    <string name="plate">Placa</string>
+    <string name="plate_of">Placa %1$d de %2$d</string>
+    <string name="add_plate">Nova placa</string>
+    <string name="delete_plate">Excluir placa %1$d</string>
+    <string name="move_to_plate">Mover para a placa %1$d</string>
+    <string name="delete_objects">Excluir objetos</string>
+    <plurals name="delete_plate_objects">
+        <item quantity="one">A placa %1$d tem %2$d objeto. Mover para outra placa ou excluir junto com a placa?</item>
+        <item quantity="other">A placa %1$d tem %2$d objetos. Mover para outra placa ou excluir junto com a placa?</item>
+    </plurals>
     <string name="position">Posição</string>
     <string name="print_confirm_title_named">Iniciar impressão na %1$s?</string>
     <string name="print_heats_note">A impressora começa a aquecer assim que o arquivo chegar.</string>

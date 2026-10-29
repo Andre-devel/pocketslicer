@@ -59,7 +59,7 @@ int main(int argc, char **argv)
         const char *gcode = gcode_path.c_str();
         if (project) {
             std::printf("vendor: %s\n", engine.open_project(argv[3]).c_str());
-            std::printf("plates: %zu\n", engine.project_plates().size());
+            std::printf("plates: %zu\n", engine.plates().size());
             if (argc == 6)
                 engine.select_plate(std::strtoul(argv[5], nullptr, 10) - 1);
             for (const slicer::ObjectMesh &mesh : engine.objects())

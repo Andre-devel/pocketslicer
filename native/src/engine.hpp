@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -161,18 +162,27 @@ public:
     void add_model(const std::string &path);
     // Projeto 3MF do Orca/Bambu Studio: objetos nas posições salvas e perfis com as
     // alterações, como a GUI do Orca abre. Carrega o fabricante da impressora do projeto
-    // e devolve o nome dele. Um 3MF sem configuração abre como load_model(); de um projeto
-    // com várias placas, só os objetos da primeira que tiver algum.
+    // e devolve o nome dele. Um 3MF sem configuração abre como load_model(). As placas do
+    // projeto viram as placas da mesa; fica na mesa a primeira que tiver algum objeto.
     std::string open_project(const std::string &path);
-    // Quantos objetos tem cada placa do projeto aberto por open_project(); vazio se ele tem
-    // só uma ou se, depois dele, vieram load_model() ou add_model().
-    std::vector<size_t> project_plates() const;
-    // A placa (a partir de 0) cujos objetos estão na mesa, quando project_plates() não é vazio.
-    size_t project_plate() const;
-    // Troca os objetos da mesa pelos da placa (a partir de 0) do projeto, nas posições do
-    // arquivo; as alterações feitas nos da placa anterior se perdem. Lança se ela estiver vazia.
+
+    // Placas: sempre há ao menos uma, e os objetos da escolhida são os da mesa (objects(),
+    // arrange(), slice()...). load_model() volta a uma placa só; add_model() acrescenta à atual.
+    // Quantos objetos tem cada placa.
+    std::vector<size_t> plates() const;
+    // A placa (a partir de 0) cujos objetos estão na mesa.
+    size_t current_plate() const;
+    // Põe os objetos da placa na mesa; os da anterior ficam guardados nela.
     void select_plate(size_t plate);
-    // Grava os objetos, a configuração completa e a miniatura num 3MF que o Orca abre.
+    // Placa nova, vazia, no fim; devolve o índice dela.
+    size_t add_plate();
+    // Exclui a placa e os objetos dela, ou os passa para move_to (rearranjando-a). Se era a
+    // da mesa, a mesa passa a ser move_to ou a vizinha. Lança se for a única.
+    void delete_plate(size_t plate, std::optional<size_t> move_to);
+    // Passa o objeto da mesa para outra placa, rearranjando-a.
+    void move_to_plate(size_t object, size_t plate);
+    // Grava as placas com os objetos, a configuração completa e a miniatura (da placa da
+    // mesa) num 3MF que o Orca abre.
     void save_project(const std::string &path, const Thumbnail &thumbnail);
     // Se a impressora selecionada recebe o G-code dentro de um .gcode.3mf (Bambu, ou a
     // opção "use_3mf" do perfil) em vez do .gcode puro.

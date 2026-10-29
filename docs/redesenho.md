@@ -96,14 +96,11 @@ que faltar entra lá, sem depender do ViewModel.
     descartar o fatiamento; aviso com "Fatiar de novo" no resumo de Visualizar, Fatiar volta a ser
     a ação de Preparar, salvar e enviar desabilitados até fatiar de novo (decisão 3). Trocar de
     placa, abrir projeto ou um G-code aberto de arquivo ainda descartam.
-17. Placas (decisão 4), no motor e na interface:
-    - o motor mantém a lista de placas (PartPlateList do Orca) também para STL/OBJ e projetos
-      novos, com uma placa ao começar;
-    - criar placa vazia ("+" nas placas) e excluir placa (os objetos dela vão para outra ou são
-      excluídos, com confirmação);
-    - mover o objeto selecionado para outra placa (ação no painel e no menu do toque longo);
-    - Arranjar e Fatiar agem na placa escolhida;
-    - salvar o 3MF com as placas, conferindo que o OrcaSlicer 2.4.2 desktop abre igual;
-    - no celular, "Placa 1 de 3 ▾" como menu.
+17. (Feito) Placas (decisão 4): o motor guarda os objetos de cada placa (`Impl::plates`, a da
+    mesa em `model`) para qualquer projeto, começando com uma; criar ("+"), excluir (os objetos
+    vão para a vizinha ou são excluídos, com confirmação), mover objeto (toque longo e campo
+    "Placa" do objeto); Arranjar e Fatiar agem na placa da mesa; o 3MF salva todas na grade do
+    Orca (OrcaSlicer 2.4.2 desktop fatiou as 4 placas com os mesmos objetos); placa vazia tem
+    estado próprio; no celular, menu "Placa 1 de 3 ▾".
 18. (Feito) Reproduzir movimentos: botão ▶/⏸ na barra de movimentos que avança o slider até o
     fim da camada em 6 s (do fim, recomeça); trocar de camada para.

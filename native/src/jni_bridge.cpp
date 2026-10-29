@@ -254,10 +254,10 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeOpenProject(JNIEnv *e
 
 // Objetos por placa.
 JNIEXPORT jintArray JNICALL
-Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeProjectPlates(JNIEnv *env, jclass, jlong handle)
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePlates(JNIEnv *env, jclass, jlong handle)
 {
     return guarded(env, [&] {
-        const std::vector<size_t> plates = engine(handle)->project_plates();
+        const std::vector<size_t> plates = engine(handle)->plates();
         const std::vector<jint>   values(plates.begin(), plates.end());
         jintArray out = env->NewIntArray(jsize(values.size()));
         env->SetIntArrayRegion(out, 0, jsize(values.size()), values.data());
@@ -266,15 +266,36 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeProjectPlates(JNIEnv 
 }
 
 JNIEXPORT jint JNICALL
-Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeProjectPlate(JNIEnv *env, jclass, jlong handle)
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeCurrentPlate(JNIEnv *env, jclass, jlong handle)
 {
-    return guarded(env, [&] { return jint(engine(handle)->project_plate()); });
+    return guarded(env, [&] { return jint(engine(handle)->current_plate()); });
 }
 
 JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSelectPlate(JNIEnv *env, jclass, jlong handle, jint plate)
 {
     guarded(env, [&] { engine(handle)->select_plate(size_t(plate)); });
+}
+
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeAddPlate(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return jint(engine(handle)->add_plate()); });
+}
+
+// moveTo < 0: exclui os objetos da placa.
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeDeletePlate(JNIEnv *env, jclass, jlong handle, jint plate, jint move_to)
+{
+    guarded(env, [&] {
+        engine(handle)->delete_plate(size_t(plate), move_to < 0 ? std::nullopt : std::optional<size_t>(size_t(move_to)));
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeMoveToPlate(JNIEnv *env, jclass, jlong handle, jint object, jint plate)
+{
+    guarded(env, [&] { engine(handle)->move_to_plate(size_t(object), size_t(plate)); });
 }
 
 // Miniatura como em to_thumbnails(); sem imagens = sem miniatura.

@@ -406,6 +406,17 @@ private fun Viewport(
                             viewModel.remove(objectIndex)
                         },
                     )
+                    for (plate in state.plates.objects.indices) {
+                        if (plate == state.plates.selected) continue
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.move_to_plate, plate + 1)) },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_layers), null) },
+                            onClick = {
+                                menu = null
+                                viewModel.moveToPlate(objectIndex, plate)
+                            },
+                        )
+                    }
                 }
             }
         }

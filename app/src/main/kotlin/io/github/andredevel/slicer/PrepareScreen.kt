@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -29,6 +30,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import io.github.andredevel.slicer.core.Placement
+import io.github.andredevel.slicer.core.Plates
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.ui.components.AppButton
@@ -63,6 +66,7 @@ import io.github.andredevel.slicer.ui.components.ScreenHeader
 import io.github.andredevel.slicer.ui.components.StepRow
 import io.github.andredevel.slicer.ui.components.StepStatus
 import io.github.andredevel.slicer.ui.components.SectionLabel
+import io.github.andredevel.slicer.ui.components.SelectField
 import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.ToolButton
 import io.github.andredevel.slicer.ui.components.ToolColumn
@@ -80,8 +84,9 @@ private val SlicerUiState.editable get() = busy == null && slice !is SliceState.
 /** Barra superior de Preparar: nome do projeto, menu de arquivo e, na tela larga, Fatiar. */
 @Composable
 fun PrepareHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, compact: Boolean) {
-    val subtitle = state.plates?.let { pluralStringResource(R.plurals.plate_count, it.objects.size, it.objects.size) }
-        ?: if (state.objectCount == 0) stringResource(R.string.new_project)
+    val plateCount = state.plates.objects.size
+    val subtitle = if (plateCount > 1) pluralStringResource(R.plurals.plate_count, plateCount, plateCount)
+        else if (state.objectCount == 0) stringResource(R.string.new_project)
         else pluralStringResource(R.plurals.object_count, state.objectCount, state.objectCount)
     ScreenHeader(
         title = state.modelName ?: stringResource(R.string.untitled),
@@ -234,6 +239,15 @@ fun PrepareOverlay(
         val slice = state.slice
         when {
             slice is SliceState.Running -> SliceProgress(slice, state.plateNumber, Modifier.align(Alignment.Center))
+            // Placa vazia de um projeto com outras: acrescentar modelo ou trazer objetos de outra.
+            state.objectCount == 0 && state.busy == null && state.plates.objects.size > 1 -> EmptyState(
+                R.drawable.ic_deployed_code,
+                stringResource(R.string.empty_plate_title, state.plateNumber),
+                stringResource(R.string.empty_plate_text),
+                Modifier.align(Alignment.Center).padding(horizontal = 8.dp),
+            ) {
+                AppButton(stringResource(R.string.add_model), pickers.addModel, icon = R.drawable.ic_add_box)
+            }
             state.objectCount == 0 && state.busy == null -> EmptyState(
                 R.drawable.ic_deployed_code,
                 stringResource(R.string.empty_title),
@@ -261,14 +275,7 @@ private fun BoxScope.BottomControls(state: SlicerUiState, viewModel: SlicerViewM
     val bottom = if (compact) Modifier.align(Alignment.TopStart).padding(top = if (state.anyOutside) 110.dp else 0.dp)
     else Modifier.align(Alignment.BottomStart)
     Row(bottom.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (plates != null) {
-            PillTabs(
-                plates.objects.indices.map { if (compact) "${it + 1}" else stringResource(R.string.plate_n, it + 1) },
-                plates.selected,
-                viewModel::selectPlate,
-                enabled = { editable && plates.objects[it] > 0 },
-            )
-        }
+        if (state.objectCount > 0 || plates.objects.size > 1) PlateControls(plates, viewModel, editable, compact)
         Spacer(Modifier.weight(1f))
         if (state.objectCount > 0) {
             if (compact) viewPicker(Modifier)
@@ -285,6 +292,79 @@ private fun BoxScope.BottomControls(state: SlicerUiState, viewModel: SlicerViewM
                 icon = R.drawable.ic_auto_awesome_mosaic, enabled = editable, emphasized = true,
             )
         }
+    }
+}
+
+/**
+ * Placas: abas com "+" e excluir no tablet, menu "Placa 1 de 3" no celular. Excluir uma placa
+ * com objetos pergunta se eles vão para a vizinha ou são excluídos.
+ */
+@Composable
+private fun PlateControls(plates: Plates, viewModel: SlicerViewModel, enabled: Boolean, compact: Boolean) {
+    var deleting by remember { mutableStateOf<Int?>(null) }
+    val labels = plates.objects.indices.map { stringResource(R.string.plate_n, it + 1) }
+    val delete = { plate: Int -> if (plates.objects[plate] == 0) viewModel.deletePlate(plate, null) else deleting = plate }
+    if (compact) {
+        var open by remember { mutableStateOf(false) }
+        Box {
+            FloatingPill(
+                stringResource(R.string.plate_of, plates.selected + 1, plates.objects.size), { open = true },
+                icon = R.drawable.ic_arrow_drop_down, enabled = enabled,
+            )
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                labels.forEachIndexed { index, label ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = { open = false; viewModel.selectPlate(index) },
+                        trailingIcon = if (index == plates.selected) {
+                            { Icon(painterResource(R.drawable.ic_check), null) }
+                        } else null,
+                    )
+                }
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.add_plate)) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_add), null) },
+                    onClick = { open = false; viewModel.addPlate() },
+                )
+                if (plates.objects.size > 1) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.delete_plate, plates.selected + 1)) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_delete), null) },
+                        onClick = { open = false; delete(plates.selected) },
+                    )
+                }
+            }
+        }
+    } else {
+        PillTabs(labels, plates.selected, viewModel::selectPlate, enabled = { enabled }) {
+            AppIconButton(R.drawable.ic_add, stringResource(R.string.add_plate), viewModel::addPlate, enabled = enabled)
+            if (plates.objects.size > 1) {
+                AppIconButton(
+                    R.drawable.ic_delete, stringResource(R.string.delete_plate, plates.selected + 1), { delete(plates.selected) },
+                    enabled = enabled,
+                )
+            }
+        }
+    }
+    deleting?.let { plate ->
+        // A que fica na mesa no lugar dela.
+        val neighbor = if (plate > 0) plate - 1 else 1
+        val count = plates.objects[plate]
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text(stringResource(R.string.delete_plate, plate + 1)) },
+            text = { Text(pluralStringResource(R.plurals.delete_plate_objects, count, plate + 1, count)) },
+            confirmButton = {
+                TextButton(onClick = { deleting = null; viewModel.deletePlate(plate, neighbor) }) {
+                    Text(stringResource(R.string.move_to_plate, neighbor + 1))
+                }
+                TextButton(onClick = { deleting = null; viewModel.deletePlate(plate, null) }) {
+                    Text(stringResource(R.string.delete_objects), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } },
+        )
     }
 }
 
@@ -443,6 +523,14 @@ private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             for (filament in used) FilamentLabel(filament.toInt(), state.scene.filamentColors.getOrNull(filament.toInt()))
         }
+    }
+    if (state.plates.objects.size > 1) {
+        val plates = state.plates.objects.indices.map { it.toString() }
+        SelectField(
+            state.plates.selected.toString(), plates, { viewModel.moveToPlate(index, it.toInt()) },
+            Modifier.fillMaxWidth(), label = stringResource(R.string.plate),
+            labels = state.plates.objects.indices.map { stringResource(R.string.plate_n, it + 1) }, enabled = state.editable,
+        )
     }
     PlacementFields(index, placement, viewModel, state.editable)
 }

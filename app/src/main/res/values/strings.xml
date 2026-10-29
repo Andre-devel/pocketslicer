@@ -135,6 +135,8 @@
     <string name="different_profile">Different profile</string>
     <string name="empty_text">Open an STL, OBJ or 3MF project. A G-code file opens straight in the preview. You can also use \"Open with\" from other apps.</string>
     <string name="empty_title">No model on the bed</string>
+    <string name="empty_plate_title">Plate %1$d is empty</string>
+    <string name="empty_plate_text">Add a model, or move objects here from another plate (long press on the object).</string>
     <string name="estimated_time">Estimated time</string>
     <string name="file_menu">File</string>
     <string name="hide">Hide</string>
@@ -161,6 +163,16 @@
     <string name="open_file_types">STL OBJ 3MF G-code</string>
     <string name="outside_detail">Move it, scale it down or use Arrange to be able to slice.</string>
     <string name="plate_n">Plate %1$d</string>
+    <string name="plate">Plate</string>
+    <string name="plate_of">Plate %1$d of %2$d</string>
+    <string name="add_plate">New plate</string>
+    <string name="delete_plate">Delete plate %1$d</string>
+    <string name="move_to_plate">Move to plate %1$d</string>
+    <string name="delete_objects">Delete objects</string>
+    <plurals name="delete_plate_objects">
+        <item quantity="one">Plate %1$d has %2$d object. Move it to another plate or delete it with the plate?</item>
+        <item quantity="other">Plate %1$d has %2$d objects. Move them to another plate or delete them with the plate?</item>
+    </plurals>
     <string name="position">Position</string>
     <string name="print_confirm_title_named">Start printing on %1$s?</string>
     <string name="print_heats_note">The printer starts heating as soon as the file arrives.</string>

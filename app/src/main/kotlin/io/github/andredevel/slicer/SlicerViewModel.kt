@@ -13,7 +13,7 @@ import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
 import io.github.andredevel.slicer.core.PresetValues
 import io.github.andredevel.slicer.core.PresetKind
-import io.github.andredevel.slicer.core.ProjectPlates
+import io.github.andredevel.slicer.core.Plates
 import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.core.SlicerEngine
 import io.github.andredevel.slicer.core.SlicerException
@@ -138,8 +138,8 @@ data class SlicerUiState(
     /** Nome do primeiro modelo adicionado; dá nome ao G-code. */
     val modelName: String? = null,
     val scene: Scene? = null,
-    /** Placas do projeto 3MF aberto, quando ele tem mais de uma. */
-    val plates: ProjectPlates? = null,
+    /** Placas da mesa; Fatiar e Arranjar agem na escolhida. */
+    val plates: Plates = Plates(listOf(0), 0),
     val tool: Tool = Tool.MOVE,
     /** Viewport na pré-visualização do G-code (só com fatiamento concluído). */
     val showPreview: Boolean = false,
@@ -162,7 +162,7 @@ data class SlicerUiState(
     val gcodeReady get() = (slice as? SliceState.Done)?.let { it.stale == null } == true
     val previewVisible get() = showPreview && preview != null
     /** Placa que Fatiar usa, a partir de 1. */
-    val plateNumber get() = (plates?.selected ?: 0) + 1
+    val plateNumber get() = plates.selected + 1
     val selectedPlacement get() = scene?.selected?.let { scene.placements.getOrNull(it) }
     /** Há o que salvar: mesa sem objetos não conta como alteração. */
     val unsaved get() = dirty && objectCount > 0
@@ -438,10 +438,27 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** Nome sugerido para o projeto: o do modelo com a extensão trocada. */
     fun projectName(): String = (_state.value.modelName?.substringBeforeLast('.') ?: "model") + ".3mf"
 
-    /** Põe na mesa os objetos de outra placa do projeto, no lugar dos atuais. */
-    fun selectPlate(plate: Int) = editScene(modifies = false) { engine ->
+    /** Põe na mesa os objetos de outra placa, no lugar dos atuais (que ficam na deles). */
+    fun selectPlate(plate: Int) = editScene(modifies = false, samePlate = false) { engine ->
         engine.selectPlate(plate)
         engine.objects()
+    }
+
+    /** Placa nova e vazia, já na mesa. */
+    fun addPlate() = editScene(samePlate = false) { engine ->
+        engine.selectPlate(engine.addPlate())
+        engine.objects()
+    }
+
+    /** Exclui a placa com os objetos dela, ou os passa para [moveTo]. */
+    fun deletePlate(plate: Int, moveTo: Int?) = editScene(samePlate = false) { engine ->
+        engine.deletePlate(plate, moveTo)
+        engine.objects()
+    }
+
+    fun moveToPlate(objectIndex: Int, plate: Int) = editScene { engine ->
+        engine.moveToPlate(objectIndex, plate)
+        _state.value.scene?.meshes?.filterIndexed { i, _ -> i != objectIndex }
     }
 
     fun duplicate(objectIndex: Int) = editScene { engine ->
@@ -684,8 +701,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun refreshScene(engine: SlicerEngine, meshes: List<ObjectMesh>? = null) {
         val bed = engine.bed()
         val placements = engine.placements()
-        // Objetos novos podem ter vindo de outro arquivo, que encerra as placas do projeto.
-        val plates = if (meshes != null) engine.projectPlates() else _state.value.plates
+        val plates = engine.plates()
         val colors = engine.filamentColors().map(::rgba)
         _state.update { state ->
             val selected = state.scene?.selected?.takeIf { meshes == null && it < placements.size }
@@ -708,13 +724,17 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private fun optionLabel(kind: PresetKind, key: String) =
         _state.value.optionDefs[kind]?.firstOrNull { it.key == key }?.label ?: key
 
-    /** Altera a cena no motor; [edit] devolve as malhas novas, ou null se só posições mudaram. */
-    private fun editScene(modifies: Boolean = true, edit: suspend (SlicerEngine) -> List<ObjectMesh>?) = launchEngine(null) { engine ->
+    /**
+     * Altera a cena no motor; [edit] devolve as malhas novas, ou null se só posições mudaram.
+     * [modifies]: há o que salvar no projeto; ![samePlate]: outra placa na mesa, e o G-code,
+     * que era da anterior, é descartado.
+     */
+    private fun editScene(modifies: Boolean = true, samePlate: Boolean = true, edit: suspend (SlicerEngine) -> List<ObjectMesh>?) = launchEngine(null) { engine ->
         var meshes: List<ObjectMesh>? = null
         try {
             meshes = edit(engine)
-            // Outra placa: o G-code era de outra mesa.
-            if (modifies) markChanged(StaleReason(null)) else _state.update { it.copy(slice = SliceState.Idle) }
+            if (samePlate) markChanged(StaleReason(null))
+            else _state.update { it.copy(slice = SliceState.Idle, dirty = it.dirty || modifies) }
         } finally {
             // Também em caso de erro: descarta a pré-visualização do viewport.
             refreshScene(engine, meshes)

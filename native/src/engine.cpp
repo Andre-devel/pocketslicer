@@ -51,15 +51,10 @@ struct Engine::Impl {
     Model                         model;
     Print                         print;
     GCodeProcessorResult          result; // do último slice()
-    // Projeto aberto com várias placas: todos os objetos do arquivo e as placas, com a
-    // posição de cada uma e os pares (objeto, instância) dela em project.
-    struct Plate {
-        Vec2d                                 origin = Vec2d::Zero();
-        std::vector<std::pair<size_t, size_t>> instances;
-    };
-    Model              project;
-    std::vector<Plate> plates;
-    size_t             plate = 0; // a da mesa
+    // Objetos de cada placa, em coordenadas da mesa. A placa da mesa (plate) fica em model,
+    // e a entrada dela aqui, vazia, até outra ser escolhida. Sempre há ao menos uma.
+    std::vector<Model> plates = std::vector<Model>(1);
+    size_t             plate = 0;
 
     // Índice de um fabricante de vendors(): "<app>/<fabricante>" está em vendors_dir, e o
     // nome só, em profiles_dir. Os perfis ficam no diretório de mesmo nome, sem o .json.
@@ -113,29 +108,53 @@ struct Engine::Impl {
     // Plater::export_gcode_3mf(): sem as malhas, com o G-code e os dados do último slice().
     void store_3mf(const std::string &path, const Thumbnail &thumbnail, const std::string &gcode_path = {});
 
-    void forget_project()
+    // Volta a uma placa só, vazia, na mesa.
+    void reset_plates()
     {
-        project.clear_objects();
-        project.clear_materials();
-        plates.clear();
-    }
-
-    // Uma instância por objeto da placa, nas posições do arquivo em relação a ela.
-    void show_plate(size_t index)
-    {
-        const Plate &plate = plates[index];
-        this->plate = index;
         model.clear_objects();
         model.clear_materials();
-        for (const auto &[object, instance] : plate.instances) {
-            const ModelObject *source = project.objects[object];
-            ModelObject       *added = model.add_object(*source);
-            while (added->instances.size() > 1)
-                added->delete_instance(added->instances.size() - 1);
-            ModelInstance *placed = added->instances.front();
-            placed->set_transformation(source->instances[instance]->get_transformation());
-            placed->set_offset(placed->get_offset() - to_3d(plate.origin, 0.));
-        }
+        plates.assign(1, Model());
+        plate = 0;
+    }
+
+    Model &plate_model(size_t index)
+    {
+        if (index >= plates.size())
+            throw std::out_of_range("invalid plate");
+        return index == plate ? model : plates[index];
+    }
+
+    // Põe os objetos da placa na mesa, guardando os da atual.
+    void show_plate(size_t index)
+    {
+        if (index >= plates.size())
+            throw std::out_of_range("invalid plate");
+        if (index == plate)
+            return;
+        plates[plate] = std::move(model);
+        model = std::move(plates[index]);
+        plates[index] = Model();
+        plate = index;
+    }
+
+    // Origem da placa na grade de PartPlateList::compute_shape_position() do Orca: a
+    // primeira na origem, colunas para +x e linhas para -y, separadas por 1/5 da mesa.
+    Vec2d plate_origin(size_t index, size_t count) const
+    {
+        const Vec2d stride  = build_volume().bounding_volume2d().size() * (1. + 1. / 5.); // como em open_project()
+        const int   columns = plate_columns(count);
+        return Vec2d(double(index % columns) * stride.x(), -double(index / columns) * stride.y());
+    }
+
+    static int plate_columns(size_t count) { return std::max(1, int(std::ceil(std::sqrt(double(count)) - 1e-6))); }
+
+    // Acrescenta uma cópia do objeto (só a 1ª instância) a target.
+    static ModelObject *copy_object(Model &target, const ModelObject &source)
+    {
+        ModelObject *added = target.add_object(source);
+        while (added->instances.size() > 1)
+            added->delete_instance(added->instances.size() - 1);
+        return added;
     }
 
     const DynamicPrintConfig &printer() const { return bundle->printers.get_edited_preset().config; }
@@ -154,7 +173,9 @@ struct Engine::Impl {
 
     // Arranjo automático de todos os objetos (libnest2d). Sem objetos fixos: com eles,
     // o FirstFit do Orca, ao não achar lugar na 1ª tentativa, os descarta e sobrepõe.
-    void arrange_all()
+    void arrange_all() { arrange(model); }
+
+    void arrange(Model &model)
     {
         arrangement::ArrangePolygons items;
         for (ModelObject *object : model.objects) {
@@ -601,16 +622,13 @@ void Engine::load_model(const std::string &path)
 {
     // Lê antes de limpar: se o arquivo for inválido, a mesa continua como estava.
     Model model = read_model(path);
-    m->forget_project();
-    m->model.clear_objects();
-    m->model.clear_materials();
+    m->reset_plates();
     m->add(std::move(model));
 }
 
 void Engine::add_model(const std::string &path)
 {
     m->add(read_model(path));
-    m->forget_project();
 }
 
 std::string Engine::open_project(const std::string &path)
@@ -675,58 +693,89 @@ std::string Engine::open_project(const std::string &path)
         filament.is_visible = true;
 
     // O arquivo diz a placa de cada objeto pelo id do 3MF, que o carregamento não devolve;
-    // mas as placas ficam numa grade, como em PartPlateList::compute_shape_position():
-    // a primeira na origem, colunas para +x e linhas para -y, separadas por 1/5 da mesa.
-    // Cada instância vai para a placa mais próxima do seu centro.
+    // mas as placas ficam numa grade (Impl::plate_origin()). Cada instância vai para a placa
+    // mais próxima do seu centro, como objeto próprio, na posição relativa a ela.
     const BoundingBoxf bed     = m->build_volume().bounding_volume2d();
     const Vec2d        stride  = bed.size() * (1. + 1. / 5.);
-    const int          columns = int(std::ceil(std::sqrt(double(plate_count)) - 1e-6));
-    m->forget_project();
+    const int          columns = Impl::plate_columns(plate_count);
+    m->reset_plates();
     m->plates.resize(plate_count);
-    for (size_t i = 0; i < plate_count; ++i)
-        m->plates[i].origin = Vec2d(double(i % columns) * stride.x(), -double(i / columns) * stride.y());
     for (size_t i = 0; i < model.objects.size(); ++i)
         for (size_t j = 0; j < model.objects[i]->instances.size(); ++j) {
             const Vec2d offset = to_2d(model.objects[i]->instance_bounding_box(j).center()) - bed.center();
             const int   column = int(std::lround(offset.x() / stride.x()));
             const int   row    = int(std::lround(-offset.y() / stride.y()));
-            const long  plate  = long(row) * columns + column;
-            if (plate_count == 1)
-                m->plates[0].instances.emplace_back(i, j);
-            else if (column >= 0 && column < columns && row >= 0 && plate < long(plate_count))
-                m->plates[plate].instances.emplace_back(i, j);
+            const long  index  = plate_count == 1 ? 0 : long(row) * columns + column;
+            if (plate_count > 1 && !(column >= 0 && column < columns && row >= 0 && index < long(plate_count)))
+                continue;
+            ModelObject   *added  = Impl::copy_object(m->plates[index], *model.objects[i]);
+            ModelInstance *placed = added->instances.front();
+            placed->set_transformation(model.objects[i]->instances[j]->get_transformation());
+            placed->set_offset(placed->get_offset() - to_3d(m->plate_origin(size_t(index), plate_count), 0.));
         }
-    m->project = std::move(model);
     // A primeira placa com objetos.
-    const auto first = std::find_if(m->plates.begin(), m->plates.end(), [](const Impl::Plate &p) { return !p.instances.empty(); });
+    const auto first = std::find_if(m->plates.begin(), m->plates.end(), [](const Model &p) { return !p.objects.empty(); });
     if (first == m->plates.end())
         throw std::runtime_error(format(_u8L("No objects found in %1%."), fs::path(path).filename().string()));
-    m->show_plate(first - m->plates.begin());
-    if (m->plates.size() == 1)
-        m->forget_project();
+    m->model = std::move(*first);
+    *first = Model();
+    m->plate = size_t(first - m->plates.begin());
     return m->vendor;
 }
 
-std::vector<size_t> Engine::project_plates() const
+std::vector<size_t> Engine::plates() const
 {
     std::vector<size_t> objects;
-    for (const Impl::Plate &plate : m->plates)
-        objects.push_back(plate.instances.size());
+    for (size_t i = 0; i < m->plates.size(); ++i)
+        objects.push_back(i == m->plate ? m->model.objects.size() : m->plates[i].objects.size());
     return objects;
 }
 
-size_t Engine::project_plate() const
+size_t Engine::current_plate() const
 {
     return m->plate;
 }
 
 void Engine::select_plate(size_t plate)
 {
-    if (plate >= m->plates.size())
-        throw std::out_of_range("invalid plate");
-    if (m->plates[plate].instances.empty())
-        throw std::runtime_error(format(_u8L("Plate %1% is empty."), plate + 1));
     m->show_plate(plate);
+}
+
+size_t Engine::add_plate()
+{
+    m->plates.emplace_back();
+    return m->plates.size() - 1;
+}
+
+void Engine::delete_plate(size_t plate, std::optional<size_t> move_to)
+{
+    if (plate >= m->plates.size() || (move_to && (*move_to >= m->plates.size() || *move_to == plate)))
+        throw std::out_of_range("invalid plate");
+    if (m->plates.size() == 1)
+        throw std::runtime_error("the last plate cannot be deleted");
+    // Sai da mesa: vai para a placa que recebe os objetos, ou para a vizinha.
+    if (plate == m->plate)
+        m->show_plate(move_to.value_or(plate > 0 ? plate - 1 : 1));
+    if (move_to) {
+        Model &target = m->plate_model(*move_to);
+        for (const ModelObject *object : m->plates[plate].objects)
+            Impl::copy_object(target, *object);
+        m->arrange(target);
+    }
+    m->plates.erase(m->plates.begin() + plate);
+    if (m->plate > plate)
+        --m->plate;
+}
+
+void Engine::move_to_plate(size_t object, size_t plate)
+{
+    const ModelObject &source = m->object(object);
+    if (plate == m->plate)
+        return;
+    Model &target = m->plate_model(plate);
+    Impl::copy_object(target, source);
+    m->model.delete_object(object);
+    m->arrange(target);
 }
 
 void Engine::save_project(const std::string &path, const Thumbnail &thumbnail)
@@ -863,14 +912,26 @@ void Engine::Impl::store_3mf(const std::string &path, const Thumbnail &thumbnail
         image.set(thumbnail.width, thumbnail.height);
         image.pixels = thumbnail.rgba;
     }
-    // Uma placa com todos os objetos, como PartPlateList::store_to_3mf_structure().
-    PlateData plate;
-    plate.plate_index = 0;
-    for (size_t i = 0; i < model.objects.size(); ++i)
-        plate.objects_and_instances.emplace_back(int(i), 0);
-    plate.printer_model_id = bundle->printers.get_edited_preset().get_printer_type(bundle.get());
-    if (const ConfigOption *nozzle = config.option("nozzle_diameter"))
-        plate.nozzle_diameters = nozzle->serialize();
+    // Como PartPlateList::store_to_3mf_structure(): o projeto com as placas lado a lado na
+    // grade do Orca; o .gcode.3mf, só com a da mesa.
+    Model                                   all;
+    std::vector<std::unique_ptr<PlateData>> plates_data;
+    const size_t count = gcode_path.empty() ? plates.size() : 1;
+    for (size_t index = 0; index < count; ++index) {
+        const size_t source = gcode_path.empty() ? index : plate;
+        auto        &data   = plates_data.emplace_back(std::make_unique<PlateData>());
+        data->plate_index = int(index);
+        data->printer_model_id = bundle->printers.get_edited_preset().get_printer_type(bundle.get());
+        if (const ConfigOption *nozzle = config.option("nozzle_diameter"))
+            data->nozzle_diameters = nozzle->serialize();
+        const Vec3d origin = to_3d(gcode_path.empty() ? plate_origin(index, count) : Vec2d::Zero(), 0.);
+        for (const ModelObject *object : plate_model(source).objects) {
+            ModelInstance *placed = copy_object(all, *object)->instances.front();
+            placed->set_offset(placed->get_offset() + origin);
+            data->objects_and_instances.emplace_back(int(all.objects.size() - 1), 0);
+        }
+    }
+    PlateData &plate = *plates_data[gcode_path.empty() ? this->plate : 0];
 
     StoreParams  params;
     SaveStrategy strategy = SaveStrategy::Zip64;
@@ -912,11 +973,17 @@ void Engine::Impl::store_3mf(const std::string &path, const Thumbnail &thumbnail
     }
     const std::string absolute = fs::absolute(path).string();
     params.path = absolute.c_str();
-    params.model = &model;
-    params.plate_data_list = {&plate};
+    params.model = &all;
+    for (const auto &data : plates_data)
+        params.plate_data_list.push_back(data.get());
     params.config = &config;
-    if (image.is_valid())
-        params.thumbnail_data = {&image};
+    // Uma por placa, na ordem delas; só a da mesa tem imagem.
+    std::vector<ThumbnailData> images(plates_data.size());
+    if (image.is_valid()) {
+        images[size_t(plate.plate_index)] = image;
+        for (ThumbnailData &each : images)
+            params.thumbnail_data.push_back(&each);
+    }
     params.strategy = strategy;
     if (!store_bbs_3mf(params))
         throw std::runtime_error(format(_u8L("Could not write %1%."), fs::path(path).filename().string()));

@@ -78,7 +78,7 @@ private val COLOR_MODES = listOf(
 @Composable
 fun PreviewHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, compact: Boolean) {
     val printer = state.presets[PresetKind.PRINTER]?.selected
-    val plate = stringResource(R.string.plate_n, (state.plates?.selected ?: 0) + 1)
+    val plate = stringResource(R.string.plate_n, state.plateNumber)
     ScreenHeader(
         title = state.modelName ?: stringResource(R.string.untitled),
         subtitle = listOfNotNull(plate, (state.slice as? SliceState.Done)?.slicedAt?.let { slicedAgo(it) }, printer).joinToString(" · "),
@@ -327,7 +327,7 @@ private fun LayerLabel(layer: Int, z: Float, highlight: Boolean) {
 fun PreviewPanel(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, onSend: () -> Unit) {
     val stats = (state.slice as? SliceState.Done)?.stats ?: return
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionLabel(stringResource(R.string.summary_plate, (state.plates?.selected ?: 0) + 1))
+        SectionLabel(stringResource(R.string.summary_plate, state.plateNumber))
         Column {
             Text(stringResource(R.string.estimated_time), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(formatDuration(stats.printTimeSeconds), style = MonoStyles.display)
