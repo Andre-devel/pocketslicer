@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <regex>
 #include <set>
 
 #include <boost/filesystem.hpp>
@@ -36,6 +37,10 @@ namespace fs = boost::filesystem;
 using namespace Slic3r;
 
 namespace slicer {
+
+namespace {
+void copy_for_orca(const fs::path &src, const fs::path &dst);
+} // namespace
 
 struct Engine::Impl {
     fs::path                      profiles_dir;
@@ -265,7 +270,10 @@ void Engine::load_vendor(const std::string &vendor)
     // tratamento das Bambu), então os de vendors_dir entram sem o "<app>/".
     for (const fs::path &json : {m->profiles_dir / (std::string(PresetBundle::ORCA_FILAMENT_LIBRARY) + ".json"), index}) {
         fs::create_symlink(json, system_dir / json.filename());
-        fs::create_directory_symlink(json.parent_path() / json.stem(), system_dir / json.stem());
+        if (json.parent_path() == m->profiles_dir)
+            fs::create_directory_symlink(json.parent_path() / json.stem(), system_dir / json.stem());
+        else
+            copy_for_orca(json.parent_path() / json.stem(), system_dir / json.stem());
     }
 
     auto bundle = std::make_unique<PresetBundle>();
@@ -387,6 +395,54 @@ const char *type_name(ConfigOptionType type)
     case coPoint: return "point";
     case coPoint3: return "point";
     default: return "other";
+    }
+}
+
+// Copia os perfis de um fatiador do fabricante (Creality Print...) para dst, ajustando as
+// opções cujo valor o Orca não aceita: com uma só, PresetBundle descartaria o fabricante
+// inteiro ("Invalid value provided for parameter X"). O Creality Print grava "" onde o Orca
+// usa "nil" (sem valor) nas listas por extrusora; se trocar não basta, a opção sai e o perfil
+// fica com o valor do pai.
+void copy_for_orca(const fs::path &src, const fs::path &dst)
+{
+    static const std::regex invalid_option("Invalid value provided for parameter ([A-Za-z0-9_]+)");
+    for (fs::recursive_directory_iterator it(src), end; it != end; ++it) {
+        const fs::path target = dst / fs::relative(it->path(), src);
+        if (fs::is_directory(it->path())) {
+            fs::create_directories(target);
+            continue;
+        }
+        fs::copy_file(it->path(), target);
+        if (target.extension() != ".json")
+            continue;
+        for (int dropped = 0; dropped < 100; ++dropped) {
+            DynamicPrintConfig                 config;
+            std::map<std::string, std::string> key_values;
+            std::string                        reason;
+            config.load_from_json(target.string(), ForwardCompatibilitySubstitutionRule::EnableSilent, key_values, reason);
+            std::smatch match;
+            if (reason.empty() || !std::regex_search(reason, match, invalid_option))
+                break;
+            boost::nowide::ifstream in(target.string());
+            nlohmann::json profile = nlohmann::json::parse(in, nullptr, false);
+            in.close();
+            const std::string key = match[1].str();
+            if (!profile.is_object() || !profile.contains(key))
+                break;
+            nlohmann::json &value = profile[key];
+            bool nil = false;
+            if (value.is_array())
+                for (nlohmann::json &item : value)
+                    if (item == "") {
+                        item = "nil";
+                        nil = true;
+                    }
+            if (!nil)
+                profile.erase(key);
+            BOOST_LOG_TRIVIAL(warning) << "vendor profile " << it->path() << ": " << (nil ? "nil in " : "dropped ") << key;
+            boost::nowide::ofstream out(target.string());
+            out << profile.dump(4);
+        }
     }
 }
 
