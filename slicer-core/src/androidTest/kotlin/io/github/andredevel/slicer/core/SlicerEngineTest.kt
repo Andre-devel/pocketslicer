@@ -31,10 +31,13 @@ class SlicerEngineTest {
 
     @After
     fun tearDown() {
-        // O idioma vale para o processo todo.
-        runBlocking { engine.setLanguage("en") }
-        engine.close()
-        work.deleteWithoutFollowingLinks()
+        // Se setUp falhou, o erro dele é o que importa: sem isto, o do engine não inicializado o esconde.
+        if (::engine.isInitialized) {
+            // O idioma vale para o processo todo.
+            runBlocking { engine.setLanguage("en") }
+            engine.close()
+        }
+        if (::work.isInitialized) work.deleteWithoutFollowingLinks()
     }
 
     @Test
