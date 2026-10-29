@@ -1,0 +1,50 @@
+{
+    "bottom_surface_pattern": "monotonicline",
+    "brim_type": "outer_only",
+    "default_acceleration": [
+        "3000"
+    ],
+    "enable_support": "1",
+    "from": "User",
+    "inherits": "0.12mm High Quality @BBL A1",
+    "initial_layer_infill_speed": [
+        "20"
+    ],
+    "initial_layer_speed": [
+        "20"
+    ],
+    "inner_wall_speed": [
+        "100"
+    ],
+    "name": "save - 0.16",
+    "outer_wall_acceleration": [
+        "1500"
+    ],
+    "print_extruder_id": [
+        "1"
+    ],
+    "print_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "print_settings_id": "save - 0.16",
+    "skirt_loops": "3",
+    "smooth_coefficient": "1",
+    "sparse_infill_speed": [
+        "150"
+    ],
+    "support_critical_regions_only": "1",
+    "support_interface_spacing": "0",
+    "support_interface_top_layers": "4",
+    "support_object_xy_distance": "0.5",
+    "support_threshold_angle": "40",
+    "top_shell_layers": "6",
+    "top_surface_acceleration": [
+        "1500"
+    ],
+    "top_surface_pattern": "monotonic",
+    "tree_support_branch_diameter": "3",
+    "version": "2.4.0.7",
+    "wall_generator": "arachne",
+    "wall_loops": "3",
+    "z_direction_outwall_speed_continuous": "1"
+}

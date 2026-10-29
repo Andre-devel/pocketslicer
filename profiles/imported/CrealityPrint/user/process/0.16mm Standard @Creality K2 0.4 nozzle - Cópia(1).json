@@ -1,0 +1,25 @@
+{
+    "base_id": "GP004",
+    "enable_support": "1",
+    "from": "User",
+    "gap_infill_speed": [
+        "100"
+    ],
+    "inherits": "0.16mm Standard @Creality K2 0.4 nozzle",
+    "inner_wall_speed": [
+        "50"
+    ],
+    "internal_solid_infill_speed": [
+        "100"
+    ],
+    "name": "0.16mm Standard @Creality K2 0.4 nozzle - Cópia(1)",
+    "print_settings_id": "0.16mm Standard @Creality K2 0.4 nozzle - Cópia(1)",
+    "sparse_infill_speed": [
+        "100"
+    ],
+    "support_speed": [
+        "100"
+    ],
+    "support_type": "tree(auto)",
+    "version": "26.8.4.20"
+}

@@ -1,0 +1,10 @@
+{
+    "base_id": "91520",
+    "from": "User",
+    "inherits": "Creality K2 0.4 nozzle",
+    "is_custom_defined": "0",
+    "name": "Creality K2 0.4 nozzle - Cópia(1)",
+    "printer_select_mac": "FCEE280D5D3B",
+    "printer_settings_id": "Creality K2 0.4 nozzle - Cópia(1)",
+    "version": "26.4.28.19"
+}

@@ -1,0 +1,16 @@
+{
+    "brim_type": "outer_and_inner",
+    "brim_width": "10",
+    "from": "User",
+    "inherits": "0.20mm Standard @BBL A1",
+    "name": "gc",
+    "print_extruder_id": [
+        "1"
+    ],
+    "print_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "print_settings_id": "gc",
+    "version": "2.5.0.14",
+    "wall_generator": "arachne"
+}

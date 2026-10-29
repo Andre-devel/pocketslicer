@@ -1,0 +1,15 @@
+{
+    "from": "User",
+    "inherits": "0.12mm High Quality @BBL A1",
+    "name": "CHAVEIRO",
+    "prime_tower_infill_gap": "100%",
+    "prime_tower_rib_wall": "0",
+    "print_extruder_id": [
+        "1"
+    ],
+    "print_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "print_settings_id": "CHAVEIRO",
+    "version": "2.3.0.5"
+}

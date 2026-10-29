@@ -1,0 +1,12 @@
+{
+    "filament_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "filament_settings_id": [
+        "VOOLT3D PETG TRANSLUCIDO"
+    ],
+    "from": "User",
+    "inherits": "VOOLT3D PETG TRANSLUCIDO @Bambu Lab A1 0.4 nozzle",
+    "name": "VOOLT3D PETG TRANSLUCIDO",
+    "version": "2.3.0.5"
+}

@@ -1,0 +1,10 @@
+{
+    "type": "filament",
+    "setting_id": "QFSG90_06",
+    "name": "Generic PETG @Qidi Q2 0.4 nozzle",
+    "from": "system",
+    "instantiation": "true",
+    "inherits": "Generic PETG@Q2-Series",
+    "pressure_advance": ["0.056"],
+	"compatible_printers": ["Q2 0.4 nozzle"]
+}

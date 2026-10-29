@@ -1,0 +1,12 @@
+{
+    "filament_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "filament_settings_id": [
+        "Amarelo nova marca"
+    ],
+    "from": "User",
+    "inherits": "Generic PLA High Speed @BBL A1",
+    "name": "Amarelo nova marca",
+    "version": "2.4.0.9"
+}

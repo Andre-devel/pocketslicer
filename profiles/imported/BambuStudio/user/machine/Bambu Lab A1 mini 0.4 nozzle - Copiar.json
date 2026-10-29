@@ -1,0 +1,16 @@
+{
+    "from": "User",
+    "inherits": "Bambu Lab A1 mini 0.4 nozzle",
+    "min_layer_height": [
+        "0.12"
+    ],
+    "name": "Bambu Lab A1 mini 0.4 nozzle - Copiar",
+    "printer_extruder_id": [
+        "1"
+    ],
+    "printer_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "printer_settings_id": "Bambu Lab A1 mini 0.4 nozzle - Copiar",
+    "version": "2.6.0.5"
+}

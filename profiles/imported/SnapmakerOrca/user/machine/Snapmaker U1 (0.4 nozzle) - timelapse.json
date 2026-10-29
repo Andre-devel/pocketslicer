@@ -1,0 +1,13 @@
+{
+    "from": "User",
+    "inherits": "Snapmaker U1 (0.4 nozzle)",
+    "is_custom_defined": "0",
+    "layer_change_gcode": ";AFTER_LAYER_CHANGE\n;[layer_z]\nSET_PRINT_STATS_INFO TOTAL_LAYER={total_layer_count} CURRENT_LAYER={layer_num+1}\nG91                     ; relative positioning\nG1 Z0.6 F1200           ; small Z-hop\nG90                     ; back to absolute positioning\nG1 X250 Y265 F18000     ; move diagonally first\nG1 X265 Y265 F18000     ; then move along X to final parking position\nG4 P100                 ; short 0.1s pause\nG1 X255 Y265 F18000     ; move 10mm left after shutter press\nG4 P2000                ; 2-second pause for phone to take picture",
+    "name": "Snapmaker U1 (0.4 nozzle) - timelapse",
+    "printer_flow_support": [
+        "standard",
+        "high_flow"
+    ],
+    "printer_settings_id": "Snapmaker U1 (0.4 nozzle) - timelapse",
+    "version": "2.3.3.3"
+}

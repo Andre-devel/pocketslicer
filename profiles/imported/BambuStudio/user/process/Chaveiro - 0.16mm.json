@@ -1,0 +1,29 @@
+{
+    "brim_type": "no_brim",
+    "from": "User",
+    "infill_wall_overlap": "25%",
+    "inherits": "0.16mm High Quality @BBL A1",
+    "initial_layer_infill_speed": [
+        "90"
+    ],
+    "initial_layer_speed": [
+        "40"
+    ],
+    "ironing_type": "top",
+    "name": "Chaveiro - 0.16mm",
+    "prime_tower_infill_gap": "100%",
+    "prime_tower_rib_wall": "0",
+    "prime_tower_width": "55",
+    "print_extruder_id": [
+        "1"
+    ],
+    "print_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "print_settings_id": "Chaveiro - 0.16mm",
+    "seam_position": "back",
+    "sparse_infill_pattern": "alignedrectilinear",
+    "support_type": "normal(auto)",
+    "version": "2.4.0.10",
+    "wall_generator": "arachne"
+}

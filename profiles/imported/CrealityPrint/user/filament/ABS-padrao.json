@@ -1,0 +1,14 @@
+{
+    "base_id": "GFSA04",
+    "filament_settings_id": [
+        "ABS-padrao"
+    ],
+    "filament_start_gcode": [
+        ""
+    ],
+    "from": "User",
+    "inherits": "Generic ABS @Creality K2 0.4 nozzle",
+    "is_custom_defined": "0",
+    "name": "ABS-padrao",
+    "version": "26.4.28.19"
+}

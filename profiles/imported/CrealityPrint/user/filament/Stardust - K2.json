@@ -1,0 +1,26 @@
+{
+    "base_id": "GFSA04",
+    "customized_plate_temp": [
+        "35"
+    ],
+    "customized_plate_temp_initial_layer": [
+        "35"
+    ],
+    "fan_max_speed": [
+        "80"
+    ],
+    "fan_min_speed": [
+        "80"
+    ],
+    "filament_density": [
+        "1.27"
+    ],
+    "filament_settings_id": [
+        "Stardust - K2"
+    ],
+    "from": "User",
+    "inherits": "Hyper Stardust @Creality K2 0.4 nozzle",
+    "is_custom_defined": "0",
+    "name": "Stardust - K2",
+    "version": "26.9.29.8"
+}

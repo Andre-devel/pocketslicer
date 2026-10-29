@@ -1,0 +1,17 @@
+{
+    "base_id": "GFSA04",
+    "filament_flow_ratio": [
+        "0.98"
+    ],
+    "filament_settings_id": [
+        "abs"
+    ],
+    "filament_z_hop": [
+        "0.4"
+    ],
+    "from": "User",
+    "inherits": "Generic ABS @Creality K2 0.4 nozzle",
+    "is_custom_defined": "0",
+    "name": "abs",
+    "version": "26.4.28.19"
+}

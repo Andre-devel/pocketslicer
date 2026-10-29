@@ -1,0 +1,35 @@
+{
+    "enable_support": "1",
+    "from": "User",
+    "inherits": "0.20mm Standard @BBL A1",
+    "initial_layer_line_width": "0.4",
+    "inner_wall_line_width": "0.4",
+    "inner_wall_speed": [
+        "150"
+    ],
+    "internal_solid_infill_line_width": "0.4",
+    "layer_height": "0.12",
+    "line_width": "0.4",
+    "name": "MINIATURA 3D IA",
+    "outer_wall_line_width": "0.4",
+    "outer_wall_speed": [
+        "100"
+    ],
+    "print_extruder_id": [
+        "1"
+    ],
+    "print_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "print_settings_id": "MINIATURA 3D IA",
+    "seam_position": "back",
+    "skeleton_infill_line_width": "0.4",
+    "skin_infill_line_width": "0.4",
+    "sparse_infill_line_width": "0.4",
+    "support_interface_top_layers": "4",
+    "support_line_width": "0.4",
+    "support_threshold_angle": "20",
+    "support_top_z_distance": "0.15",
+    "top_surface_line_width": "0.4",
+    "version": "2.3.0.5"
+}
