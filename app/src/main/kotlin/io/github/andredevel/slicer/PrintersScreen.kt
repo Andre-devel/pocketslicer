@@ -45,6 +45,8 @@ import io.github.andredevel.slicer.send.FoundPrinter
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterScanner
+import io.github.andredevel.slicer.ui.components.StepRow
+import io.github.andredevel.slicer.ui.components.StepStatus
 import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.Banner
@@ -398,34 +400,23 @@ fun SendStatus(send: SendState) {
 @Composable
 private fun SendStepList(steps: SendSteps, progress: Float?) {
     val context = LocalContext.current
-    val scheme = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (step in steps.all) {
             val millis = steps.millis[step]
             val current = step == steps.current
-            Row(Modifier.heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-                    when {
-                        millis != null -> Icon(painterResource(R.drawable.ic_check_circle), null, tint = PocketTheme.colors.success)
-                        current -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        else -> Icon(painterResource(R.drawable.ic_radio_button_unchecked), null, tint = scheme.outline)
-                    }
-                }
-                Text(
-                    stringResource(SEND_STEP_LABELS.getValue(step)),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (millis == null && !current) scheme.onSurfaceVariant else scheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                val detail = when {
-                    millis != null && step == SendStep.UPLOAD -> "${Formatter.formatShortFileSize(context, steps.total)} · ${duration(millis)}"
-                    millis != null -> duration(millis)
-                    current && step == SendStep.UPLOAD ->
-                        "${Formatter.formatShortFileSize(context, steps.sent)} / ${Formatter.formatShortFileSize(context, steps.total)}"
-                    else -> null
-                }
-                if (detail != null) Text(detail, style = MonoStyles.small, color = scheme.onSurfaceVariant)
+            val detail = when {
+                millis != null && step == SendStep.UPLOAD -> "${Formatter.formatShortFileSize(context, steps.total)} · ${duration(millis)}"
+                millis != null -> duration(millis)
+                current && step == SendStep.UPLOAD ->
+                    "${Formatter.formatShortFileSize(context, steps.sent)} / ${Formatter.formatShortFileSize(context, steps.total)}"
+                else -> null
             }
+            val status = when {
+                millis != null -> StepStatus.DONE
+                current -> StepStatus.CURRENT
+                else -> StepStatus.PENDING
+            }
+            StepRow(stringResource(SEND_STEP_LABELS.getValue(step)), status, detail = detail)
             if (current && step == SendStep.UPLOAD && progress != null) {
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(start = 30.dp))
             }

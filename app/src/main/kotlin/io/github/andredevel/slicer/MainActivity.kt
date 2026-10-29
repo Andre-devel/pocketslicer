@@ -33,8 +33,12 @@ class MainActivity : ComponentActivity() {
         openFrom(intent)
     }
 
-    /** "Abrir com" e compartilhar de outro app (RF-01). */
+    /** "Abrir com" e compartilhar de outro app (RF-01); a notificação de fatiamento concluído. */
     private fun openFrom(intent: Intent) {
+        if (intent.action == SliceService.ACTION_SHOW_PREVIEW) {
+            viewModel.showPreview(true)
+            return
+        }
         val uri = when (intent.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)

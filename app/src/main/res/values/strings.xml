@@ -187,7 +187,16 @@
     <string name="slice_plate">Slice plate %1$d</string>
     <string name="slice_profile">Slicing profile</string>
     <string name="sliced_for">sliced for %1$s</string>
-    <string name="slicing">Slicing</string>
+    <string name="slicing_plate">Slicing plate %1$d</string>
+    <string name="slice_stage_prepare">Preparing profiles and meshes</string>
+    <string name="slice_stage_layers">Slicing layers</string>
+    <string name="slice_stage_walls">Generating walls and infill</string>
+    <string name="slice_stage_gcode">Supports and G-code</string>
+    <string name="slice_layer">layer %1$d</string>
+    <string name="slice_stage_layer">%1$s · layer %2$d</string>
+    <string name="slice_background_note">You can leave the app; slicing continues in the background.</string>
+    <string name="slice_channel">Slicing</string>
+    <string name="slice_done_title">Plate %1$d sliced</string>
     <string name="summary_plate">Summary · plate %1$d</string>
     <string name="system_preset_locked">System presets cannot be deleted</string>
     <string name="time">Time</string>

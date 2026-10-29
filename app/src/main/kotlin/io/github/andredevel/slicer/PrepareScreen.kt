@@ -1,5 +1,10 @@
 package io.github.andredevel.slicer
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -33,11 +38,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import io.github.andredevel.slicer.core.Placement
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.render.Tool
@@ -53,6 +60,8 @@ import io.github.andredevel.slicer.ui.components.InfoCard
 import io.github.andredevel.slicer.ui.components.NavigationRow
 import io.github.andredevel.slicer.ui.components.PillTabs
 import io.github.andredevel.slicer.ui.components.ScreenHeader
+import io.github.andredevel.slicer.ui.components.StepRow
+import io.github.andredevel.slicer.ui.components.StepStatus
 import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.ToolButton
@@ -67,9 +76,6 @@ private val TOOLS = listOf(
 )
 
 private val SlicerUiState.editable get() = busy == null && slice !is SliceState.Running
-
-/** Número da placa na mesa, a partir de 1. */
-private val SlicerUiState.plateNumber get() = (plates?.selected ?: 0) + 1
 
 /** Barra superior de Preparar: nome do projeto, menu de arquivo e, na tela larga, Fatiar. */
 @Composable
@@ -144,11 +150,29 @@ private fun FileMenu(state: SlicerUiState, pickers: FilePickers, openRecent: (Re
 }
 
 /**
+ * Pede a permissão de notificações (Android 13+) para o andamento do fatiamento em segundo plano;
+ * sem ela o fatiamento continua, só sem notificação.
+ */
+@Composable
+private fun rememberNotificationPermission(): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    return {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+}
+
+/**
  * Ação principal de Preparar conforme o fatiamento: Fatiar, Cancelar durante ou, com o G-code
  * pronto, ir para a visualização.
  */
 @Composable
 fun SliceButton(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier = Modifier) {
+    val requestNotifications = rememberNotificationPermission()
     when (state.slice) {
         is SliceState.Running -> AppButton(
             stringResource(R.string.cancel), viewModel::cancelSlice, modifier,
@@ -159,7 +183,7 @@ fun SliceButton(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modi
             style = ButtonStyle.TONAL, icon = R.drawable.ic_layers,
         )
         SliceState.Idle -> AppButton(
-            stringResource(R.string.slice_plate, state.plateNumber), viewModel::slice, modifier,
+            stringResource(R.string.slice_plate, state.plateNumber), { requestNotifications(); viewModel.slice() }, modifier,
             icon = R.drawable.ic_bolt, enabled = state.canSlice,
         )
     }
@@ -207,7 +231,7 @@ fun PrepareOverlay(
         }
         val slice = state.slice
         when {
-            slice is SliceState.Running -> SliceProgress(slice, Modifier.align(Alignment.Center))
+            slice is SliceState.Running -> SliceProgress(slice, state.plateNumber, Modifier.align(Alignment.Center))
             state.objectCount == 0 && state.busy == null -> EmptyState(
                 R.drawable.ic_deployed_code,
                 stringResource(R.string.empty_title),
@@ -269,19 +293,28 @@ private fun ToolButtons(state: SlicerUiState, viewModel: SlicerViewModel, modifi
     }
 }
 
-/** Cartão de progresso do fatiamento, sobre o viewport. */
+/** Cartão de progresso do fatiamento, sobre o viewport: porcentagem e etapas. */
 @Composable
-private fun SliceProgress(slice: SliceState.Running, modifier: Modifier) {
+private fun SliceProgress(slice: SliceState.Running, plate: Int, modifier: Modifier) {
     FloatingCard(modifier.widthIn(max = 420.dp).fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.slicing), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.slicing_plate, plate), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 Text("${slice.percent}%", style = MonoStyles.title, color = MaterialTheme.colorScheme.primary)
             }
             LinearProgressIndicator(progress = { slice.percent / 100f }, modifier = Modifier.fillMaxWidth())
-            if (slice.text.isNotEmpty()) {
-                Text(slice.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column {
+                for (stage in SliceStage.entries) {
+                    val status = when {
+                        stage < slice.stage -> StepStatus.DONE
+                        stage == slice.stage -> StepStatus.CURRENT
+                        else -> StepStatus.PENDING
+                    }
+                    val layer = slice.layer?.takeIf { stage == slice.stage }?.let { stringResource(R.string.slice_layer, it) }
+                    StepRow(stringResource(stage.label), status, detail = layer)
+                }
             }
+            Text(stringResource(R.string.slice_background_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

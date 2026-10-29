@@ -91,13 +91,26 @@ data class SendSteps(
 
 sealed interface SliceState {
     data object Idle : SliceState
-    data class Running(val percent: Int, val text: String) : SliceState
+    /** [layer]: camada em que o motor está, quando ele informa (na geração do G-code). */
+    data class Running(val percent: Int, val stage: SliceStage, val layer: Int? = null) : SliceState
     /**
      * [preview]: caminhos do G-code gerado; deixa de valer com a próxima mudança de cena ou perfil.
      * [gcode3mf]: a impressora recebe o G-code num .gcode.3mf (só no fatiamento pelo app).
      * [slicedAt]: fim do fatiamento (System.currentTimeMillis); null num G-code aberto.
      */
     data class Done(val stats: SliceStats, val preview: Preview, val gcode3mf: Boolean = false, val slicedAt: Long? = null) : SliceState
+}
+
+/** Etapas do fatiamento, pelas faixas de progresso do Print do Orca (Print::process). */
+enum class SliceStage(@StringRes val label: Int, private val fromPercent: Int) {
+    PREPARE(R.string.slice_stage_prepare, 0),
+    LAYERS(R.string.slice_stage_layers, 5), // "Slicing mesh"
+    WALLS(R.string.slice_stage_walls, 15), // "Generating walls", infill
+    GCODE(R.string.slice_stage_gcode, 50); // suportes, saia, "Generating G-code: layer N"
+
+    companion object {
+        fun of(percent: Int) = entries.last { percent >= it.fromPercent }
+    }
 }
 
 data class SlicerUiState(
@@ -136,6 +149,8 @@ data class SlicerUiState(
     val canSlice get() = busy == null && objectCount > 0 && !anyOutside && slice !is SliceState.Running
     val preview get() = (slice as? SliceState.Done)?.preview
     val previewVisible get() = showPreview && preview != null
+    /** Placa que Fatiar usa, a partir de 1. */
+    val plateNumber get() = (plates?.selected ?: 0) + 1
     val selectedPlacement get() = scene?.selected?.let { scene.placements.getOrNull(it) }
     /** Há o que salvar: mesa sem objetos não conta como alteração. */
     val unsaved get() = dirty && objectCount > 0
@@ -449,17 +464,30 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun slice() {
         sliceJob = launchEngine(null, retry = ::slice) { engine ->
-            _state.update { it.copy(slice = SliceState.Running(0, "")) }
+            val plate = _state.value.plateNumber
+            val running = { slice: SliceState.Running ->
+                _state.update { it.copy(slice = slice) }
+                SliceService.progress.value = SliceService.Progress(plate, slice)
+            }
+            running(SliceState.Running(0, SliceStage.PREPARE))
+            SliceService.start(app)
             try {
                 val thumbnails = engine.gcodeThumbnailSizes().mapNotNull { (width, height) -> this.thumbnails?.invoke(width, height) }
                 val stats = engine.slice(gcodeFile, thumbnails) { percent, text ->
-                    _state.update { it.copy(slice = SliceState.Running(percent, text)) }
+                    // Avisos chegam com -1 (PrintBase::SlicingStatus); o andamento não muda.
+                    if (percent >= 0) {
+                        val stage = SliceStage.of(percent)
+                        val layer = if (stage == SliceStage.GCODE) LAST_NUMBER.find(text)?.value?.toIntOrNull() else null
+                        running(SliceState.Running(percent, stage, layer))
+                    }
                 }
                 val toolpaths = engine.toolpaths()
                 val preview = withContext(Dispatchers.Default) { Preview(toolpaths) }
                 val gcode3mf = engine.gcode3mf()
                 _state.update { it.copy(slice = SliceState.Done(stats, preview, gcode3mf, System.currentTimeMillis()), showPreview = true) }
+                SliceService.notifyDone(app, plate, stats)
             } finally {
+                SliceService.progress.value = null
                 _state.update { if (it.slice is SliceState.Running) it.copy(slice = SliceState.Idle) else it }
             }
         }
@@ -714,6 +742,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val BAMBU_VENDOR = "BBL"
         /** Lado da miniatura do projeto, como THUMBNAIL_SIZE_3MF do Orca. */
         const val PROJECT_THUMBNAIL_SIZE = 512
+        /** Número da camada em "Generating G-code: layer N", em qualquer idioma. */
+        val LAST_NUMBER = Regex("""\d+(?=\D*$)""")
 
         /** Catálogo de tradução do Orca para a localidade: os idiomas do app (res/values*). */
         fun engineLanguage(locale: Locale) = if (locale.language == "pt") "pt_BR" else "en"

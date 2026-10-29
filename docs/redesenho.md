@@ -80,10 +80,11 @@ que faltar entra lá, sem depender do ViewModel.
 13. (Feito) Valor do perfil e restaurar uma opção: valores do preset salvo (`PresetCollection` sem as
     edições) em `nativeSavedValuesJson`, e `nativeResetOption(kind, key)`; "Perfil: X" e ↺ em
     cada opção alterada, contagem de alterações por categoria.
-14. Etapas do fatiamento: agrupar o progresso do `Print` (posPerimeters, posInfill,
-    posSupportMaterial, gcode export) em 4 etapas com ✓; camada atual quando o motor informar.
-    Segundo plano (decisão 2): o fatiamento roda num serviço em primeiro plano com notificação de
-    progresso; ao terminar com o app fechado, a notificação abre Visualizar.
+14. (Feito) Etapas do fatiamento: `SliceStage` agrupa as faixas de porcentagem do `Print` do Orca
+    (5 malha, 15 paredes, 50 suportes, 80 G-code) em 4 etapas com ✓; a camada vem do texto
+    "Generating G-code: layer N". Segundo plano (decisão 2): `SliceService` (dataSync) mantém o
+    processo em primeiro plano com o andamento numa notificação; o fatiamento continua no
+    ViewModel. Ao terminar com o app fora da tela, a notificação "Placa N fatiada" abre Visualizar.
 
 ### Etapa 3 — comportamento novo
 
