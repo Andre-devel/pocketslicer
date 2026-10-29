@@ -160,6 +160,11 @@ class SlicerEngineTest {
         val values = engine.values(PresetKind.PROCESS)
         assertEquals("0.1", values.values["layer_height"])
         assertTrue("layer_height" in values.dirty)
+        // Valor do preset salvo, só das alteradas; restaurá-lo limpa a alteração.
+        assertEquals(mapOf("layer_height" to "0.2"), values.saved)
+        engine.setOption(PresetKind.PROCESS, "layer_height", values.saved.getValue("layer_height"))
+        assertTrue(engine.values(PresetKind.PROCESS).dirty.isEmpty())
+        engine.setOption(PresetKind.PROCESS, "layer_height", "0.1")
         assertTrue(runCatching { engine.setOption(PresetKind.PROCESS, "layer_height", "abc") }.exceptionOrNull() is SlicerException)
 
         // O valor editado vale no fatiamento: 1ª camada de 0.2 mm e as outras de 0.1 mm

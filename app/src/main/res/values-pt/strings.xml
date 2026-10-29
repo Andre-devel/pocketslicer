@@ -162,6 +162,10 @@
     <string name="printers">Impressoras</string>
     <string name="settings">Configurações</string>
     <string name="settings_short">Ajustes</string>
+    <string name="profile_value">Perfil: %1$s</string>
+    <string name="reset_option">Voltar ao valor do perfil</string>
+    <string name="yes">Sim</string>
+    <string name="no">Não</string>
     <string name="currency">Moeda</string>
     <string name="currency_from_language">Conforme o idioma (%1$s)</string>
     <string name="currency_hint">Os perfis de filamento guardam só o preço por kg (filament_cost), sem moeda. O custo no resumo do fatiamento aparece nesta moeda.</string>

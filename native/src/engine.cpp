@@ -1014,7 +1014,14 @@ std::string Engine::values_json(PresetKind kind) const
     for (const std::string &key : option_keys(kind))
         if (editable_def(key) != nullptr && config.has(key))
             values[key] = config.opt_serialize(key);
-    return nlohmann::json{{"values", values}, {"dirty", collection.current_dirty_options()}}.dump();
+    // Valor no preset salvo de cada opção alterada (para mostrar e restaurar).
+    const DynamicPrintConfig &saved_config = collection.get_selected_preset().config;
+    const std::vector<std::string> dirty = collection.current_dirty_options();
+    nlohmann::json saved = nlohmann::json::object();
+    for (const std::string &key : dirty)
+        if (saved_config.has(key))
+            saved[key] = saved_config.opt_serialize(key);
+    return nlohmann::json{{"values", values}, {"dirty", dirty}, {"saved", saved}}.dump();
 }
 
 void Engine::set_option(PresetKind kind, const std::string &key, const std::string &value)

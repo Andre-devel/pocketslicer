@@ -77,7 +77,7 @@ que faltar entra lá, sem depender do ViewModel.
     como destino novo na navegação ou no menu da marca.
 12. (Feito) Tempo por tipo de extrusão: `print_statistics.modes[0].roles_times` no `SliceStats`; a
     legenda passa a mostrar a fração do tempo (hoje é volume).
-13. Valor do perfil e restaurar uma opção: valores do preset salvo (`PresetCollection` sem as
+13. (Feito) Valor do perfil e restaurar uma opção: valores do preset salvo (`PresetCollection` sem as
     edições) em `nativeSavedValuesJson`, e `nativeResetOption(kind, key)`; "Perfil: X" e ↺ em
     cada opção alterada, contagem de alterações por categoria.
 14. Etapas do fatiamento: agrupar o progresso do `Print` (posPerimeters, posInfill,

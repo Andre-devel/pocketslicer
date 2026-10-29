@@ -104,8 +104,11 @@ data class OptionDef(
     val max: Double?,
 )
 
-/** Valores (serializados como no Orca) do preset em edição e as chaves alteradas desde o salvo. */
-data class PresetValues(val values: Map<String, String>, val dirty: Set<String>)
+/**
+ * Valores (serializados como no Orca) do preset em edição, as chaves alteradas desde o salvo e,
+ * para elas, o valor no preset salvo ([saved]; passar a [SlicerEngine.setOption] restaura).
+ */
+data class PresetValues(val values: Map<String, String>, val dirty: Set<String>, val saved: Map<String, String> = emptyMap())
 
 fun interface SliceProgressListener {
     fun onProgress(percent: Int, text: String)
@@ -156,6 +159,7 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
         PresetValues(
             values = values.keys().asSequence().associateWith(values::getString),
             dirty = json.getJSONArray("dirty").strings().toSet(),
+            saved = json.getJSONObject("saved").let { saved -> saved.keys().asSequence().associateWith(saved::getString) },
         )
     }
 

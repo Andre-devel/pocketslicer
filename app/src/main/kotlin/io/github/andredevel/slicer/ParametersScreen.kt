@@ -54,6 +54,7 @@ import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.ButtonStyle
 import io.github.andredevel.slicer.ui.components.ColumnDivider
 import io.github.andredevel.slicer.ui.components.CommitField
+import io.github.andredevel.slicer.ui.components.CountBadge
 import io.github.andredevel.slicer.ui.components.FormField
 import io.github.andredevel.slicer.ui.components.InfoCard
 import io.github.andredevel.slicer.ui.components.ScreenHeader
@@ -174,7 +175,11 @@ fun ParametersScreen(
                             SectionLabel(category.name, Modifier.padding(top = 12.dp))
                         }
                         items(category.defs, key = { "option-${filter.kind}-${it.key}" }) { def ->
-                            OptionRow(def, choice.values.values[def.key], def.key in choice.values.dirty, filter.advanced, enabled) {
+                            val saved = choice.values.saved[def.key]?.takeIf { def.key in choice.values.dirty }
+                            OptionRow(
+                                def, choice.values.values[def.key], saved, filter.advanced, enabled,
+                                onReset = { saved?.let { viewModel.setOption(filter.kind, def.key, it) } },
+                            ) {
                                 viewModel.setOption(filter.kind, def.key, it)
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -301,7 +306,7 @@ private fun ParametersHeader(choice: PresetChoice, viewModel: SlicerViewModel, k
     }
 }
 
-/** Categorias com a quantidade de opções e um ponto quando há alteração; tocar rola até ela. */
+/** Categorias com a quantidade de opções e quantas foram alteradas; tocar rola até ela. */
 @Composable
 private fun CategoryList(categories: List<Category>, choice: PresetChoice, query: String, total: Int, modifier: Modifier, onSelect: (Int) -> Unit) {
     Column(modifier.verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -315,7 +320,8 @@ private fun CategoryList(categories: List<Category>, choice: PresetChoice, query
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(category.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                if (category.defs.any { it.key in choice.values.dirty }) DirtyDot()
+                val changed = category.defs.count { it.key in choice.values.dirty }
+                if (changed > 0) CountBadge(changed)
                 Text("${category.defs.size}", style = MonoStyles.small, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -335,10 +341,20 @@ private fun DirtyDot() = Box(Modifier.size(7.dp).background(MaterialTheme.colorS
 
 /**
  * Uma opção: rótulo (tocar mostra a dica), chave do Orca no modo avançado e o editor conforme
- * o tipo; [onCommit] recebe o valor no formato do Orca.
+ * o tipo; [onCommit] recebe o valor no formato do Orca. [saved]: valor no preset salvo quando a
+ * opção foi alterada, mostrado com ↺ ([onReset]) para voltar a ele.
  */
 @Composable
-private fun OptionRow(def: OptionDef, value: String?, dirty: Boolean, advanced: Boolean, enabled: Boolean, onCommit: (String) -> Unit) {
+private fun OptionRow(
+    def: OptionDef,
+    value: String?,
+    saved: String?,
+    advanced: Boolean,
+    enabled: Boolean,
+    onReset: () -> Unit,
+    onCommit: (String) -> Unit,
+) {
+    val dirty = saved != null
     var showTooltip by remember { mutableStateOf(false) }
     // Vetores com mais de um valor (vários extrusores) são editados como texto.
     val single = value != null && !(def.vector && ',' in value)
@@ -350,20 +366,36 @@ private fun OptionRow(def: OptionDef, value: String?, dirty: Boolean, advanced: 
                 Text(def.label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = MaterialTheme.typography.labelLarge.fontWeight))
             }
             if (advanced) Text(def.key, style = MonoStyles.small, color = MaterialTheme.colorScheme.outline)
+            if (saved != null) {
+                Text(
+                    stringResource(R.string.profile_value, displayValue(def, saved)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (showTooltip) {
                 Text(def.tooltip, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             }
         }
     }
+    val reset = @Composable {
+        if (dirty) AppIconButton(R.drawable.ic_restart_alt, stringResource(R.string.reset_option), onReset, enabled = enabled)
+    }
     if (multiline || !single) {
         Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
-            label(Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                label(Modifier.weight(1f))
+                reset()
+            }
             CommitField(value.orEmpty(), onCommit, Modifier.fillMaxWidth(), enabled = enabled, multiline = multiline, suffix = def.sidetext.ifEmpty { null })
         }
         return
     }
     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         label(Modifier.weight(1f))
+        reset()
         val editor = Modifier.width(EDITOR_WIDTH)
         when {
             def.type == OptionType.BOOL -> Switch(checked = value == "1", onCheckedChange = { onCommit(if (it) "1" else "0") }, enabled = enabled)
@@ -387,6 +419,15 @@ private fun OptionRow(def: OptionDef, value: String?, dirty: Boolean, advanced: 
         }
     }
 }
+
+/** Valor salvo como o editor mostraria: rótulo da opção de lista, Sim/Não, número com o sufixo. */
+@Composable
+private fun displayValue(def: OptionDef, value: String): String = when {
+    def.type == OptionType.BOOL && (value == "1" || value == "0") -> stringResource(if (value == "1") R.string.yes else R.string.no)
+    def.type == OptionType.ENUM -> def.enumValues.indexOf(value).takeIf { it >= 0 }?.let(def.enumLabels::getOrNull) ?: value
+    def.sidetext.isNotEmpty() && def.type in NUMERIC_TYPES -> "$value ${def.sidetext}"
+    else -> value
+}.replace('\n', ' ')
 
 private val NUMERIC_TYPES = setOf(OptionType.INT, OptionType.FLOAT, OptionType.PERCENT, OptionType.FLOAT_OR_PERCENT)
 private val EDITOR_WIDTH = 180.dp

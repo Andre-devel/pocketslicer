@@ -131,7 +131,8 @@ public:
     // bool|int|float|percent|float_or_percent|string|enum|point|points;
     // mode 0 = simples (painel básico), 1 = avançado.
     std::string options_json(PresetKind kind) const;
-    // {"values": {key: valor serializado}, "dirty": [keys alteradas em relação ao preset salvo]}
+    // {"values": {key: valor serializado}, "dirty": [keys alteradas em relação ao preset salvo],
+    //  "saved": {key alterada: valor no preset salvo}}
     std::string values_json(PresetKind kind) const;
     // Valor no formato serializado do Orca (ex.: "0.2", "15%", "1", "grid"). Lança se inválido.
     void set_option(PresetKind kind, const std::string &key, const std::string &value);
