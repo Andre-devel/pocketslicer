@@ -50,7 +50,11 @@ exceção são os de `BambuStudio/user/filament/base/`, presets completos sem pa
 - **Snapmaker Orca**: o fabricante e os nomes (`Snapmaker U1 (0.4 nozzle)`) são iguais aos do
   Orca. O OrcaSlicer
   instalado neste PC já tem perfis Snapmaker mais novos (02.04.00.07, com a U1 0.4+0.6) que os do
-  Snapmaker Orca (02.03.03.03).
+  Snapmaker Orca (02.03.03.03). Dois ajustes para o Orca carregar e fatiar esses perfis: 72
+  filamentos não têm `filament_id` (nem no pai) e o Snapmaker Orca usa o `setting_id` no lugar,
+  o que o motor faz ao copiá-los (`set_filament_id` em `native/src/engine.cpp`); o G-code inicial
+  da U1 usa `chamber_cooling_mode`, que o Snapmaker Orca calcula pela temperatura de vitrificação
+  dos filamentos (`native/patches/0002-chamber-cooling-mode.patch`).
 - `BBL` e `Creality` também têm os nomes do Orca (conferido no OrcaSlicer instalado:
   `Bambu Lab A1 0.4 nozzle`, `Creality K2 0.4 nozzle`). Não há conflito: o motor carrega um
   fabricante por vez, com o nome do arquivo sem o `<app>/` (`BBL` liga o tratamento das Bambu).

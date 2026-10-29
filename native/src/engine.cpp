@@ -398,6 +398,21 @@ const char *type_name(ConfigOptionType type)
     }
 }
 
+// O Snapmaker Orca aceita filamento sem filament_id (nem no pai) e usa o setting_id no lugar;
+// o PresetBundle do Orca descartaria o fabricante inteiro ("can not find filament_id").
+void set_filament_id(const fs::path &path)
+{
+    boost::nowide::ifstream in(path.string());
+    nlohmann::json profile = nlohmann::json::parse(in, nullptr, false);
+    in.close();
+    if (!profile.is_object() || profile.value("type", "") != "filament" || profile.contains("filament_id") ||
+        !profile.contains("setting_id") || !profile["setting_id"].is_string() || profile["setting_id"] == "")
+        return;
+    profile["filament_id"] = profile["setting_id"];
+    boost::nowide::ofstream out(path.string());
+    out << profile.dump(4);
+}
+
 // Copia os perfis de um fatiador do fabricante (Creality Print...) para dst, ajustando as
 // opções cujo valor o Orca não aceita: com uma só, PresetBundle descartaria o fabricante
 // inteiro ("Invalid value provided for parameter X"). O Creality Print grava "" onde o Orca
@@ -415,6 +430,7 @@ void copy_for_orca(const fs::path &src, const fs::path &dst)
         fs::copy_file(it->path(), target);
         if (target.extension() != ".json")
             continue;
+        set_filament_id(target);
         for (int dropped = 0; dropped < 100; ++dropped) {
             DynamicPrintConfig                 config;
             std::map<std::string, std::string> key_values;

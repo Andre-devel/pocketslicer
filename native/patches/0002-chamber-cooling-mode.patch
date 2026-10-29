@@ -1,0 +1,29 @@
+diff --git a/src/libslic3r/GCode.cpp b/src/libslic3r/GCode.cpp
+index b9a81c54..96d7e61d 100644
+--- a/src/libslic3r/GCode.cpp
++++ b/src/libslic3r/GCode.cpp
+@@ -3115,6 +3115,24 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
+     this->placeholder_parser().set("print_time_sec", new ConfigOptionString(GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Print_Time_Sec_Placeholder)));
+     this->placeholder_parser().set("used_filament_length", new ConfigOptionString(GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Used_Filament_Length_Placeholder)));
+ 
++    // PocketSlicer: chamber_cooling_mode as Snapmaker Orca computes it (src/libslic3r/GCode.cpp there),
++    // used by the Snapmaker U1 start G-code: 0 keep warm, 1 weak cooling (a filament with
++    // vitrification <= 70), 2 strong cooling (<= 50). Snapmaker Orca also skips filaments with
++    // filament_is_high_temperature, an option Orca does not have.
++    {
++        int chamber_cooling_mode = 0;
++        for (unsigned int extruder : tool_ordering.all_extruders()) {
++            const int vitrification = m_config.temperature_vitrification.get_at(extruder);
++            if (vitrification <= 50) {
++                chamber_cooling_mode = 2;
++                break;
++            }
++            if (vitrification <= 70)
++                chamber_cooling_mode = 1;
++        }
++        this->placeholder_parser().set("chamber_cooling_mode", new ConfigOptionInt(chamber_cooling_mode));
++    }
++
+     std::string machine_start_gcode = this->placeholder_parser_process("machine_start_gcode", print.config().machine_start_gcode.value, initial_extruder_id);
+     if (print.config().gcode_flavor != gcfKlipper) {
+         // Set bed temperature if the start G-code does not contain any bed temp control G-codes.
