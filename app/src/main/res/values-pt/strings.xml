@@ -61,6 +61,8 @@
     <string name="action_details">Detalhes</string>
     <string name="error_details">Detalhes do erro</string>
     <string name="copy">Copiar</string>
+    <string name="opened_external">Aberto via Abrir com: %1$s</string>
+    <string name="undo">Desfazer</string>
     <string name="error_unexpected">Erro inesperado: %1$s</string>
     <string name="send_to_printer">Enviar para impressora</string>
     <string name="send_title">Enviar para impressora</string>

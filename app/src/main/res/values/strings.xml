@@ -62,6 +62,8 @@
     <string name="action_details">Details</string>
     <string name="error_details">Error details</string>
     <string name="copy">Copy</string>
+    <string name="opened_external">Opened from another app: %1$s</string>
+    <string name="undo">Undo</string>
     <string name="error_unexpected">Unexpected error: %1$s</string>
     <string name="send_to_printer">Send to printer</string>
     <string name="send_title">Send to printer</string>

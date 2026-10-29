@@ -134,6 +134,7 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
                 MessageAction.PICK_OTHER -> pickers.openFile()
                 MessageAction.RETRY -> viewModel.retry()
                 MessageAction.DETAILS -> details = message.details
+                MessageAction.UNDO -> viewModel.undoOpen()
                 null -> {}
             }
         }
@@ -209,13 +210,18 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
 private class MessageVisuals(val userMessage: UserMessage, override val actionLabel: String?) : SnackbarVisuals {
     override val message get() = userMessage.text
     override val withDismissAction get() = true
-    override val duration get() = if (userMessage.success) SnackbarDuration.Short else SnackbarDuration.Indefinite
+    override val duration get() = when {
+        !userMessage.success -> SnackbarDuration.Indefinite
+        userMessage.action != null -> SnackbarDuration.Long // tempo de achar o Desfazer
+        else -> SnackbarDuration.Short
+    }
 }
 
 private val MESSAGE_ACTION_LABELS = mapOf(
     MessageAction.PICK_OTHER to R.string.action_pick_other,
     MessageAction.RETRY to R.string.action_retry,
     MessageAction.DETAILS to R.string.action_details,
+    MessageAction.UNDO to R.string.undo,
 )
 
 /** Texto técnico de um erro inesperado, com cópia para relatar o problema. */

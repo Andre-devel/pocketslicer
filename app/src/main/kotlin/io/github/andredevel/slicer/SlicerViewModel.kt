@@ -72,7 +72,7 @@ sealed interface SendState {
  */
 data class UserMessage(val text: String, val success: Boolean = false, val action: MessageAction? = null, val details: String? = null)
 
-enum class MessageAction { PICK_OTHER, RETRY, DETAILS }
+enum class MessageAction { PICK_OTHER, RETRY, DETAILS, UNDO }
 
 enum class SendStep { CONNECT, UPLOAD, START }
 
@@ -153,6 +153,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     var thumbnails: (suspend (width: Int, height: Int) -> Thumbnail?)? = null
     private var sliceJob: Job? = null
     private var retryAction: (() -> Unit)? = null
+
+    /** Mesa de antes do último "Abrir com", para [undoOpen]. */
+    private class OpenUndo(val project: File?, val modelName: String?, val dirty: Boolean)
+    private var openUndo: OpenUndo? = null
     private var sendJob: Job? = null
     private val printerStore = PrinterStore(File(app.filesDir, "printers.json"))
     private val recentStore = RecentFilesStore(File(app.filesDir, "recent.json"))
@@ -277,6 +281,43 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
      * na pré-visualização) ou modelo STL/OBJ (acrescentado como em [openModel]).
      */
     fun open(uri: Uri) = launchEngine(R.string.busy_opening) { engine -> openFile(engine, uri, displayName(uri)) }
+
+    /**
+     * Arquivo de outro app ("Abrir com", compartilhar): como [open], guardando antes a mesa atual
+     * num 3MF temporário para o Desfazer da mensagem ([undoOpen]).
+     */
+    fun openExternal(uri: Uri) = launchEngine(R.string.busy_opening) { engine ->
+        setup.join()
+        val name = displayName(uri)
+        val before = _state.value
+        val project = if (before.objectCount > 0) {
+            _state.update { it.copy(busy = R.string.busy_opening) }
+            File(app.cacheDir, "undo.3mf").also { engine.saveProject(it, null) }
+        } else null
+        openFile(engine, uri, name)
+        openUndo = OpenUndo(project, before.modelName, before.dirty)
+        val text = app.getString(R.string.opened_external, name)
+        _state.update { it.copy(message = UserMessage(text, success = true, action = MessageAction.UNDO)) }
+    }
+
+    /** Volta à mesa de antes do último [openExternal]. */
+    fun undoOpen() {
+        val undo = openUndo ?: return
+        openUndo = null
+        launchEngine(R.string.busy_opening) { engine ->
+            if (undo.project != null) {
+                val vendor = engine.openProject(undo.project)
+                _state.update { it.copy(vendors = it.vendors.copy(selected = vendor)) }
+                refreshPresets(engine)
+                refreshScene(engine, engine.objects())
+            } else {
+                // A mesa estava vazia: tira o que entrou.
+                repeat(_state.value.objectCount) { engine.remove(0) }
+                refreshScene(engine, engine.objects())
+            }
+            _state.update { it.copy(modelName = undo.modelName, dirty = undo.dirty, slice = SliceState.Idle, showPreview = false) }
+        }
+    }
 
     /** Como [open]; o arquivo sai da lista se não puder mais ser lido. */
     fun openRecent(recent: RecentFile) = launchEngine(R.string.busy_opening) { engine ->

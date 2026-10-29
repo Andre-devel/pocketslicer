@@ -14,9 +14,11 @@
         android:largeHeap="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.Slicer">
+        <!-- singleTask: "Abrir com" chega à janela aberta (onNewIntent), com a mesa e o motor dela. -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

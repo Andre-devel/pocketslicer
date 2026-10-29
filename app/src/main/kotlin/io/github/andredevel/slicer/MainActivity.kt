@@ -40,6 +40,6 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
             else -> null
         }
-        uri?.let(viewModel::open)
+        uri?.let(viewModel::openExternal)
     }
 }
