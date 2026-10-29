@@ -168,21 +168,23 @@ private fun rememberNotificationPermission(): () -> Unit {
 
 /**
  * Ação principal de Preparar conforme o fatiamento: Fatiar, Cancelar durante ou, com o G-code
- * pronto, ir para a visualização.
+ * pronto e em dia, ir para a visualização.
  */
 @Composable
 fun SliceButton(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier = Modifier) {
     val requestNotifications = rememberNotificationPermission()
-    when (state.slice) {
-        is SliceState.Running -> AppButton(
+    val slice = state.slice
+    when {
+        slice is SliceState.Running -> AppButton(
             stringResource(R.string.cancel), viewModel::cancelSlice, modifier,
             style = ButtonStyle.OUTLINED, icon = R.drawable.ic_close,
         )
-        is SliceState.Done -> AppButton(
+        slice is SliceState.Done && slice.stale == null -> AppButton(
             stringResource(R.string.view_gcode), { viewModel.showPreview(true) }, modifier,
             style = ButtonStyle.TONAL, icon = R.drawable.ic_layers,
         )
-        SliceState.Idle -> AppButton(
+        // Sem G-code ou com ele desatualizado.
+        else -> AppButton(
             stringResource(R.string.slice_plate, state.plateNumber), { requestNotifications(); viewModel.slice() }, modifier,
             icon = R.drawable.ic_bolt, enabled = state.canSlice,
         )

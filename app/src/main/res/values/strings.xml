@@ -197,6 +197,9 @@
     <string name="slice_background_note">You can leave the app; slicing continues in the background.</string>
     <string name="slice_channel">Slicing</string>
     <string name="slice_done_title">Plate %1$d sliced</string>
+    <string name="slice_again">Slice again</string>
+    <string name="stale_option">You changed “%1$s” after slicing. This G-code is out of date.</string>
+    <string name="stale_scene">You changed the plate after slicing. This G-code is out of date.</string>
     <string name="summary_plate">Summary · plate %1$d</string>
     <string name="system_preset_locked">System presets cannot be deleted</string>
     <string name="time">Time</string>

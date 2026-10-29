@@ -94,12 +94,22 @@ sealed interface SliceState {
     /** [layer]: camada em que o motor está, quando ele informa (na geração do G-code). */
     data class Running(val percent: Int, val stage: SliceStage, val layer: Int? = null) : SliceState
     /**
-     * [preview]: caminhos do G-code gerado; deixa de valer com a próxima mudança de cena ou perfil.
+     * [preview]: caminhos do G-code gerado.
      * [gcode3mf]: a impressora recebe o G-code num .gcode.3mf (só no fatiamento pelo app).
      * [slicedAt]: fim do fatiamento (System.currentTimeMillis); null num G-code aberto.
+     * [stale]: cena ou perfil mudaram depois de fatiar; salvar e enviar esperam fatiar de novo.
      */
-    data class Done(val stats: SliceStats, val preview: Preview, val gcode3mf: Boolean = false, val slicedAt: Long? = null) : SliceState
+    data class Done(
+        val stats: SliceStats,
+        val preview: Preview,
+        val gcode3mf: Boolean = false,
+        val slicedAt: Long? = null,
+        val stale: StaleReason? = null,
+    ) : SliceState
 }
+
+/** O que mudou depois do fatiamento: uma opção ou um perfil ([name]), ou a mesa (null). */
+data class StaleReason(val name: String?)
 
 /** Etapas do fatiamento, pelas faixas de progresso do Print do Orca (Print::process). */
 enum class SliceStage(@StringRes val label: Int, private val fromPercent: Int) {
@@ -148,6 +158,8 @@ data class SlicerUiState(
     val anyOutside get() = scene?.placements?.any { it.outside } == true
     val canSlice get() = busy == null && objectCount > 0 && !anyOutside && slice !is SliceState.Running
     val preview get() = (slice as? SliceState.Done)?.preview
+    /** G-code em dia com a cena e os perfis: pode ser salvo e enviado. */
+    val gcodeReady get() = (slice as? SliceState.Done)?.let { it.stale == null } == true
     val previewVisible get() = showPreview && preview != null
     /** Placa que Fatiar usa, a partir de 1. */
     val plateNumber get() = (plates?.selected ?: 0) + 1
@@ -233,12 +245,12 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun selectVendor(vendor: String) = launchEngine(R.string.busy_loading_vendor) {
         loadVendor(it, vendor)
-        markDirty()
+        markChanged(StaleReason(vendor))
     }
 
     fun selectPreset(kind: PresetKind, name: String) = launchEngine(null) { engine ->
         engine.select(kind, name)
-        markDirty()
+        markChanged(StaleReason(name))
         refreshPresets(engine)
         // A mesa muda com a impressora, e o modelo é recentralizado nela.
         if (kind == PresetKind.PRINTER) refreshScene(engine)
@@ -248,7 +260,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun setOption(kind: PresetKind, key: String, value: String) = launchEngine(null) { engine ->
         try {
             engine.setOption(kind, key, value)
-            markDirty()
+            markChanged(StaleReason(optionLabel(kind, key)))
         } finally {
             // Também no erro: o campo volta a mostrar o valor em vigor.
             refreshPresets(engine)
@@ -259,7 +271,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun discardChanges(kind: PresetKind) = launchEngine(null) { engine ->
         engine.discardChanges(kind)
-        markDirty()
+        markChanged(StaleReason(engine.selected(kind)))
         refreshPresets(engine)
         if (kind == PresetKind.PRINTER) refreshScene(engine)
     }
@@ -271,6 +283,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun deletePreset(kind: PresetKind, name: String) = launchEngine(null) { engine ->
         engine.deletePreset(kind, name)
+        // Excluir o preset em uso seleciona outro.
+        engine.selected(kind)?.takeIf { it != _state.value.presets[kind]?.selected }?.let { markChanged(StaleReason(it)) }
         refreshPresets(engine)
         if (kind == PresetKind.PRINTER) refreshScene(engine)
     }
@@ -299,7 +313,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val file = File(dir, name)
         copy(uri, file)
         engine.addModel(file)
-        _state.update { it.copy(modelName = it.modelName ?: name, slice = SliceState.Idle, dirty = true) }
+        _state.update { it.copy(modelName = it.modelName ?: name) }
+        markChanged(StaleReason(null))
         refreshScene(engine, engine.objects())
     }
 
@@ -364,7 +379,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 val file = File(File(app.cacheDir, "model").apply { deleteRecursively(); mkdirs() }, name)
                 copy(uri, file)
                 val vendor = engine.openProject(file)
-                _state.update { it.copy(vendors = it.vendors.copy(selected = vendor), modelName = name, showPreview = false, dirty = false) }
+                _state.update { it.copy(vendors = it.vendors.copy(selected = vendor), modelName = name, slice = SliceState.Idle, showPreview = false, dirty = false) }
                 refreshPresets(engine)
                 refreshScene(engine, engine.objects())
             }
@@ -465,6 +480,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun slice() {
         sliceJob = launchEngine(null, retry = ::slice) { engine ->
             val plate = _state.value.plateNumber
+            // Cancelado ou com erro, o G-code desatualizado continua à vista.
+            val previous = _state.value.slice
             val running = { slice: SliceState.Running ->
                 _state.update { it.copy(slice = slice) }
                 SliceService.progress.value = SliceService.Progress(plate, slice)
@@ -488,7 +505,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 SliceService.notifyDone(app, plate, stats)
             } finally {
                 SliceService.progress.value = null
-                _state.update { if (it.slice is SliceState.Running) it.copy(slice = SliceState.Idle) else it }
+                _state.update { if (it.slice is SliceState.Running) it.copy(slice = previous) else it }
             }
         }
     }
@@ -657,8 +674,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             PresetChoice(engine.presets(it), engine.selected(it), engine.userPresets(it).toSet(), engine.values(it))
         }
         val filaments = engine.filamentPresets()
-        // Perfis mudaram: o G-code anterior não corresponde mais à seleção.
-        _state.update { it.copy(presets = presets, filaments = filaments, slice = SliceState.Idle) }
+        _state.update { it.copy(presets = presets, filaments = filaments) }
     }
 
     /**
@@ -677,14 +693,28 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun markDirty() = _state.update { it.copy(dirty = true) }
+    /**
+     * Cena ou perfil mudaram: há o que salvar no projeto, e o G-code fatiado fica desatualizado
+     * ([reason]). Um G-code aberto de arquivo não veio desta mesa e é descartado.
+     */
+    private fun markChanged(reason: StaleReason) = _state.update { state ->
+        val slice = when (val done = state.slice) {
+            is SliceState.Done -> if (done.slicedAt != null) done.copy(stale = reason) else SliceState.Idle
+            else -> done
+        }
+        state.copy(dirty = true, slice = slice)
+    }
+
+    private fun optionLabel(kind: PresetKind, key: String) =
+        _state.value.optionDefs[kind]?.firstOrNull { it.key == key }?.label ?: key
 
     /** Altera a cena no motor; [edit] devolve as malhas novas, ou null se só posições mudaram. */
     private fun editScene(modifies: Boolean = true, edit: suspend (SlicerEngine) -> List<ObjectMesh>?) = launchEngine(null) { engine ->
         var meshes: List<ObjectMesh>? = null
         try {
             meshes = edit(engine)
-            _state.update { it.copy(slice = SliceState.Idle, dirty = it.dirty || modifies) }
+            // Outra placa: o G-code era de outra mesa.
+            if (modifies) markChanged(StaleReason(null)) else _state.update { it.copy(slice = SliceState.Idle) }
         } finally {
             // Também em caso de erro: descarta a pré-visualização do viewport.
             refreshScene(engine, meshes)

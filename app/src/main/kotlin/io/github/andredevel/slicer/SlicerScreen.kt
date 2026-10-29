@@ -305,7 +305,7 @@ private fun Workspace(
                 viewportArea(Modifier.weight(1f).fillMaxHeight())
                 VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Surface(Modifier.width(PANEL_WIDTH).fillMaxHeight(), color = MaterialTheme.colorScheme.surface) {
-                    if (previewing) PreviewPanel(state, pickers, send)
+                    if (previewing) PreviewPanel(state, viewModel, pickers, send)
                     else PreparePanel(state, viewModel, openParameters)
                 }
             }
@@ -317,7 +317,7 @@ private fun Workspace(
                 sheetContainerColor = MaterialTheme.colorScheme.surface,
                 sheetContent = {
                     Box(Modifier.fillMaxWidth().heightIn(max = sheetMaxHeight)) {
-                        if (previewing) PreviewSheet(state, pickers, send)
+                        if (previewing) PreviewSheet(state, viewModel, pickers, send)
                         else PrepareSheet(state, viewModel, pickers, openParameters)
                     }
                 },

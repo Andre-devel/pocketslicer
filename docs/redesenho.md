@@ -92,9 +92,10 @@ que faltar entra lá, sem depender do ViewModel.
     Bambu MQTT `pushall` (report com `gcode_state`, `mc_percent`), consultados enquanto
     Impressoras ou o diálogo de envio estão abertos (a cada ~5 s, parar ao sair). Ponto colorido
     na lista, aviso "está imprimindo: dá para só enviar" e "Enviar e imprimir" desabilitado.
-16. G-code desatualizado: guardar o último fatiamento ao alterar cena/perfil, marcá-lo
-    desatualizado com o nome da alteração e mostrar o aviso com "Fatiar de novo"; salvar e enviar
-    desabilitados até fatiar de novo (decisão 3).
+16. (Feito) G-code desatualizado: `SliceState.Done.stale` (opção, perfil ou a mesa) em vez de
+    descartar o fatiamento; aviso com "Fatiar de novo" no resumo de Visualizar, Fatiar volta a ser
+    a ação de Preparar, salvar e enviar desabilitados até fatiar de novo (decisão 3). Trocar de
+    placa, abrir projeto ou um G-code aberto de arquivo ainda descartam.
 17. Placas (decisão 4), no motor e na interface:
     - o motor mantém a lista de placas (PartPlateList do Orca) também para STL/OBJ e projetos
       novos, com uma placa ao começar;

@@ -193,6 +193,9 @@
     <string name="slice_background_note">Você pode sair do app; o fatiamento continua em segundo plano.</string>
     <string name="slice_channel">Fatiamento</string>
     <string name="slice_done_title">Placa %1$d fatiada</string>
+    <string name="slice_again">Fatiar de novo</string>
+    <string name="stale_option">Você alterou “%1$s” depois de fatiar. Este G-code está desatualizado.</string>
+    <string name="stale_scene">Você alterou a mesa depois de fatiar. Este G-code está desatualizado.</string>
     <string name="summary_plate">Resumo · placa %1$d</string>
     <string name="system_preset_locked">Presets do sistema não podem ser excluídos</string>
     <string name="time">Tempo</string>

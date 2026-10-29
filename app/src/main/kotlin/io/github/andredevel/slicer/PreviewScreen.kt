@@ -47,6 +47,8 @@ import io.github.andredevel.slicer.render.ColorMode
 import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.PreviewSettings
 import io.github.andredevel.slicer.ui.components.AppButton
+import io.github.andredevel.slicer.ui.components.Banner
+import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.ButtonStyle
 import io.github.andredevel.slicer.ui.components.FloatingCard
@@ -81,7 +83,7 @@ fun PreviewHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
         busy = state.busy?.let { stringResource(it) },
     ) {
         if (compact) {
-            AppIconButton(R.drawable.ic_download, stringResource(R.string.save_gcode), pickers.saveGcode, enabled = state.busy == null)
+            AppIconButton(R.drawable.ic_download, stringResource(R.string.save_gcode), pickers.saveGcode, enabled = state.busy == null && state.gcodeReady)
         }
         if (state.scene?.placements?.isNotEmpty() == true && compact) {
             AppIconButton(R.drawable.ic_deployed_code, stringResource(R.string.back_to_prepare), { viewModel.showPreview(false) })
@@ -286,7 +288,7 @@ private fun LayerLabel(layer: Int, z: Float, highlight: Boolean) {
 
 /** Painel lateral de Visualizar: resumo do fatiamento e as saídas do G-code. */
 @Composable
-fun PreviewPanel(state: SlicerUiState, pickers: FilePickers, onSend: () -> Unit) {
+fun PreviewPanel(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, onSend: () -> Unit) {
     val stats = (state.slice as? SliceState.Done)?.stats ?: return
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionLabel(stringResource(R.string.summary_plate, (state.plates?.selected ?: 0) + 1))
@@ -295,6 +297,7 @@ fun PreviewPanel(state: SlicerUiState, pickers: FilePickers, onSend: () -> Unit)
             Text(formatDuration(stats.printTimeSeconds), style = MonoStyles.display)
         }
         SummaryTiles(state, stats)
+        StaleWarning(state, viewModel)
         Spacer(Modifier.weight(1f))
         GcodeActions(state, pickers, onSend)
     }
@@ -302,13 +305,14 @@ fun PreviewPanel(state: SlicerUiState, pickers: FilePickers, onSend: () -> Unit)
 
 /** Sheet de Visualizar no celular. */
 @Composable
-fun PreviewSheet(state: SlicerUiState, pickers: FilePickers, onSend: () -> Unit) {
+fun PreviewSheet(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, onSend: () -> Unit) {
     val stats = (state.slice as? SliceState.Done)?.stats ?: return
     Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text(stringResource(R.string.time), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp, bottom = 4.dp))
             Text(formatDuration(stats.printTimeSeconds), style = MonoStyles.title, modifier = Modifier.weight(1f))
         }
+        StaleWarning(state, viewModel)
         GcodeActions(state, pickers, onSend, compact = true)
         SummaryTiles(state, stats)
     }
@@ -344,9 +348,23 @@ private fun SummaryTiles(state: SlicerUiState, stats: SliceStats) {
     }
 }
 
+/** Aviso de G-code desatualizado: o que mudou depois de fatiar e "Fatiar de novo". */
+@Composable
+private fun StaleWarning(state: SlicerUiState, viewModel: SlicerViewModel) {
+    val stale = (state.slice as? SliceState.Done)?.stale ?: return
+    Banner(
+        Tone.WARNING,
+        stale.name?.let { stringResource(R.string.stale_option, it) } ?: stringResource(R.string.stale_scene),
+        Modifier.fillMaxWidth(),
+        icon = R.drawable.ic_sync_problem,
+        actionLabel = stringResource(R.string.slice_again),
+        onAction = viewModel::slice,
+    )
+}
+
 @Composable
 private fun GcodeActions(state: SlicerUiState, pickers: FilePickers, onSend: () -> Unit, compact: Boolean = false) {
-    val enabled = state.busy == null
+    val enabled = state.busy == null && state.gcodeReady
     if (!compact) {
         AppButton(stringResource(R.string.save_gcode), pickers.saveGcode, Modifier.fillMaxWidth(), ButtonStyle.OUTLINED, R.drawable.ic_download, enabled)
     }
