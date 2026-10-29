@@ -7,7 +7,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /** Como colorir os segmentos na pré-visualização. */
-enum class ColorMode { FEATURE, SPEED, HEIGHT, WIDTH }
+enum class ColorMode { FEATURE, FILAMENT, SPEED, HEIGHT, WIDTH }
 
 /**
  * O que mostrar dos caminhos: camadas [minLayer]..[maxLayer] (inclusive); na camada de cima,
@@ -37,7 +37,11 @@ class Preview(val toolpaths: Toolpaths) {
     fun movesInLayer(layer: Int): Int =
         if (layer in 0 until toolpaths.layerCount) layerStart[layer + 1] - layerStart[layer] else 0
 
-    /** Faixa de valores do modo de cor (para legenda e escala), ou null em [ColorMode.FEATURE]. */
+    /** Cor RGB (0xRRGGBB) do filamento [filament] no G-code; cinza sem cor válida. */
+    fun filamentColor(filament: Int): Int =
+        toolpaths.filamentColors.getOrNull(filament)?.removePrefix("#")?.take(6)?.toIntOrNull(16) ?: 0x808080
+
+    /** Faixa de valores do modo de cor (para legenda e escala), ou null em [ColorMode.FEATURE] e [ColorMode.FILAMENT]. */
     fun range(mode: ColorMode): ClosedFloatingPointRange<Float>? {
         val field = valueField(mode) ?: return null
         var min = Float.MAX_VALUE
@@ -52,7 +56,7 @@ class Preview(val toolpaths: Toolpaths) {
 
     companion object {
         fun valueField(mode: ColorMode) = when (mode) {
-            ColorMode.FEATURE -> null
+            ColorMode.FEATURE, ColorMode.FILAMENT -> null
             ColorMode.WIDTH -> 6
             ColorMode.HEIGHT -> 7
             ColorMode.SPEED -> 8
@@ -196,7 +200,9 @@ class ToolpathRenderer(private val preview: Preview) {
         val field = Preview.valueField(mode)
         val range = preview.range(mode)
         for (i in 0 until n) {
-            val rgb = if (field == null || range == null) {
+            val rgb = if (mode == ColorMode.FILAMENT) {
+                preview.filamentColor(toolpaths.filaments[i].toInt() and 0xFF)
+            } else if (field == null || range == null) {
                 Preview.roleColor(toolpaths.roles[i].toInt() and 0xFF)
             } else {
                 val span = range.endInclusive - range.start

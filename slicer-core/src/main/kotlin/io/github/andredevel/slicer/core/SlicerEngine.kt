@@ -40,6 +40,9 @@ class Toolpaths(
     val extrusions: FloatArray,
     val roles: ByteArray,
     val layers: IntArray,
+    /** Filamento (a partir de 0) de cada segmento, com a cor em [filamentColors] (`#RRGGBB`, do G-code). */
+    val filaments: ByteArray,
+    val filamentColors: Array<String>,
     val travels: FloatArray,
     val travelLayers: IntArray,
     val layerZ: FloatArray,

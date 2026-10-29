@@ -561,8 +561,8 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeLoadGcode(JNIEnv *env
     return guarded(env, [&] { return to_array(env, engine(handle)->load_gcode(to_string(env, path))); });
 }
 
-// Toolpaths(extrusions: FloatArray, roles: ByteArray, layers: IntArray, travels: FloatArray,
-//           travelLayers: IntArray, layerZ: FloatArray)
+// Toolpaths(extrusions: FloatArray, roles: ByteArray, layers: IntArray, filaments: ByteArray,
+//           filamentColors: Array<String>, travels: FloatArray, travelLayers: IntArray, layerZ: FloatArray)
 JNIEXPORT jobject JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeToolpaths(JNIEnv *env, jclass, jlong handle)
 {
@@ -575,10 +575,13 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeToolpaths(JNIEnv *env
         };
         jbyteArray roles = env->NewByteArray(jsize(t.roles.size()));
         env->SetByteArrayRegion(roles, 0, jsize(t.roles.size()), reinterpret_cast<const jbyte *>(t.roles.data()));
+        jbyteArray filaments = env->NewByteArray(jsize(t.filaments.size()));
+        env->SetByteArrayRegion(filaments, 0, jsize(t.filaments.size()), reinterpret_cast<const jbyte *>(t.filaments.data()));
         jclass cls = env->FindClass("io/github/andredevel/slicer/core/Toolpaths");
-        jmethodID init = env->GetMethodID(cls, "<init>", "([F[B[I[F[I[F)V");
-        return env->NewObject(cls, init, to_float_array(env, t.extrusions), roles, ints(t.layers),
-                              to_float_array(env, t.travels), ints(t.travel_layers), to_float_array(env, t.layer_z));
+        jmethodID init = env->GetMethodID(cls, "<init>", "([F[B[I[B[Ljava/lang/String;[F[I[F)V");
+        return env->NewObject(cls, init, to_float_array(env, t.extrusions), roles, ints(t.layers), filaments,
+                              to_array(env, t.filament_colors), to_float_array(env, t.travels), ints(t.travel_layers),
+                              to_float_array(env, t.layer_z));
     });
 }
 

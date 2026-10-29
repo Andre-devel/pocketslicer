@@ -58,9 +58,8 @@ import io.github.andredevel.slicer.ui.components.FloatingCard
 import io.github.andredevel.slicer.ui.components.FloatingPill
 import io.github.andredevel.slicer.ui.components.MetricTile
 import io.github.andredevel.slicer.ui.components.ScreenHeader
-import io.github.andredevel.slicer.ui.components.Segment
 import io.github.andredevel.slicer.ui.components.SectionLabel
-import io.github.andredevel.slicer.ui.components.SegmentedTabs
+import io.github.andredevel.slicer.ui.components.SelectField
 import io.github.andredevel.slicer.ui.components.vertical
 import io.github.andredevel.slicer.ui.theme.MonoStyles
 import kotlinx.coroutines.delay
@@ -69,6 +68,7 @@ import kotlin.math.roundToInt
 
 private val COLOR_MODES = listOf(
     ColorMode.FEATURE to R.string.color_feature,
+    ColorMode.FILAMENT to R.string.filament,
     ColorMode.SPEED to R.string.color_speed_short,
     ColorMode.HEIGHT to R.string.color_height,
     ColorMode.WIDTH to R.string.color_width,
@@ -219,15 +219,16 @@ private fun Legend(preview: Preview, stats: SliceStats, roleLabels: List<String>
     FloatingCard(modifier) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.color_by), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SegmentedTabs(
-                COLOR_MODES.map { Segment(stringResource(it.second)) },
-                COLOR_MODES.indexOfFirst { it.first == settings.colorMode },
-                { onSettings(settings.copy(colorMode = COLOR_MODES[it].first)) },
-                check = false,
-                compact = true,
+            SelectField(
+                settings.colorMode.name, COLOR_MODES.map { it.first.name },
+                { name -> onSettings(settings.copy(colorMode = ColorMode.valueOf(name))) },
+                Modifier.fillMaxWidth(), labels = COLOR_MODES.map { stringResource(it.second) },
             )
-            if (settings.colorMode == ColorMode.FEATURE) RoleLegend(preview, stats, roleLabels, settings, onSettings)
-            else RangeLegend(preview, settings.colorMode)
+            when (settings.colorMode) {
+                ColorMode.FEATURE -> RoleLegend(preview, stats, roleLabels, settings, onSettings)
+                ColorMode.FILAMENT -> FilamentLegend(preview, stats)
+                else -> RangeLegend(preview, settings.colorMode)
+            }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.travels), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -262,6 +263,25 @@ private fun RoleLegend(preview: Preview, stats: SliceStats, roleLabels: List<Str
             val time = stats.roleTimes.getOrNull(role)
             if (time != null && stats.printTimeSeconds > 0) {
                 Text(String.format(Locale.getDefault(), "%.1f%%", time / stats.printTimeSeconds * 100), style = MonoStyles.small)
+            }
+        }
+    }
+}
+
+/** Filamentos usados no G-code, com o peso de cada um. */
+@Composable
+private fun FilamentLegend(preview: Preview, stats: SliceStats) {
+    val present = remember(preview) { preview.toolpaths.filaments.map { it.toInt() and 0xFF }.toSortedSet() }
+    for (filament in present) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(12.dp).background(rgb(preview.filamentColor(filament)), RoundedCornerShape(3.dp)))
+            Text(
+                stringResource(R.string.filament_n, filament + 1),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f).padding(start = 10.dp),
+            )
+            stats.filaments.firstOrNull { it.index == filament }?.let {
+                Text(String.format(Locale.getDefault(), "%.1f g", it.grams), style = MonoStyles.small)
             }
         }
     }

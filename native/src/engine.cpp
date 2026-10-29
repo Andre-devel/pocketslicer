@@ -1549,6 +1549,10 @@ Toolpaths Engine::toolpaths() const
     using Move = GCodeProcessorResult::MoveVertex;
     Toolpaths out;
     const std::vector<Move> &moves = m->result.moves;
+    // O G-code aberto traz as cores; o do slice(), não (a GUI as tira da configuração).
+    out.filament_colors = m->result.extruder_colors;
+    if (out.filament_colors.empty())
+        out.filament_colors = m->print.config().filament_colour.values;
     for (size_t i = 1; i < moves.size(); ++i) {
         const Move &prev = moves[i - 1];
         const Move &move = moves[i];
@@ -1561,6 +1565,7 @@ Toolpaths Engine::toolpaths() const
                                                          move.width, move.height, move.feedrate});
             out.roles.push_back(uint8_t(move.extrusion_role));
             out.layers.push_back(layer);
+            out.filaments.push_back(move.extruder_id);
             out.layer_z[layer] = std::max(out.layer_z[layer], move.position.z());
         } else if (move.type == EMoveType::Travel && prev.position != move.position) {
             out.travels.insert(out.travels.end(), {prev.position.x(), prev.position.y(), prev.position.z(),

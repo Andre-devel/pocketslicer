@@ -47,6 +47,8 @@ struct Toolpaths {
     std::vector<float>    extrusions;      // 9 por segmento: x0 y0 z0 x1 y1 z1 largura altura velocidade(mm/s)
     std::vector<uint8_t>  roles;           // ExtrusionRole por segmento
     std::vector<uint32_t> layers;          // camada por segmento
+    std::vector<uint8_t>  filaments;       // filamento (a partir de 0) por segmento
+    std::vector<std::string> filament_colors; // "#RRGGBB" de cada filamento, do G-code
     std::vector<float>    travels;         // 6 por movimento sem extrusão: x0 y0 z0 x1 y1 z1
     std::vector<uint32_t> travel_layers;
     std::vector<float>    layer_z;         // altura do topo de cada camada

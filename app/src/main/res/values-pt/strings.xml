@@ -132,7 +132,7 @@
     <string name="check_filament_named">O filamento certo está carregado (%1$s)</string>
     <string name="clear">Limpar</string>
     <string name="color_by">Colorir por</string>
-    <string name="color_speed_short">Veloc.</string>
+    <string name="color_speed_short">Velocidade</string>
     <string name="cost">Custo</string>
     <string name="decrease">Diminuir</string>
     <string name="delete_user_preset">Excluir preset do usuário</string>
