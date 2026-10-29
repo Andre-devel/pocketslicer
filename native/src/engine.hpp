@@ -65,6 +65,7 @@ struct ObjectMesh {
     std::vector<float>    positions; // x, y, z por vértice
     std::vector<uint32_t> indices;   // 3 por triângulo
     std::vector<uint8_t>  filaments; // filamento (a partir de 0) por triângulo, em ordem crescente
+    size_t                filament = 0; // o do objeto (o das partes sem filamento próprio nem pintura)
 };
 
 // Miniatura RGBA com as linhas de baixo para cima (a ordem do glReadPixels).
@@ -205,6 +206,33 @@ public:
     std::vector<std::string> filament_colors() const;
     // Preset de filamento de cada filamento do projeto, na mesma ordem de filament_colors().
     std::vector<std::string> filament_presets() const;
+
+    // --- Filamentos do projeto (como a barra lateral do Orca) ---
+    // Quantos filamentos o projeto pode ter: no mínimo um por extrusor da impressora; com
+    // um extrusor só para vários materiais (AMS, MMU), até 64, senão um por extrusor.
+    std::array<size_t, 2> filament_limits() const;
+    // Filamento novo, no fim: o preset do último e a próxima cor da paleta do Orca.
+    void add_filament();
+    // Exclui o filamento; os objetos e partes dele passam para o primeiro, e os dos
+    // seguintes descem um índice (também nas outras placas e na pintura).
+    void remove_filament(size_t filament);
+    // Preset (compatível) do filamento; o do primeiro é o selected(PresetKind::Filament).
+    void set_filament_preset(size_t filament, const std::string &name);
+    // Cor "#RRGGBB".
+    void set_filament_color(size_t filament, const std::string &color);
+    // Filamento do objeto da mesa (a partir de 0).
+    void set_object_filament(size_t object, size_t filament);
+
+    // Volumes de purga (mm³) na troca do filamento i para o j: matriz n x n por linha
+    // (flush_volumes_matrix), uma por extrusor da impressora, em sequência.
+    std::vector<double> flush_volumes() const;
+    void set_flush_volumes(const std::vector<double> &matrix);
+    // Multiplicador dos volumes, por extrusor (flush_multiplier).
+    std::vector<double> flush_multipliers() const;
+    void set_flush_multiplier(size_t extruder, double multiplier);
+    // Recalcula a matriz pelas cores, como o "Auto-calcular" do Orca. As mudanças de
+    // filamento (acrescentar, cor, preset de suporte) já recalculam as linhas dele.
+    void calc_flush_volumes();
     std::vector<Placement> placements() const;
 
     // As alterações de posição sempre apoiam o objeto na mesa (z mínimo = 0).

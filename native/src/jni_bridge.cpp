@@ -365,7 +365,7 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, 
     return guarded(env, [&]() -> jobjectArray {
         const std::vector<slicer::ObjectMesh> meshes = engine(handle)->objects();
         jclass cls = env->FindClass("io/github/andredevel/slicer/core/ObjectMesh");
-        jmethodID init = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;[F[I[B)V");
+        jmethodID init = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;[F[I[BI)V");
         jobjectArray out = env->NewObjectArray(jsize(meshes.size()), cls, nullptr);
         for (size_t i = 0; i < meshes.size(); ++i) {
             const slicer::ObjectMesh &mesh = meshes[i];
@@ -375,7 +375,7 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, 
             jbyteArray filaments = env->NewByteArray(jsize(mesh.filaments.size()));
             env->SetByteArrayRegion(filaments, 0, jsize(mesh.filaments.size()), reinterpret_cast<const jbyte *>(mesh.filaments.data()));
             jstring name = env->NewStringUTF(mesh.name.c_str());
-            jobject object = env->NewObject(cls, init, name, positions, indices, filaments);
+            jobject object = env->NewObject(cls, init, name, positions, indices, filaments, jint(mesh.filament));
             env->SetObjectArrayElement(out, jsize(i), object);
             for (jobject ref : {jobject(name), jobject(positions), jobject(indices), jobject(filaments), object})
                 env->DeleteLocalRef(ref);
@@ -394,6 +394,93 @@ JNIEXPORT jobjectArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentPresets(JNIEnv *env, jclass, jlong handle)
 {
     return guarded(env, [&] { return to_array(env, engine(handle)->filament_presets()); });
+}
+
+// Mínimo e máximo.
+JNIEXPORT jintArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentLimits(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] {
+        const auto limits = engine(handle)->filament_limits();
+        const jint values[] = {jint(limits[0]), jint(limits[1])};
+        jintArray out = env->NewIntArray(2);
+        env->SetIntArrayRegion(out, 0, 2, values);
+        return out;
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeAddFilament(JNIEnv *env, jclass, jlong handle)
+{
+    guarded(env, [&] { engine(handle)->add_filament(); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemoveFilament(JNIEnv *env, jclass, jlong handle, jint filament)
+{
+    guarded(env, [&] { engine(handle)->remove_filament(size_t(filament)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetFilamentPreset(JNIEnv *env, jclass, jlong handle, jint filament, jstring name)
+{
+    guarded(env, [&] { engine(handle)->set_filament_preset(size_t(filament), to_string(env, name)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetFilamentColor(JNIEnv *env, jclass, jlong handle, jint filament, jstring color)
+{
+    guarded(env, [&] { engine(handle)->set_filament_color(size_t(filament), to_string(env, color)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetObjectFilament(JNIEnv *env, jclass, jlong handle, jint object, jint filament)
+{
+    guarded(env, [&] { engine(handle)->set_object_filament(size_t(object), size_t(filament)); });
+}
+
+JNIEXPORT jdoubleArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFlushVolumes(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] {
+        const std::vector<double> values = engine(handle)->flush_volumes();
+        jdoubleArray out = env->NewDoubleArray(jsize(values.size()));
+        env->SetDoubleArrayRegion(out, 0, jsize(values.size()), values.data());
+        return out;
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetFlushVolumes(JNIEnv *env, jclass, jlong handle, jdoubleArray matrix)
+{
+    guarded(env, [&] {
+        std::vector<double> values(size_t(env->GetArrayLength(matrix)));
+        env->GetDoubleArrayRegion(matrix, 0, jsize(values.size()), values.data());
+        engine(handle)->set_flush_volumes(values);
+    });
+}
+
+JNIEXPORT jdoubleArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFlushMultipliers(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] {
+        const std::vector<double> values = engine(handle)->flush_multipliers();
+        jdoubleArray out = env->NewDoubleArray(jsize(values.size()));
+        env->SetDoubleArrayRegion(out, 0, jsize(values.size()), values.data());
+        return out;
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetFlushMultiplier(JNIEnv *env, jclass, jlong handle, jint extruder, jdouble multiplier)
+{
+    guarded(env, [&] { engine(handle)->set_flush_multiplier(size_t(extruder), multiplier); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeCalcFlushVolumes(JNIEnv *env, jclass, jlong handle)
+{
+    guarded(env, [&] { engine(handle)->calc_flush_volumes(); });
 }
 
 // Por objeto, 29 valores: matriz 4x4 (coluna), offset, rotação (graus), escala, tamanho (mm) e

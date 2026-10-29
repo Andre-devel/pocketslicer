@@ -16,6 +16,7 @@
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/ExtrusionEntity.hpp"
+#include "libslic3r/FlushVolCalc.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
@@ -204,6 +205,34 @@ struct Engine::Impl {
     }
 
     static constexpr double ARRANGE_SPACING_MM = 5.0;
+
+    // Todas as placas, a da mesa inclusive.
+    std::vector<Model *> all_plates()
+    {
+        std::vector<Model *> out{&model};
+        for (size_t i = 0; i < plates.size(); ++i)
+            if (i != plate)
+                out.push_back(&plates[i]);
+        return out;
+    }
+
+    size_t filament_count() const { return bundle->filament_presets.size(); }
+
+    void check_filament(size_t filament) const
+    {
+        if (filament >= filament_count())
+            throw std::out_of_range("no filament " + std::to_string(filament));
+    }
+
+    // Filamento de suporte (filament_is_support), como is_support_filament() da GUI.
+    bool is_support_filament(size_t filament) const
+    {
+        const Preset *preset = bundle->filaments.find_preset(bundle->filament_presets[filament]);
+        const auto   *opt    = preset != nullptr ? preset->config.option<ConfigOptionBools>("filament_is_support") : nullptr;
+        return opt != nullptr && opt->get_at(0);
+    }
+
+    void calc_flush_volumes(std::optional<size_t> filament);
 
     // Sem PartPlate: os objetos ficam apoiados na mesa e centralizados nela.
     void place_on_bed()
@@ -835,6 +864,8 @@ std::vector<ObjectMesh> Engine::objects() const
     for (const ModelObject *object : m->model.objects) {
         ObjectMesh                 mesh;
         mesh.name = object->name;
+        const ConfigOption *extruder = object->config.option("extruder");
+        mesh.filament = extruder != nullptr && extruder->getInt() > 0 ? size_t(extruder->getInt() - 1) : 0;
         const indexed_triangle_set its = object_mesh(*object, &mesh.filaments);
         mesh.positions.reserve(its.vertices.size() * 3);
         for (const stl_vertex &v : its.vertices)
@@ -858,6 +889,258 @@ std::vector<std::string> Engine::filament_colors() const
 std::vector<std::string> Engine::filament_presets() const
 {
     return m->bundle ? m->bundle->filament_presets : std::vector<std::string>{};
+}
+
+namespace {
+
+// get_min_flush_volumes() da GUI do Orca (Plater.cpp): o volume do bico menos o que a
+// retração longa no corte do filamento (Bambu) já tira dele, por filamento.
+std::vector<int> min_flush_volumes(const DynamicPrintConfig &config, size_t nozzle)
+{
+    const auto *nozzle_volume = config.option<ConfigOptionFloatsNullable>("nozzle_volume");
+    const int   volume        = nozzle_volume != nullptr ? int(nozzle_volume->get_at(nozzle)) : 0;
+    const auto *enabled_opt   = config.option<ConfigOptionInt>("enable_long_retraction_when_cut");
+    const int   enabled       = enabled_opt != nullptr ? enabled_opt->value : 0;
+    const auto *activated_opt = config.option<ConfigOptionBools>("long_retractions_when_cut");
+    const bool  activated     = activated_opt != nullptr && activated_opt->get_at(nozzle);
+
+    const size_t count = config.option<ConfigOptionFloats>("filament_diameter")->values.size();
+    std::vector<double> filament_distance(count, 18.0), printer_distance(count, 18.0);
+    std::vector<unsigned char> filament_active(count, 0);
+    if (const auto *opt = config.option<ConfigOptionFloats>("filament_retraction_distances_when_cut"))
+        filament_distance = opt->values;
+    if (const auto *opt = config.option<ConfigOptionFloats>("retraction_distances_when_cut"))
+        printer_distance = opt->values;
+    if (const auto *opt = config.option<ConfigOptionBools>("filament_long_retractions_when_cut"))
+        filament_active = opt->values;
+
+    std::vector<int> out;
+    for (size_t i = 0; i < count; ++i) {
+        double retract = enabled && activated ? printer_distance[std::min(nozzle, printer_distance.size() - 1)] : 0;
+        const unsigned char active = i < filament_active.size() ? filament_active[i] : 0;
+        if (active == 0)
+            retract = 0;
+        else if (active == 1 && enabled == LongRectrationLevel::EnableFilament)
+            retract = i < filament_distance.size() && !std::isnan(filament_distance[i]) ? filament_distance[i]
+                                                                                      : printer_distance[std::min(nozzle, printer_distance.size() - 1)];
+        out.push_back(volume - int(PI * 1.75 * 1.75 / 4 * int(retract)));
+    }
+    return out;
+}
+
+// "#RRGGBB" ou "#RRGGBBAA" em RGBA; inválida = branco, como o wxColour da GUI faria preto.
+std::array<unsigned char, 4> parse_color(const std::string &color)
+{
+    std::array<unsigned char, 4> rgba{255, 255, 255, 255};
+    if ((color.size() == 7 || color.size() == 9) && color[0] == '#')
+        for (size_t i = 0; i + 1 < color.size(); i += 2)
+            rgba[i / 2] = (unsigned char) std::stoul(color.substr(i + 1, 2), nullptr, 16);
+    return rgba;
+}
+
+bool valid_color(const std::string &color)
+{
+    static const std::regex hex("#[0-9A-Fa-f]{6}");
+    return std::regex_match(color, hex);
+}
+
+// Paleta de Plater::get_next_color_for_filament() do Orca.
+const char *const FILAMENT_PALETTE[] = {"#00C1AE", "#F4E2C1", "#ED1C24", "#00FF7F", "#F26722", "#FFEB31", "#7841CE", "#115877",
+                                        "#ED1E79", "#2EBDEF", "#345B2F", "#800080", "#FA8173", "#800000", "#F7B763", "#A4C41E"};
+
+} // namespace
+
+// Sidebar::auto_calc_flushing_volumes_internal() do Orca, para as linhas e colunas do
+// filamento (ou de todos), em cada extrusor.
+void Engine::Impl::calc_flush_volumes(std::optional<size_t> filament)
+{
+    const DynamicPrintConfig full     = bundle->full_config();
+    auto                    &matrix   = bundle->project_config.option<ConfigOptionFloats>("flush_volumes_matrix")->values;
+    const size_t             nozzles  = size_t(bundle->get_printer_extruder_count());
+    const size_t             count    = filament_count();
+    const auto              *colors   = bundle->project_config.option<ConfigOptionStrings>("filament_colour");
+    const auto              *datasets = full.option<ConfigOptionIntsNullable>("nozzle_flush_dataset");
+    if (matrix.size() != count * count * nozzles)
+        return; // update_multi_material_filament_presets() ainda não ajustou o tamanho
+    std::vector<std::array<unsigned char, 4>> rgba;
+    for (size_t i = 0; i < count; ++i)
+        rgba.push_back(parse_color(colors->get_at(i)));
+
+    for (size_t nozzle = 0; nozzle < nozzles; ++nozzle) {
+        const std::vector<int> min_volumes = min_flush_volumes(full, nozzle);
+        const int              dataset     = datasets != nullptr ? datasets->get_at(nozzle) : 0;
+        double                *nozzle_matrix = matrix.data() + count * count * nozzle;
+        auto volume = [&](size_t from, size_t to) {
+            if (is_support_filament(to))
+                return g_flush_volume_to_support;
+            FlushVolCalculator calculator(min_volumes[from], g_max_flush_volume, dataset);
+            int out = calculator.calc_flush_vol(rgba[from][3], rgba[from][0], rgba[from][1], rgba[from][2],
+                                                rgba[to][3], rgba[to][0], rgba[to][1], rgba[to][2]);
+            return is_support_filament(from) ? std::max(out, g_min_flush_volume_from_support) : out;
+        };
+        for (size_t changed = 0; changed < count; ++changed) {
+            if (filament && *filament != changed)
+                continue;
+            for (size_t other = 0; other < count; ++other)
+                if (other != changed) {
+                    nozzle_matrix[count * other + changed] = volume(other, changed);
+                    nozzle_matrix[count * changed + other] = volume(changed, other);
+                }
+        }
+    }
+}
+
+std::array<size_t, 2> Engine::filament_limits() const
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    const DynamicPrintConfig &printer   = m->printer();
+    const size_t              extruders = printer.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
+    const bool                shared    = printer.opt_bool("single_extruder_multi_material");
+    return {extruders, shared ? MAXIMUM_EXTRUDER_NUMBER : extruders};
+}
+
+void Engine::add_filament()
+{
+    const size_t count = filament_presets().size();
+    if (count >= filament_limits()[1])
+        throw std::runtime_error(_u8L("The printer does not support more filaments."));
+    m->bundle->set_num_filaments(unsigned(count + 1), FILAMENT_PALETTE[count % std::size(FILAMENT_PALETTE)]);
+    m->calc_flush_volumes(count);
+}
+
+// Como Sidebar::delete_filament() e Plater::on_filaments_delete() da GUI.
+void Engine::remove_filament(size_t filament)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    m->check_filament(filament);
+    const size_t count = m->filament_count();
+    if (count <= filament_limits()[0])
+        throw std::runtime_error(_u8L("Each extruder of the printer needs a filament."));
+    m->bundle->update_num_filaments(unsigned(filament));
+    // A seleção do tipo Filamento é o preset do primeiro.
+    m->select_filament(m->bundle->filament_presets.front());
+
+    auto shift = [filament](ModelConfig &config, const char *key, bool erase_deleted) {
+        if (!config.has(key))
+            return;
+        const int value = config.opt_int(key); // 1 = primeiro filamento; 0 = o do objeto
+        if (value == int(filament) + 1) {
+            if (erase_deleted)
+                config.erase(key);
+            else
+                config.set_key_value(key, new ConfigOptionInt(1));
+        } else if (value > int(filament) + 1) {
+            config.set_key_value(key, new ConfigOptionInt(value - 1));
+        }
+    };
+    for (Model *plate : m->all_plates())
+        for (ModelObject *object : plate->objects) {
+            shift(object->config, "extruder", false);
+            for (const char *key : {"support_filament", "support_interface_filament"})
+                shift(object->config, key, true);
+            for (ModelVolume *volume : object->volumes) {
+                // Pintura: estados acima do excluído descem um; os dele voltam a "sem pintura".
+                volume->update_extruder_count_when_delete_filament(count - 1, filament + 1, 0);
+                shift(volume->config, "extruder", false);
+                for (const char *key : {"support_filament", "support_interface_filament"})
+                    shift(volume->config, key, true);
+            }
+        }
+    DynamicPrintConfig &print = m->bundle->prints.get_edited_preset().config;
+    for (const char *key : {"support_filament", "support_interface_filament", "wipe_tower_filament"})
+        if (auto *opt = print.option<ConfigOptionInt>(key); opt != nullptr) {
+            if (opt->value == int(filament) + 1)
+                opt->value = 0;
+            else if (opt->value > int(filament) + 1)
+                --opt->value;
+        }
+}
+
+void Engine::set_filament_preset(size_t filament, const std::string &name)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    m->check_filament(filament);
+    const Preset *preset = m->bundle->filaments.find_preset(name);
+    if (preset == nullptr || preset->is_default || !preset->is_compatible)
+        throw std::invalid_argument("preset not available: " + name);
+    const bool was_support = m->is_support_filament(filament);
+    if (filament == 0)
+        m->select_filament(name);
+    else
+        m->bundle->set_filament_preset(filament, name);
+    if (m->is_support_filament(filament) != was_support)
+        m->calc_flush_volumes(filament);
+}
+
+void Engine::set_filament_color(size_t filament, const std::string &color)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    m->check_filament(filament);
+    if (!valid_color(color))
+        throw std::invalid_argument("invalid color: " + color);
+    DynamicPrintConfig &project = m->bundle->project_config;
+    project.option<ConfigOptionStrings>("filament_colour")->values[filament] = color;
+    if (auto *multi = project.option<ConfigOptionStrings>("filament_multi_colour"); multi != nullptr && filament < multi->size())
+        multi->values[filament] = color;
+    m->calc_flush_volumes(filament);
+}
+
+void Engine::set_object_filament(size_t object, size_t filament)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    m->check_filament(filament);
+    m->object(object).config.set_key_value("extruder", new ConfigOptionInt(int(filament) + 1));
+}
+
+std::vector<double> Engine::flush_volumes() const
+{
+    if (!m->bundle)
+        return {};
+    return m->bundle->project_config.option<ConfigOptionFloats>("flush_volumes_matrix")->values;
+}
+
+void Engine::set_flush_volumes(const std::vector<double> &matrix)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    auto &values = m->bundle->project_config.option<ConfigOptionFloats>("flush_volumes_matrix")->values;
+    if (matrix.size() != values.size())
+        throw std::invalid_argument("flush volumes matrix has the wrong size");
+    for (double v : matrix)
+        if (!(v >= 0 && v <= g_max_flush_volume))
+            throw std::invalid_argument("flush volume out of range");
+    values = matrix;
+}
+
+std::vector<double> Engine::flush_multipliers() const
+{
+    if (!m->bundle)
+        return {};
+    return m->bundle->project_config.option<ConfigOptionFloats>("flush_multiplier")->values;
+}
+
+void Engine::set_flush_multiplier(size_t extruder, double multiplier)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    auto &values = m->bundle->project_config.option<ConfigOptionFloats>("flush_multiplier")->values;
+    if (extruder >= values.size())
+        throw std::out_of_range("no extruder " + std::to_string(extruder));
+    if (!(multiplier > 0 && multiplier <= 3))
+        throw std::invalid_argument("flush multiplier out of range");
+    values[extruder] = multiplier;
+}
+
+void Engine::calc_flush_volumes()
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    m->calc_flush_volumes(std::nullopt);
 }
 
 std::vector<Placement> Engine::placements() const

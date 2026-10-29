@@ -59,9 +59,9 @@ class Bed(val shape: FloatArray, val maxHeight: Float)
  * em coordenadas locais: x, y, z por vértice; 3 índices por triângulo e o
  * filamento (a partir de 0, índice em [SlicerEngine.filamentColors]) de cada triângulo, que vêm
  * agrupados por filamento em ordem crescente. As partes pintadas em várias cores vêm divididas
- * nos triângulos da pintura.
+ * nos triângulos da pintura. [filament]: o do objeto (o das partes sem filamento próprio nem pintura).
  */
-class ObjectMesh(val name: String, val positions: FloatArray, val indices: IntArray, val filaments: ByteArray)
+class ObjectMesh(val name: String, val positions: FloatArray, val indices: IntArray, val filaments: ByteArray, val filament: Int)
 
 /**
  * Posição de um objeto na mesa: [transform] é a matriz 4x4 em ordem de coluna (OpenGL),
@@ -268,6 +268,43 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Preset de filamento de cada filamento do projeto, na ordem de [filamentColors]. */
     suspend fun filamentPresets(): List<String> = call { nativeFilamentPresets(handle).asList() }
 
+    /**
+     * Quantos filamentos o projeto pode ter (mínimo, máximo): um por extrusor; com um extrusor
+     * só para vários materiais (AMS, MMU), até 64.
+     */
+    suspend fun filamentLimits(): IntRange = call { nativeFilamentLimits(handle).let { it[0]..it[1] } }
+
+    /** Filamento novo, no fim, com o preset do último e a próxima cor da paleta do Orca. */
+    suspend fun addFilament() = call { nativeAddFilament(handle) }
+
+    /** Os objetos e partes do filamento passam para o primeiro; os seguintes descem um índice. */
+    suspend fun removeFilament(filament: Int) = call { nativeRemoveFilament(handle, filament) }
+
+    /** O preset do primeiro filamento é o selecionado em [PresetKind.FILAMENT]. */
+    suspend fun setFilamentPreset(filament: Int, name: String) = call { nativeSetFilamentPreset(handle, filament, name) }
+
+    /** [color]: `#RRGGBB`. Recalcula os volumes de purga do filamento. */
+    suspend fun setFilamentColor(filament: Int, color: String) = call { nativeSetFilamentColor(handle, filament, color) }
+
+    /** Filamento (a partir de 0) do objeto da mesa; ver [ObjectMesh.filament]. */
+    suspend fun setObjectFilament(objectIndex: Int, filament: Int) = call { nativeSetObjectFilament(handle, objectIndex, filament) }
+
+    /**
+     * Volumes de purga (mm³) da troca do filamento i para o j: matriz n x n por linha, uma por
+     * extrusor da impressora, em sequência.
+     */
+    suspend fun flushVolumes(): DoubleArray = call { nativeFlushVolumes(handle) }
+
+    suspend fun setFlushVolumes(matrix: DoubleArray) = call { nativeSetFlushVolumes(handle, matrix) }
+
+    /** Multiplicador dos volumes de purga, por extrusor. */
+    suspend fun flushMultipliers(): DoubleArray = call { nativeFlushMultipliers(handle) }
+
+    suspend fun setFlushMultiplier(extruder: Int, multiplier: Double) = call { nativeSetFlushMultiplier(handle, extruder, multiplier) }
+
+    /** Recalcula a matriz de purga pelas cores, como o "Auto-calcular" do Orca. */
+    suspend fun calcFlushVolumes() = call { nativeCalcFlushVolumes(handle) }
+
     suspend fun placements(): List<Placement> = call {
         val v = nativePlacements(handle)
         List(v.size / 29) { i ->
@@ -414,6 +451,17 @@ private external fun nativeArrange(handle: Long)
 private external fun nativeObjects(handle: Long): Array<ObjectMesh>
 private external fun nativeFilamentColors(handle: Long): Array<String>
 private external fun nativeFilamentPresets(handle: Long): Array<String>
+private external fun nativeFilamentLimits(handle: Long): IntArray
+private external fun nativeAddFilament(handle: Long)
+private external fun nativeRemoveFilament(handle: Long, filament: Int)
+private external fun nativeSetFilamentPreset(handle: Long, filament: Int, name: String)
+private external fun nativeSetFilamentColor(handle: Long, filament: Int, color: String)
+private external fun nativeSetObjectFilament(handle: Long, objectIndex: Int, filament: Int)
+private external fun nativeFlushVolumes(handle: Long): DoubleArray
+private external fun nativeSetFlushVolumes(handle: Long, matrix: DoubleArray)
+private external fun nativeFlushMultipliers(handle: Long): DoubleArray
+private external fun nativeSetFlushMultiplier(handle: Long, extruder: Int, multiplier: Double)
+private external fun nativeCalcFlushVolumes(handle: Long)
 private external fun nativePlacements(handle: Long): DoubleArray
 private external fun nativeSetTransform(handle: Long, objectIndex: Int, transform: DoubleArray)
 private external fun nativeSetPlacement(handle: Long, objectIndex: Int, values: DoubleArray)

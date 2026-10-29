@@ -308,6 +308,53 @@ class SlicerEngineTest {
         assertTrue(engine.slice(File(work, "project.gcode")) { _, _ -> }.filamentMm3 > 0)
     }
 
+    @Test
+    fun projectFilamentsAreAddedAssignedAndRemoved() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.addModel(testAsset("voron_cube_v7.stl"))
+        // A1 com AMS lite: um extrusor para vários filamentos.
+        assertEquals(1..64, engine.filamentLimits())
+        assertEquals(1, engine.filamentColors().size)
+
+        engine.addFilament()
+        assertEquals(2, engine.filamentColors().size)
+        assertEquals(engine.filamentPresets()[0], engine.filamentPresets()[1])
+        // Purga calculada pelas cores; nada na troca para o mesmo filamento.
+        val flush = engine.flushVolumes()
+        assertEquals(4, flush.size)
+        assertEquals(0.0, flush[0], 0.0)
+        assertTrue(flush[1] > 0 && flush[2] > 0)
+        engine.setFilamentColor(1, "#000000")
+        assertEquals("#000000", engine.filamentColors()[1])
+        assertTrue("claro para preto purga menos que preto para claro", engine.flushVolumes()[1] < engine.flushVolumes()[2])
+        engine.setFlushVolumes(doubleArrayOf(0.0, 100.0, 200.0, 0.0))
+        assertEquals(200.0, engine.flushVolumes()[2], 0.0)
+
+        engine.setFilamentPreset(1, "Bambu PLA Matte @BBL A1")
+        engine.setObjectFilament(1, 1)
+        assertEquals(listOf(0, 1), engine.objects().map { it.filament })
+        assertEquals(1, engine.objects()[1].filaments.distinct().single().toInt())
+        val stats = engine.slice(File(work, "two.gcode")) { _, _ -> }
+        assertEquals(listOf(0, 1), stats.filaments.map { it.index })
+
+        // O projeto guarda filamentos, cores e o filamento de cada objeto.
+        val project = File(work, "two.3mf")
+        engine.saveProject(project, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+        engine.openProject(project)
+        assertEquals(listOf("Bambu PLA Basic @BBL A1", "Bambu PLA Matte @BBL A1"), engine.filamentPresets())
+        assertEquals("#000000", engine.filamentColors()[1])
+        assertEquals(listOf(0, 1), engine.objects().map { it.filament })
+
+        // Excluir o primeiro: o objeto dele passa para o que era o segundo, agora o primeiro.
+        engine.removeFilament(0)
+        assertEquals(listOf("Bambu PLA Matte @BBL A1"), engine.filamentPresets())
+        assertEquals("Bambu PLA Matte @BBL A1", engine.selected(PresetKind.FILAMENT))
+        assertEquals(listOf(0, 0), engine.objects().map { it.filament })
+        assertEquals(1, engine.flushVolumes().size)
+    }
+
     // Projetos do Bambu Studio 2.x (MakerWorld) gravam filament_notes como texto, lista no Orca.
     @Test
     fun opensBambuStudioProjectWithTextFilamentNotes() = runBlocking {

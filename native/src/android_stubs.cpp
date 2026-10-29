@@ -2,6 +2,7 @@
 // Draco or OpenCV. Those libraries are not built for Android (see
 // docs/arquitetura.md §2.3); the formats they back (STEP, SVG extrusion,
 // Draco, 3D text) are out of scope for the app. Each stub fails cleanly.
+// At the end, one GUI-side helper that libslic3r calls.
 
 #include <string>
 #include <vector>
@@ -37,3 +38,29 @@ void load_text_shape(const char * /*text*/, const char * /*font*/, const float /
 }
 
 } // namespace Slic3r
+
+// libslic3r/FlushVolCalc.cpp calls RGB2HSV() from slic3r/Utils/ColorSpaceConvert.cpp, which
+// is left out of the build because it needs wxWidgets. Same implementation as there.
+#include <algorithm>
+#include <cmath>
+
+#include "slic3r/Utils/ColorSpaceConvert.hpp"
+
+void RGB2HSV(float r, float g, float b, float *h, float *s, float *v)
+{
+    float Cmax  = std::max(std::max(r, g), b);
+    float Cmin  = std::min(std::min(r, g), b);
+    float delta = Cmax - Cmin;
+
+    if (std::abs(delta) < 0.001)
+        *h = 0.f;
+    else if (Cmax == r)
+        *h = 60.f * fmod((g - b) / delta, 6.f);
+    else if (Cmax == g)
+        *h = 60.f * ((b - r) / delta + 2);
+    else
+        *h = 60.f * ((r - g) / delta + 4);
+
+    *s = std::abs(Cmax) < 0.001 ? 0.f : delta / Cmax;
+    *v = Cmax;
+}
