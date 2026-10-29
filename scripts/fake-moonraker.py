@@ -47,7 +47,7 @@ def main():
                 return
             if self.path == "/server/info":
                 self.reply(200, {"result": {"klippy_connected": True, "klippy_state": "ready",
-                                            "moonraker_version": "fake"}})
+                                            "moonraker_version": "v0.9.3-fake"}})
             elif self.path == "/printer/objects/query?print_stats":
                 self.reply(200, {"result": {"status": {"print_stats": {"state": state["print_stats"]}}}})
             else:

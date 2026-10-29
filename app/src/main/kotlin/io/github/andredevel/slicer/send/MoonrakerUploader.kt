@@ -21,8 +21,17 @@ object MoonrakerUploader : Uploader {
     /** Porta própria do Moonraker, quando o nginx do Fluidd/Mainsail (porta 80) não repassa a API. */
     private const val MOONRAKER_PORT = 7125
 
-    override suspend fun test(host: PrinterHost) {
-        api(host)
+    override suspend fun test(host: PrinterHost): Connection {
+        val api = api(host)
+        // De novo na porta que respondeu, para medir sem as tentativas de [api].
+        val start = System.nanoTime()
+        val response = Http.get(api.resolve("/server/info"), headers(host))
+        val millis = (System.nanoTime() - start) / 1_000_000
+        check(response, host)
+        // "v0.9.3-12-gabc1234": a parte do git não interessa aqui.
+        val version = jsonOrNull(response.body)?.optJSONObject("result")?.optString("moonraker_version")
+            ?.substringBefore('-')?.takeIf { it.isNotEmpty() }
+        return Connection(listOfNotNull("Moonraker", version).joinToString(" "), millis)
     }
 
     override suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit) {

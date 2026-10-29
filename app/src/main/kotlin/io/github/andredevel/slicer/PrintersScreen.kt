@@ -369,7 +369,12 @@ fun SendStatus(send: SendState) {
             if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
             else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         }
-        is SendState.Done -> Banner(Tone.SUCCESS, stringResource(send.text, send.printer), Modifier.fillMaxWidth())
+        is SendState.Done -> {
+            val connection = send.connection
+            val text = if (connection != null) stringResource(R.string.send_test_detail, connection.service, connection.millis)
+            else stringResource(send.text, send.printer)
+            Banner(Tone.SUCCESS, text, Modifier.fillMaxWidth())
+        }
         is SendState.Failed -> Banner(Tone.ERROR, send.message, Modifier.fillMaxWidth())
     }
 }

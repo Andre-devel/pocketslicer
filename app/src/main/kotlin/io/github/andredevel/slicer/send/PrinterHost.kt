@@ -32,7 +32,7 @@ interface Uploader {
     val canStart: Boolean
 
     /** Confere que a impressora responde pelo protocolo; falha com [SendException]. */
-    suspend fun test(host: PrinterHost)
+    suspend fun test(host: PrinterHost): Connection
 
     /**
      * Envia [file] com o nome [name]; com [start], confere antes que a impressora está livre e
@@ -40,6 +40,9 @@ interface Uploader {
      */
     suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit)
 }
+
+/** Resultado de [Uploader.test]: serviço que respondeu (com a versão, quando há) e tempo da resposta. */
+data class Connection(val service: String, val millis: Long)
 
 /** [assets]: do app, com as CAs das impressoras Bambu (BambuUploader). */
 fun uploader(kind: Kind, assets: AssetManager): Uploader = when (kind) {

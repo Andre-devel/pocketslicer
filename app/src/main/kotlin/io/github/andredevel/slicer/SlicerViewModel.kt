@@ -21,6 +21,7 @@ import io.github.andredevel.slicer.profiles.OrcaResources
 import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.Scene
 import io.github.andredevel.slicer.render.Tool
+import io.github.andredevel.slicer.send.Connection
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterStore
@@ -60,7 +61,8 @@ sealed interface SendState {
     data object Idle : SendState
     /** [progress] de 0 a 1, ou null enquanto só conecta. */
     data class Working(@StringRes val text: Int, val progress: Float? = null) : SendState
-    data class Done(@StringRes val text: Int, val printer: String) : SendState
+    /** [connection]: o que respondeu ao teste de conexão. */
+    data class Done(@StringRes val text: Int, val printer: String, val connection: Connection? = null) : SendState
     data class Failed(val message: String) : SendState
 }
 
@@ -436,8 +438,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun canStart(host: PrinterHost): Boolean = uploader(host.kind, app.assets).canStart
 
     fun testPrinter(host: PrinterHost) = runSend(R.string.send_connecting) {
-        uploader(host.kind, app.assets).test(host)
-        SendState.Done(R.string.send_test_ok, host.name)
+        val connection = uploader(host.kind, app.assets).test(host)
+        SendState.Done(R.string.send_test_ok, host.name, connection)
     }
 
     /** Envia o G-code fatiado para [host]; com [start], também inicia a impressão. */

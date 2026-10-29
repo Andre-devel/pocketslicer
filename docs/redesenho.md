@@ -58,7 +58,7 @@ que faltar entra lá, sem depender do ViewModel.
 5. (Feito) Impressoras: porta em campo separado (o `PrinterHost.address` continua "ip:porta"; o
    formulário divide e junta), validação do IP enquanto digita, busca na rede começando sozinha
    ao abrir a tela com a sub-rede no texto (expor `PrinterScanner.subnetHosts`).
-6. Teste de conexão com detalhe: Moonraker `/server/info` (versão) e tempo de resposta;
+6. (Feito) Teste de conexão com detalhe: Moonraker `/server/info` (versão) e tempo de resposta;
    resultado "Conectada · Moonraker v0.9 · 38 ms".
 7. Etapas do envio: `SendState.Working` com etapa (conectar / enviar / iniciar), bytes enviados
    e tempo de cada uma; lista com ícones como no design.

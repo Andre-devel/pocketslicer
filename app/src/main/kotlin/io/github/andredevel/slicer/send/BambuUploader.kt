@@ -40,8 +40,10 @@ import kotlin.coroutines.coroutineContext
 class BambuUploader(private val assets: AssetManager) : Uploader {
     override val canStart = true
 
-    override suspend fun test(host: PrinterHost) {
+    override suspend fun test(host: PrinterHost): Connection {
+        val start = System.nanoTime()
         session(host) { }
+        return Connection("Bambu FTPS", (System.nanoTime() - start) / 1_000_000)
     }
 
     override suspend fun upload(host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit) {
