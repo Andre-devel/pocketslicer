@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
+import io.github.andredevel.slicer.update.Release
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -136,12 +137,15 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
                 MessageAction.RETRY -> viewModel.retry()
                 MessageAction.DETAILS -> details = message.details
                 MessageAction.UNDO -> viewModel.undoOpen()
-                MessageAction.INSTALL_UPDATE -> viewModel.installUpdate()
                 null -> {}
             }
         }
     }
     details?.let { ErrorDetailsDialog(it) { details = null } }
+    val update = state.update
+    if (state.updatePrompt && update is UpdateState.Ready) {
+        UpdateDialog(update.release, state.updateLosesWork, viewModel::installUpdate, viewModel::dismissUpdatePrompt)
+    }
 
     // Parâmetros ou Impressoras por cima da área de trabalho; null mostra Preparar/Visualizar,
     // conforme a pré-visualização do ViewModel.
@@ -224,7 +228,6 @@ private val MESSAGE_ACTION_LABELS = mapOf(
     MessageAction.RETRY to R.string.action_retry,
     MessageAction.DETAILS to R.string.action_details,
     MessageAction.UNDO to R.string.undo,
-    MessageAction.INSTALL_UPDATE to R.string.update_install,
 )
 
 /** Texto técnico de um erro inesperado, com cópia para relatar o problema. */
@@ -241,6 +244,23 @@ private fun ErrorDetailsDialog(details: String, onClose: () -> Unit) {
         dismissButton = {
             TextButton(onClick = { clipboard.setText(AnnotatedString(details)) }) { Text(stringResource(R.string.copy)) }
         },
+    )
+}
+
+/** Versão nova baixada: instalar agora (o app fecha) ou depois. Avisa se há trabalho a perder. */
+@Composable
+private fun UpdateDialog(release: Release, losesWork: Boolean, onInstall: () -> Unit, onLater: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onLater,
+        title = { Text(stringResource(R.string.update_available, release.version)) },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                Text(stringResource(if (losesWork) R.string.update_loses_work else R.string.update_closes_app))
+                if (release.notes.isNotBlank()) Text(release.notes, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onInstall) { Text(stringResource(R.string.update_install)) } },
+        dismissButton = { TextButton(onClick = onLater) { Text(stringResource(R.string.update_later)) } },
     )
 }
 

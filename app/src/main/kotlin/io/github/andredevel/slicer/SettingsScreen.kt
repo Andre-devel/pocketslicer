@@ -118,7 +118,7 @@ private fun UpdateSection(state: SlicerUiState, viewModel: SlicerViewModel) {
     }
     LabeledRow(stringResource(R.string.update_installed_version, viewModel.installedVersion), detail = status) {
         if (update is UpdateState.Ready) {
-            AppButton(stringResource(R.string.update_install), viewModel::installUpdate, icon = R.drawable.ic_download)
+            AppButton(stringResource(R.string.update_install), viewModel::promptUpdate, icon = R.drawable.ic_download)
         } else {
             val busy = update == UpdateState.Checking || update is UpdateState.Downloading || update == UpdateState.Installing
             AppButton(stringResource(R.string.update_check), { viewModel.checkUpdate() }, style = ButtonStyle.OUTLINED, icon = R.drawable.ic_refresh, enabled = !busy)

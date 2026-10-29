@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -72,7 +73,7 @@ class AppUpdater(private val context: Context) {
             partial.delete()
             throw IOException("APK ${release.version}: tamanho ou SHA-256 diferente do publicado")
         }
-        partial.renameTo(file)
+        if (!partial.renameTo(file)) throw IOException("APK ${release.version}: não foi possível gravar ${file.name}")
         file
     }
 
@@ -112,7 +113,8 @@ class AppUpdater(private val context: Context) {
     }
 
     private fun verify(file: File, release: Release): Boolean {
-        val expected = release.sha256 ?: return true
+        // Sem digest publicado, resta a assinatura: o Android só instala o APK com a mesma chave.
+        val expected = release.sha256 ?: return true.also { Log.w(TAG, "release ${release.version}: asset sem SHA-256, só tamanho conferido") }
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buffer = ByteArray(BUFFER)
@@ -143,17 +145,28 @@ class AppUpdater(private val context: Context) {
         const val RELEASES_URL = "https://api.github.com/repos/Andre-devel/pocketslicer/releases?per_page=10"
         const val TIMEOUT_MS = 20_000
         const val BUFFER = 64 * 1024
+        const val TAG = "AppUpdater"
     }
 }
 
-/** Compara "0.10.1" com "0.9" número a número; sufixos ("-beta") são ignorados. */
+/**
+ * Compara "0.10.1" com "0.9" número a número. Com os números iguais, a versão com sufixo vem antes
+ * ("0.2.0-beta" < "0.2.0"), e dois sufixos se comparam como texto.
+ */
 fun compareVersions(a: String, b: String): Int {
     fun parts(version: String) = version.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+    fun suffix(version: String) = version.substringAfter('-', "")
     val x = parts(a)
     val y = parts(b)
     for (i in 0 until maxOf(x.size, y.size)) {
         val diff = x.getOrElse(i) { 0 } - y.getOrElse(i) { 0 }
         if (diff != 0) return diff
     }
-    return 0
+    val (sa, sb) = suffix(a) to suffix(b)
+    return when {
+        sa == sb -> 0
+        sa.isEmpty() -> 1
+        sb.isEmpty() -> -1
+        else -> sa.compareTo(sb)
+    }
 }

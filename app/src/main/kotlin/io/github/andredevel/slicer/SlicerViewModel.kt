@@ -78,7 +78,7 @@ sealed interface SendState {
  */
 data class UserMessage(val text: String, val success: Boolean = false, val action: MessageAction? = null, val details: String? = null)
 
-enum class MessageAction { PICK_OTHER, RETRY, DETAILS, UNDO, INSTALL_UPDATE }
+enum class MessageAction { PICK_OTHER, RETRY, DETAILS, UNDO }
 
 /** Atualização do app pelo GitHub Releases (Configurações e aviso ao abrir o app). */
 sealed interface UpdateState {
@@ -174,9 +174,13 @@ data class SlicerUiState(
     val currency: String? = null,
     val autoUpdate: Boolean = true,
     val update: UpdateState = UpdateState.Idle,
+    /** Pergunta se instala a versão baixada (ao terminar o download ou por Instalar em Configurações). */
+    val updatePrompt: Boolean = false,
 ) {
     val objectCount get() = scene?.placements?.size ?: 0
     val anyOutside get() = scene?.placements?.any { it.outside } == true
+    /** Instalar agora fecha o app: perderia o projeto não salvo, o fatiamento ou o envio em andamento. */
+    val updateLosesWork get() = dirty || slice is SliceState.Running || send is SendState.Working
     val canSlice get() = busy == null && objectCount > 0 && !anyOutside && slice !is SliceState.Running
     val preview get() = (slice as? SliceState.Done)?.preview
     /** G-code em dia com a cena e os perfis: pode ser salvo e enviado. */
@@ -255,7 +259,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Procura versão nova no GitHub e já baixa o APK; pronto, avisa com "Instalar". [automatic]
+     * Procura versão nova no GitHub e já baixa o APK; pronto, pergunta se instala. [automatic]
      * (ao abrir o app) fica em silêncio quando não há versão nova ou falta rede.
      */
     fun checkUpdate(automatic: Boolean = false) {
@@ -274,8 +278,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 val apk = updater.download(release) { progress ->
                     _state.update { it.copy(update = UpdateState.Downloading(release, progress)) }
                 }
-                val text = app.getString(R.string.update_ready, release.version)
-                _state.update { it.copy(update = UpdateState.Ready(release, apk), message = UserMessage(text, success = true, action = MessageAction.INSTALL_UPDATE)) }
+                _state.update { it.copy(update = UpdateState.Ready(release, apk), updatePrompt = true) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -285,12 +288,18 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Abre a pergunta de instalar a versão baixada; recusada, volta a aparecer na próxima abertura do app. */
+    fun promptUpdate() = _state.update { if (it.update is UpdateState.Ready) it.copy(updatePrompt = true) else it }
+
+    fun dismissUpdatePrompt() = _state.update { it.copy(updatePrompt = false) }
+
     /**
      * Instala o APK baixado; o Android fecha o app ao concluir. Sem a permissão de instalar apps
      * (Android 8+, por app), abre a tela do sistema para concedê-la; tocar em Instalar de novo segue.
      */
     fun installUpdate() {
         val ready = _state.value.update as? UpdateState.Ready ?: return
+        dismissUpdatePrompt()
         if (!app.packageManager.canRequestPackageInstalls()) {
             val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
             app.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

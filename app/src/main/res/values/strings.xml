@@ -206,6 +206,10 @@
     <string name="update_installing">Installing… the app will close and can be reopened afterwards.</string>
     <string name="update_failed">Could not update: %1$s</string>
     <string name="update_install_failed">Update not installed: %1$s</string>
+    <string name="update_available">Version %1$s available</string>
+    <string name="update_closes_app">Installing closes the app; open it again afterwards.</string>
+    <string name="update_loses_work">Installing closes the app now: the unsaved project, slicing or sending in progress will be lost. Save first or install later.</string>
+    <string name="update_later">Not now</string>
     <string name="update_notes">What\'s new</string>
     <string name="filament_n">Filament %1$d</string>
     <string name="profile">Profile</string>

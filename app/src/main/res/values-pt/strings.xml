@@ -202,6 +202,10 @@
     <string name="update_installing">Instalando… o app fecha e pode ser aberto de novo em seguida.</string>
     <string name="update_failed">Não foi possível atualizar: %1$s</string>
     <string name="update_install_failed">Atualização não instalada: %1$s</string>
+    <string name="update_available">Versão %1$s disponível</string>
+    <string name="update_closes_app">Instalar fecha o app; abra de novo em seguida.</string>
+    <string name="update_loses_work">Instalar fecha o app agora: o projeto não salvo, o fatiamento ou o envio em andamento serão perdidos. Salve antes ou instale depois.</string>
+    <string name="update_later">Agora não</string>
     <string name="update_notes">Novidades</string>
     <string name="filament_n">Filamento %1$d</string>
     <string name="profile">Perfil</string>
