@@ -264,4 +264,11 @@
         <item quantity="other">%d objects outside the print area</item>
     </plurals>
     <string name="category_general">General</string>
+    <string name="filaments">Filaments</string>
+    <string name="add_filament">Add filament</string>
+    <string name="remove_filament">Remove filament %1$d</string>
+    <string name="remove_filament_detail">Objects and painted areas that use filament %1$d move to filament 1.</string>
+    <string name="edit_filament_parameters">Edit parameters of filament 1</string>
+    <string name="color_hex">Color (#RRGGBB)</string>
+    <string name="apply">Apply</string>
 </resources>

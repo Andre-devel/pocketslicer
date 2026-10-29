@@ -411,7 +411,7 @@ fun PreparePanel(state: SlicerUiState, viewModel: SlicerViewModel, openParameter
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ProfileSummary(state, openParameters)
+            ProfileSummary(state, viewModel, openParameters)
             HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
             SelectedObject(state, viewModel)
         }
@@ -443,19 +443,18 @@ fun PrepareSheet(state: SlicerUiState, viewModel: SlicerViewModel, pickers: File
         }
         SelectedObject(state, viewModel)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        ProfileSummary(state, openParameters)
+        ProfileSummary(state, viewModel, openParameters)
     }
 }
 
-/** Perfis ativos; tocar abre o tipo em Parâmetros. */
+/** Perfis ativos (tocar abre o tipo em Parâmetros) e os filamentos do projeto. */
 @Composable
-private fun ProfileSummary(state: SlicerUiState, openParameters: (PresetKind) -> Unit) {
+private fun ProfileSummary(state: SlicerUiState, viewModel: SlicerViewModel, openParameters: (PresetKind) -> Unit) {
     SectionLabel(stringResource(R.string.profile))
     val vendor = state.vendors.selected
     val rows = listOf(
         Triple(PresetKind.PRINTER, R.drawable.ic_print, if (vendor != null) stringResource(R.string.printer_from, vendor) else stringResource(R.string.printer)),
         Triple(PresetKind.PROCESS, R.drawable.ic_stacks, stringResource(R.string.process)),
-        Triple(PresetKind.FILAMENT, R.drawable.ic_line_weight, stringResource(R.string.filament)),
     )
     for ((kind, icon, overline) in rows) {
         val choice = state.presets[kind]
@@ -464,12 +463,7 @@ private fun ProfileSummary(state: SlicerUiState, openParameters: (PresetKind) ->
             tag = choice?.values?.dirty?.size?.takeIf { it > 0 }?.let { stringResource(R.string.modified_count, it) },
         )
     }
-    // Projeto com vários filamentos: o preset de cada um (a linha acima é o primeiro).
-    if (state.filaments.size > 1) {
-        Column(Modifier.padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            state.filaments.forEachIndexed { i, name -> FilamentLabel(i, state.scene?.filamentColors?.getOrNull(i), name) }
-        }
-    }
+    FilamentsSection(state, viewModel, state.editable, openParameters)
 }
 
 /** Número e cor de um filamento do projeto, com [name] ao lado quando dado. */
@@ -519,9 +513,10 @@ private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
         style = MonoStyles.small,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    // Filamentos que o objeto usa, quando o projeto tem mais de um.
+    ObjectFilamentField(state, viewModel, index, state.editable)
+    // Pintado em várias cores: os filamentos da pintura além do do objeto.
     val used = state.scene.meshes.getOrNull(index)?.filaments?.distinct().orEmpty()
-    if (state.filaments.size > 1 && used.isNotEmpty()) {
+    if (state.filaments.size > 1 && used.size > 1) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             for (filament in used) FilamentLabel(filament.toInt(), state.scene.filamentColors.getOrNull(filament.toInt()))
         }

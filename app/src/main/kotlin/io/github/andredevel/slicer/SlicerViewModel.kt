@@ -151,6 +151,8 @@ data class SlicerUiState(
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
     /** Preset de cada filamento do projeto (cores em [Scene.filamentColors], na mesma ordem). */
     val filaments: List<String> = emptyList(),
+    /** Quantos filamentos o projeto pode ter com a impressora selecionada. */
+    val filamentLimits: IntRange = 1..1,
     /** Definições das opções editáveis (PrintConfigDef do Orca); textos no idioma do app. */
     val optionDefs: Map<PresetKind, List<OptionDef>> = emptyMap(),
     /** Nomes dos tipos de extrusão (índice em SlicerEngine.roleNames) no idioma do app. */
@@ -574,6 +576,29 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.objects()
     }
 
+    fun addFilament() = editFilaments { it.addFilament() }
+
+    /** Os objetos e a pintura do filamento passam para o primeiro. */
+    fun removeFilament(filament: Int) = editFilaments { it.removeFilament(filament) }
+
+    fun setFilamentPreset(filament: Int, name: String) = editFilaments(StaleReason(name)) { it.setFilamentPreset(filament, name) }
+
+    fun setFilamentColor(filament: Int, color: String) = editFilaments { it.setFilamentColor(filament, color) }
+
+    fun setObjectFilament(objectIndex: Int, filament: Int) = editFilaments { it.setObjectFilament(objectIndex, filament) }
+
+    /** Filamentos do projeto: mudam presets, cores e o filamento de cada triângulo. */
+    private fun editFilaments(reason: StaleReason = StaleReason(null), edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
+        try {
+            edit(engine)
+            markChanged(reason)
+        } finally {
+            refreshPresets(engine)
+            // Os mesmos objetos, com os filamentos novos: a seleção fica.
+            refreshScene(engine, engine.objects(), keepSelection = true)
+        }
+    }
+
     fun moveToPlate(objectIndex: Int, plate: Int) = editScene { engine ->
         engine.moveToPlate(objectIndex, plate)
         _state.value.scene?.meshes?.filterIndexed { i, _ -> i != objectIndex }
@@ -836,20 +861,21 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             PresetChoice(engine.presets(it), engine.selected(it), engine.userPresets(it).toSet(), engine.values(it))
         }
         val filaments = engine.filamentPresets()
-        _state.update { it.copy(presets = presets, filaments = filaments) }
+        val limits = engine.filamentLimits()
+        _state.update { it.copy(presets = presets, filaments = filaments, filamentLimits = limits) }
     }
 
     /**
      * Relê mesa e posições do motor. [meshes]: nova lista de malhas quando os objetos
-     * mudaram (a seleção é limpa); null mantém as atuais.
+     * mudaram (a seleção é limpa, salvo com [keepSelection]); null mantém as atuais.
      */
-    private suspend fun refreshScene(engine: SlicerEngine, meshes: List<ObjectMesh>? = null) {
+    private suspend fun refreshScene(engine: SlicerEngine, meshes: List<ObjectMesh>? = null, keepSelection: Boolean = false) {
         val bed = engine.bed()
         val placements = engine.placements()
         val plates = engine.plates()
         val colors = engine.filamentColors().map(::rgba)
         _state.update { state ->
-            val selected = state.scene?.selected?.takeIf { meshes == null && it < placements.size }
+            val selected = state.scene?.selected?.takeIf { (meshes == null || keepSelection) && it < placements.size }
             state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors), plates = plates)
         }
     }
