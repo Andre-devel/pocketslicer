@@ -8,6 +8,13 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.tan
 
+/** Vistas prontas da câmera: ângulos (graus) de onde a mesa é enquadrada. */
+enum class CameraView(val yaw: Float, val pitch: Float) {
+    HOME(-90f, 35f),
+    TOP(-90f, 89f),
+    FRONT(-90f, 0f),
+}
+
 /** Câmera orbital em torno de [target], com Z para cima como no Orca. Ângulos em graus. */
 class OrbitCamera {
     val target = floatArrayOf(0f, 0f, 0f)
@@ -22,32 +29,42 @@ class OrbitCamera {
     // Raio enquadrado por frame(); null depois que o usuário mexe na câmera.
     private var framedRadius: Float? = null
 
+    /** Vista do último frame(); null depois que o usuário mexe na câmera. */
+    var cameraView: CameraView? = null
+        private set
+
     /**
-     * Enquadra uma esfera de raio [radius] centrada em [center] de um ângulo padrão. Até o
+     * Enquadra uma esfera de raio [radius] centrada em [center] pelo ângulo de [view]. Até o
      * usuário mexer na câmera, o enquadramento acompanha mudanças de proporção do viewport.
      */
-    fun frame(center: FloatArray, radius: Float) {
+    fun frame(center: FloatArray, radius: Float, view: CameraView = CameraView.HOME) {
         center.copyInto(target)
         framedRadius = radius
-        yaw = -90f
-        pitch = 35f
+        cameraView = view
+        yaw = view.yaw
+        pitch = view.pitch
         fitFramedRadius()
     }
 
-    fun rotate(dYaw: Float, dPitch: Float) {
+    private fun release() {
         framedRadius = null
+        cameraView = null
+    }
+
+    fun rotate(dYaw: Float, dPitch: Float) {
+        release()
         yaw += dYaw
         pitch = (pitch + dPitch).coerceIn(-89f, 89f)
     }
 
     fun zoom(factor: Float) {
-        framedRadius = null
+        release()
         distance = (distance / factor).coerceIn(5f, 5000f)
     }
 
     /** Desloca o alvo no plano da tela; dx, dy em pixels de uma tela com [heightPx] de altura. */
     fun pan(dx: Float, dy: Float, heightPx: Int) {
-        framedRadius = null
+        release()
         val mmPerPx = 2f * distance * tan(Math.toRadians(FOV_DEG / 2.0)).toFloat() / max(heightPx, 1)
         // Linhas 0 e 1 da matriz de visão são os eixos direita e cima da câmera.
         for (i in 0..2) target[i] += (-dx * view[i * 4] + dy * view[i * 4 + 1]) * mmPerPx

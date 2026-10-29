@@ -23,6 +23,10 @@
     <string name="object_title">Selected object</string>
     <string name="object_hint">Tap an object on the bed to edit its position, rotation and scale. Drag over it to use the tool; with \"Lay on face\", tap the face that should rest on the bed.</string>
     <string name="more_options">More options</string>
+    <string name="camera_view">View</string>
+    <string name="view_home">Home</string>
+    <string name="view_top">Top</string>
+    <string name="view_front">Front</string>
     <string name="arrange">Arrange</string>
     <string name="duplicate">Duplicate</string>
     <string name="delete">Delete</string>

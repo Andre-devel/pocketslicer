@@ -144,7 +144,13 @@ fun SliceButton(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modi
 
 /** Controles sobre o viewport em Preparar: ferramentas, avisos, placas e estado vazio. */
 @Composable
-fun PrepareOverlay(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, compact: Boolean) {
+fun PrepareOverlay(
+    state: SlicerUiState,
+    viewModel: SlicerViewModel,
+    pickers: FilePickers,
+    compact: Boolean,
+    viewPicker: @Composable (Modifier) -> Unit,
+) {
     val editable = state.editable
     val selected = state.scene?.selected != null
     Box(Modifier.fillMaxSize().padding(12.dp)) {
@@ -160,7 +166,9 @@ fun PrepareOverlay(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fi
         Column(
             Modifier.align(Alignment.TopCenter).padding(horizontal = if (compact) 0.dp else 88.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (!compact && state.objectCount > 0) viewPicker(Modifier)
             val outside = state.scene?.placements?.indexOfFirst { it.outside } ?: -1
             if (outside >= 0) {
                 val count = state.scene!!.placements.count { it.outside }
@@ -186,12 +194,12 @@ fun PrepareOverlay(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fi
                 AppButton(stringResource(R.string.open_file_short), pickers.openFile, icon = R.drawable.ic_file_open)
             }
         }
-        BottomControls(state, viewModel, compact)
+        BottomControls(state, viewModel, compact, viewPicker)
     }
 }
 
 @Composable
-private fun BoxScope.BottomControls(state: SlicerUiState, viewModel: SlicerViewModel, compact: Boolean) {
+private fun BoxScope.BottomControls(state: SlicerUiState, viewModel: SlicerViewModel, compact: Boolean, viewPicker: @Composable (Modifier) -> Unit) {
     val editable = state.editable
     val plates = state.plates
     // No celular o sheet recolhido cobre a faixa de baixo: placas e ações sobem para o topo.
@@ -208,6 +216,7 @@ private fun BoxScope.BottomControls(state: SlicerUiState, viewModel: SlicerViewM
         }
         Spacer(Modifier.weight(1f))
         if (state.objectCount > 0) {
+            if (compact) viewPicker(Modifier)
             if (!compact) {
                 FloatingCard {
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {

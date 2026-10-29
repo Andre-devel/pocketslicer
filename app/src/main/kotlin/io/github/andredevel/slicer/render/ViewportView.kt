@@ -26,6 +26,8 @@ interface ViewportListener {
     fun onLayOnFace(objectIndex: Int, triangle: Int)
     /** Toque longo num objeto, em (x, y) pixels do viewport. */
     fun onLongPress(objectIndex: Int, x: Float, y: Float)
+    /** A câmera foi para uma vista pronta, ou saiu dela (null) com um gesto. */
+    fun onCameraView(view: CameraView?)
 }
 
 /**
@@ -84,6 +86,11 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     }
 
     private var scene: Scene? = null
+
+    // Thread GL: última vista entregue ao listener.
+    private var reportedView: CameraView? = null
+
+    fun setView(view: CameraView) = onGlThread { renderer.setView(view) }
 
     private var preview: Preview? = null
     private var showPreview = false
@@ -267,7 +274,14 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     }
 
     private fun onGlThread(block: () -> Unit) {
-        queueEvent(block)
+        queueEvent {
+            block()
+            val view = renderer.camera.cameraView
+            if (view != reportedView) {
+                reportedView = view
+                post { listener?.onCameraView(view) }
+            }
+        }
         requestRender()
     }
 

@@ -56,11 +56,14 @@ import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.Thumbnail
 import io.github.andredevel.slicer.render.PreviewSettings
 import io.github.andredevel.slicer.render.ViewportListener
+import io.github.andredevel.slicer.render.CameraView
 import io.github.andredevel.slicer.render.ViewportView
 import io.github.andredevel.slicer.ui.components.AppMark
 import io.github.andredevel.slicer.ui.components.AppNavigationBar
 import io.github.andredevel.slicer.ui.components.AppNavigationRail
+import io.github.andredevel.slicer.ui.components.MenuPill
 import io.github.andredevel.slicer.ui.components.NavItem
+import io.github.andredevel.slicer.ui.components.PillTabs
 import io.github.andredevel.slicer.ui.components.blockTouches
 import kotlin.math.roundToInt
 
@@ -204,15 +207,21 @@ private fun Workspace(
         if (previewing) PreviewHeader(state, viewModel, pickers, compact = !wide)
         else PrepareHeader(state, viewModel, pickers, compact = !wide)
     }
+    var viewport by remember { mutableStateOf<ViewportView?>(null) }
+    var cameraView by remember { mutableStateOf<CameraView?>(null) }
+    val viewPicker = @Composable { modifier: Modifier ->
+        CameraViewPicker(cameraView, { viewport?.setView(it) }, compact = !wide, modifier)
+    }
+
     val viewportArea = @Composable { modifier: Modifier ->
         Box(modifier) {
-            Viewport(state, viewModel, previewSettings, Modifier.fillMaxSize())
+            Viewport(state, viewModel, previewSettings, { viewport = it }, { cameraView = it }, Modifier.fillMaxSize())
             val preview = state.preview
             val done = state.slice as? SliceState.Done
             if (previewing && preview != null && done != null) {
-                PreviewOverlay(preview, state.roleLabels, previewSettings, { previewSettings = it }, compact = !wide)
+                PreviewOverlay(preview, state.roleLabels, previewSettings, { previewSettings = it }, compact = !wide, viewPicker)
             } else {
-                PrepareOverlay(state, viewModel, pickers, compact = !wide)
+                PrepareOverlay(state, viewModel, pickers, compact = !wide, viewPicker)
             }
         }
     }
@@ -250,7 +259,14 @@ private fun Workspace(
 }
 
 @Composable
-private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, previewSettings: PreviewSettings, modifier: Modifier) {
+private fun Viewport(
+    state: SlicerUiState,
+    viewModel: SlicerViewModel,
+    previewSettings: PreviewSettings,
+    onCreated: (ViewportView) -> Unit,
+    onCameraView: (CameraView?) -> Unit,
+    modifier: Modifier,
+) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var view by remember { mutableStateOf<ViewportView?>(null) }
     // Menu do toque longo: objeto e posição do toque (px).
@@ -286,8 +302,10 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, previewSe
                             viewModel.select(objectIndex)
                             menu = objectIndex to Offset(x, y)
                         }
+                        override fun onCameraView(view: CameraView?) = onCameraView(view)
                     }
                     view = created
+                    onCreated(created)
                 }
             },
             modifier = Modifier.fillMaxSize(),
@@ -321,6 +339,25 @@ private fun Viewport(state: SlicerUiState, viewModel: SlicerViewModel, previewSe
         }
     }
 }
+
+/**
+ * Vistas prontas da câmera ([current] marcada; null depois de um gesto): abas no tablet, menu
+ * no celular.
+ */
+@Composable
+fun CameraViewPicker(current: CameraView?, onView: (CameraView) -> Unit, compact: Boolean, modifier: Modifier = Modifier) {
+    val labels = CAMERA_VIEWS.map { stringResource(it.second) }
+    val selected = CAMERA_VIEWS.indexOfFirst { it.first == current }
+    val select = { index: Int -> onView(CAMERA_VIEWS[index].first) }
+    if (compact) MenuPill(stringResource(R.string.camera_view), labels, selected, select, modifier, icon = R.drawable.ic_visibility)
+    else PillTabs(labels, selected, select, modifier)
+}
+
+private val CAMERA_VIEWS = listOf(
+    CameraView.HOME to R.string.view_home,
+    CameraView.TOP to R.string.view_top,
+    CameraView.FRONT to R.string.view_front,
+)
 
 /** Navegação lateral a partir desta largura; abaixo, barra inferior. */
 private const val RAIL_MIN_WIDTH_DP = 600

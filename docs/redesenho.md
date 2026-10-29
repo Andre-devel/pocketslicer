@@ -45,7 +45,7 @@ que faltar entra lá, sem depender do ViewModel.
 
 ### Etapa 1 — só app (sem mexer no motor)
 
-1. Vistas da câmera Inicial / De cima / Frontal: presets em `render/OrbitCamera.kt`
+1. (Feito) Vistas da câmera Inicial / De cima / Frontal: presets em `render/OrbitCamera.kt`
    (yaw/pitch fixos + `frame` na mesa), `ViewportView.setView(view)`, botões num `FloatingCard`
    no topo do viewport (Preparar e Visualizar).
 2. Projeto com alterações não salvas: `dirty` no `SlicerUiState`, ligado em cada edição de cena

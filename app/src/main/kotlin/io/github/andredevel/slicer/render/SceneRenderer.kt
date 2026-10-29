@@ -234,8 +234,21 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
         val sizeX = xs.max() - xs.min()
         val sizeY = ys.max() - ys.min()
         // A mesa preenche a altura do viewport; objetos altos podem ficar parcialmente fora.
-        val center = floatArrayOf((xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2, 0f)
-        camera.frame(center, 0.4f * sqrt(sizeX * sizeX + sizeY * sizeY))
+        bedCenter = floatArrayOf((xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2, 0f)
+        bedRadius = 0.4f * sqrt(sizeX * sizeX + sizeY * sizeY)
+        setView(CameraView.HOME)
+    }
+
+    // Enquadramento da mesa, calculado em frameBed().
+    private var bedCenter = floatArrayOf(0f, 0f, 0f)
+    private var bedRadius = 0f
+
+    /** Enquadra a mesa pelo ângulo de [view]. */
+    fun setView(view: CameraView) {
+        if (bedRadius <= 0f) return
+        // De frente a mesa vira uma linha: o alvo sobe para ela ficar no terço de baixo.
+        val center = if (view == CameraView.FRONT) bedCenter.copyOf().also { it[2] = bedRadius / 2 } else bedCenter
+        camera.frame(center, bedRadius, view)
     }
 
     private fun upload(scene: Scene): GpuScene {

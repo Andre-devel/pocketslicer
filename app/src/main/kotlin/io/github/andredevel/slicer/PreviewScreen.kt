@@ -106,6 +106,7 @@ fun PreviewOverlay(
     settings: PreviewSettings,
     onSettings: (PreviewSettings) -> Unit,
     compact: Boolean,
+    viewPicker: @Composable (Modifier) -> Unit,
 ) {
     val toolpaths = preview.toolpaths
     val lastLayer = (toolpaths.layerCount - 1).coerceAtLeast(0)
@@ -117,12 +118,17 @@ fun PreviewOverlay(
     Box(Modifier.fillMaxSize().padding(12.dp)) {
         Column(Modifier.align(Alignment.TopStart).widthIn(max = LEGEND_WIDTH).padding(bottom = if (moves > 0) MOVES_BAR_CLEARANCE else 0.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (compact) {
-                FloatingPill(
-                    stringResource(COLOR_MODES.first { it.first == settings.colorMode }.second),
-                    { legendOpen = !legendOpen },
-                    icon = R.drawable.ic_arrow_drop_down,
-                    emphasized = legendOpen,
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FloatingPill(
+                        stringResource(COLOR_MODES.first { it.first == settings.colorMode }.second),
+                        { legendOpen = !legendOpen },
+                        icon = R.drawable.ic_arrow_drop_down,
+                        emphasized = legendOpen,
+                    )
+                    viewPicker(Modifier)
+                }
+            } else {
+                viewPicker(Modifier)
             }
             if (legendOpen) Legend(preview, roleLabels, settings, onSettings, Modifier.weight(1f, fill = false))
         }
