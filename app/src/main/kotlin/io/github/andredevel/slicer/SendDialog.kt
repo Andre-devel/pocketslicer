@@ -179,6 +179,14 @@ private fun PrinterForm(
                     }
                 } else {
                     Text(stringResource(R.string.printer_kind, stringResource(host.kind.label)), style = MaterialTheme.typography.bodyMedium)
+                    // Perfil com que a impressora vem escolhida no envio; troca pelo atual a pedido.
+                    val current = viewModel.printerPreset()
+                    Text(stringResource(R.string.printer_preset, host.preset ?: "-"), style = MaterialTheme.typography.bodyMedium)
+                    if (current != null && current != host.preset) {
+                        TextButton(onClick = { onChange(host.copy(preset = current)) }, enabled = !working) {
+                            Text(stringResource(R.string.printer_use_current_preset, current))
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = host.name,
