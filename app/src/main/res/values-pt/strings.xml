@@ -158,6 +158,7 @@
     <string name="system_preset_locked">Presets do sistema não podem ser excluídos</string>
     <string name="time">Tempo</string>
     <string name="uniform">Uniforme</string>
+    <string name="unsaved_changes">Alterações não salvas</string>
     <string name="untitled">Sem título</string>
     <string name="view_gcode">Ver G-code</string>
     <string name="printer_use_current_preset">Usar o perfil atual</string>

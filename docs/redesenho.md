@@ -48,7 +48,7 @@ que faltar entra lá, sem depender do ViewModel.
 1. (Feito) Vistas da câmera Inicial / De cima / Frontal: presets em `render/OrbitCamera.kt`
    (yaw/pitch fixos + `frame` na mesa), `ViewportView.setView(view)`, botões num `FloatingCard`
    no topo do viewport (Preparar e Visualizar).
-2. Projeto com alterações não salvas: `dirty` no `SlicerUiState`, ligado em cada edição de cena
+2. (Feito) Projeto com alterações não salvas: `dirty` no `SlicerUiState`, ligado em cada edição de cena
    e de perfil, desligado ao abrir/salvar projeto; ponto laranja e "Alterações não salvas" no
    `ScreenHeader`.
 3. Arquivos recentes: guardar as URIs abertas (com `takePersistableUriPermission`) num JSON em

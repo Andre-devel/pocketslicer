@@ -74,7 +74,8 @@ fun PrepareHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
         else pluralStringResource(R.plurals.object_count, state.objectCount, state.objectCount)
     ScreenHeader(
         title = state.modelName ?: stringResource(R.string.untitled),
-        subtitle = subtitle,
+        subtitle = if (state.unsaved) "$subtitle · ${stringResource(R.string.unsaved_changes)}" else subtitle,
+        modified = state.unsaved,
         busy = state.busy?.let { stringResource(it) },
     ) {
         FileMenu(state, pickers)

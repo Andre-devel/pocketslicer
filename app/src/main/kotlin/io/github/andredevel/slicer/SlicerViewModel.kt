@@ -95,6 +95,8 @@ data class SlicerUiState(
     /** Impressoras salvas para o envio do G-code. */
     val printers: List<PrinterHost> = emptyList(),
     val send: SendState = SendState.Idle,
+    /** Cena ou perfis mudaram desde que o projeto foi aberto ou salvo. */
+    val dirty: Boolean = false,
 ) {
     val objectCount get() = scene?.placements?.size ?: 0
     val anyOutside get() = scene?.placements?.any { it.outside } == true
@@ -102,6 +104,8 @@ data class SlicerUiState(
     val preview get() = (slice as? SliceState.Done)?.preview
     val previewVisible get() = showPreview && preview != null
     val selectedPlacement get() = scene?.selected?.let { scene.placements.getOrNull(it) }
+    /** Há o que salvar: mesa sem objetos não conta como alteração. */
+    val unsaved get() = dirty && objectCount > 0
 }
 
 class SlicerViewModel(application: Application) : AndroidViewModel(application) {
@@ -165,10 +169,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         _state.update { it.copy(optionDefs = defs, roleLabels = roles) }
     }
 
-    fun selectVendor(vendor: String) = launchEngine(R.string.busy_loading_vendor) { loadVendor(it, vendor) }
+    fun selectVendor(vendor: String) = launchEngine(R.string.busy_loading_vendor) {
+        loadVendor(it, vendor)
+        markDirty()
+    }
 
     fun selectPreset(kind: PresetKind, name: String) = launchEngine(null) { engine ->
         engine.select(kind, name)
+        markDirty()
         refreshPresets(engine)
         // A mesa muda com a impressora, e o modelo é recentralizado nela.
         if (kind == PresetKind.PRINTER) refreshScene(engine)
@@ -178,6 +186,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun setOption(kind: PresetKind, key: String, value: String) = launchEngine(null) { engine ->
         try {
             engine.setOption(kind, key, value)
+            markDirty()
         } finally {
             // Também no erro: o campo volta a mostrar o valor em vigor.
             refreshPresets(engine)
@@ -188,6 +197,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun discardChanges(kind: PresetKind) = launchEngine(null) { engine ->
         engine.discardChanges(kind)
+        markDirty()
         refreshPresets(engine)
         if (kind == PresetKind.PRINTER) refreshScene(engine)
     }
@@ -227,7 +237,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val file = File(dir, name)
         copy(uri, file)
         engine.addModel(file)
-        _state.update { it.copy(modelName = it.modelName ?: name, slice = SliceState.Idle) }
+        _state.update { it.copy(modelName = it.modelName ?: name, slice = SliceState.Idle, dirty = true) }
         refreshScene(engine, engine.objects())
     }
 
@@ -244,7 +254,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 val file = File(File(app.cacheDir, "model").apply { deleteRecursively(); mkdirs() }, name)
                 copy(uri, file)
                 val vendor = engine.openProject(file)
-                _state.update { it.copy(vendors = it.vendors.copy(selected = vendor), modelName = name, showPreview = false) }
+                _state.update { it.copy(vendors = it.vendors.copy(selected = vendor), modelName = name, showPreview = false, dirty = false) }
                 refreshPresets(engine)
                 refreshScene(engine, engine.objects())
             }
@@ -264,13 +274,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val file = File(app.cacheDir, "project.3mf")
         engine.saveProject(file, thumbnail)
         write(file, uri)
+        _state.update { it.copy(dirty = false) }
     }
 
     /** Nome sugerido para o projeto: o do modelo com a extensão trocada. */
     fun projectName(): String = (_state.value.modelName?.substringBeforeLast('.') ?: "model") + ".3mf"
 
     /** Põe na mesa os objetos de outra placa do projeto, no lugar dos atuais. */
-    fun selectPlate(plate: Int) = editScene { engine ->
+    fun selectPlate(plate: Int) = editScene(modifies = false) { engine ->
         engine.selectPlate(plate)
         engine.objects()
     }
@@ -479,12 +490,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private fun markDirty() = _state.update { it.copy(dirty = true) }
+
     /** Altera a cena no motor; [edit] devolve as malhas novas, ou null se só posições mudaram. */
-    private fun editScene(edit: suspend (SlicerEngine) -> List<ObjectMesh>?) = launchEngine(null) { engine ->
+    private fun editScene(modifies: Boolean = true, edit: suspend (SlicerEngine) -> List<ObjectMesh>?) = launchEngine(null) { engine ->
         var meshes: List<ObjectMesh>? = null
         try {
             meshes = edit(engine)
-            _state.update { it.copy(slice = SliceState.Idle) }
+            _state.update { it.copy(slice = SliceState.Idle, dirty = it.dirty || modifies) }
         } finally {
             // Também em caso de erro: descarta a pré-visualização do viewport.
             refreshScene(engine, meshes)

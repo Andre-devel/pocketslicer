@@ -161,6 +161,7 @@
     <string name="system_preset_locked">System presets cannot be deleted</string>
     <string name="time">Time</string>
     <string name="uniform">Uniform</string>
+    <string name="unsaved_changes">Unsaved changes</string>
     <string name="untitled">Untitled</string>
     <string name="view_gcode">View G-code</string>
     <string name="printer_use_current_preset">Use the current profile</string>

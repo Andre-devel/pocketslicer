@@ -79,6 +79,7 @@ fun PreviewHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
     ScreenHeader(
         title = state.modelName ?: stringResource(R.string.untitled),
         subtitle = listOfNotNull(plate, printer).joinToString(" · "),
+        modified = state.unsaved,
         busy = state.busy?.let { stringResource(it) },
     ) {
         if (compact) {
