@@ -276,4 +276,15 @@
     <string name="flush_multiplier">Multiplier</string>
     <string name="extruder_n">Extruder %1$d</string>
     <string name="recalculate">Recalculate</string>
+    <string name="layer_changes">Layer actions</string>
+    <string name="add_layer_change">Add action before this layer</string>
+    <string name="remove_layer_change">Remove action</string>
+    <string name="layer_pause">Pause</string>
+    <string name="layer_filament_change">Change filament</string>
+    <string name="layer_filament_change_to">Change to filament %1$s</string>
+    <string name="layer_custom_gcode">Custom G-code</string>
+    <string name="layer_change_title">Before layer %1$d (%2$.2f mm)</string>
+    <string name="layer_action">Action</string>
+    <string name="layer_pause_hint">The printer runs its pause G-code (machine_pause_gcode) before this layer, so you can swap the filament by hand.</string>
+    <string name="layer_filament_change_unavailable">Changing filament by height needs all objects on a single filament.</string>
 </resources>

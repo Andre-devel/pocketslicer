@@ -15,6 +15,7 @@
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/BuildVolume.hpp"
+#include "libslic3r/CustomGCode.hpp"
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/FlushVolCalc.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
@@ -115,6 +116,7 @@ struct Engine::Impl {
     {
         model.clear_objects();
         model.clear_materials();
+        model.plates_custom_gcodes.clear();
         plates.assign(1, Model());
         plate = 0;
     }
@@ -234,6 +236,29 @@ struct Engine::Impl {
     }
 
     void calc_flush_volumes(std::optional<size_t> filament);
+
+    // Filamentos (a partir de 1) dos objetos da mesa, pintura inclusive.
+    std::set<int> object_filaments() const
+    {
+        std::set<int> out;
+        for (const ModelObject *object : model.objects)
+            for (const ModelVolume *volume : object->volumes)
+                if (volume->is_model_part()) {
+                    out.insert(volume->extruder_id());
+                    for (int painted : volume->get_extruders())
+                        out.insert(painted);
+                }
+        return out;
+    }
+
+    // Modo das ações por altura, como ToolOrdering::assign_custom_gcodes() o deduz do Print;
+    // trocas de filamento gravadas noutro modo são ignoradas no fatiamento.
+    CustomGCode::Mode layer_change_mode() const
+    {
+        if (filament_count() == 1)
+            return CustomGCode::SingleExtruder;
+        return object_filaments().size() == 1 ? CustomGCode::MultiAsSingle : CustomGCode::MultiExtruder;
+    }
 
     // Sem PartPlate: os objetos ficam apoiados na mesa e centralizados nela.
     void place_on_bed()
@@ -743,6 +768,10 @@ std::string Engine::open_project(const std::string &path)
             placed->set_transformation(model.objects[i]->instances[j]->get_transformation());
             placed->set_offset(placed->get_offset() - to_3d(m->plate_origin(size_t(index), plate_count), 0.));
         }
+    // Ações por altura de cada placa; cada Model da mesa é uma placa só (curr_plate_index 0).
+    for (const auto &[index, info] : model.plates_custom_gcodes)
+        if (index >= 0 && size_t(index) < m->plates.size())
+            m->plates[index].plates_custom_gcodes[0] = info;
     // A primeira placa com objetos.
     const auto first = std::find_if(m->plates.begin(), m->plates.end(), [](const Model &p) { return !p.objects.empty(); });
     if (first == m->plates.end())
@@ -1036,7 +1065,17 @@ void Engine::remove_filament(size_t filament)
             config.set_key_value(key, new ConfigOptionInt(value - 1));
         }
     };
-    for (Model *plate : m->all_plates())
+    for (Model *plate : m->all_plates()) {
+        // Trocas por altura: as para ele saem, as dos seguintes descem um.
+        for (auto &[index, info] : plate->plates_custom_gcodes) {
+            auto &items = info.gcodes;
+            items.erase(std::remove_if(items.begin(), items.end(), [filament](const CustomGCode::Item &item) {
+                return item.type == CustomGCode::ToolChange && item.extruder == int(filament) + 1;
+            }), items.end());
+            for (CustomGCode::Item &item : items)
+                if (item.type == CustomGCode::ToolChange && item.extruder > int(filament) + 1)
+                    --item.extruder;
+        }
         for (ModelObject *object : plate->objects) {
             shift(object->config, "extruder", false);
             for (const char *key : {"support_filament", "support_interface_filament"})
@@ -1049,6 +1088,7 @@ void Engine::remove_filament(size_t filament)
                     shift(volume->config, key, true);
             }
         }
+    }
     DynamicPrintConfig &print = m->bundle->prints.get_edited_preset().config;
     for (const char *key : {"support_filament", "support_interface_filament", "wipe_tower_filament"})
         if (auto *opt = print.option<ConfigOptionInt>(key); opt != nullptr) {
@@ -1145,17 +1185,10 @@ std::optional<WipeTower> Engine::wipe_tower() const
     if (!config.opt_bool("enable_prime_tower"))
         return std::nullopt;
 
-    std::set<int> filaments;
-    double        height = 0.0;
-    for (const ModelObject *object : m->model.objects) {
-        for (const ModelVolume *volume : object->volumes)
-            if (volume->is_model_part()) {
-                filaments.insert(volume->extruder_id());
-                for (int painted : volume->get_extruders())
-                    filaments.insert(painted);
-            }
+    const std::set<int> filaments = m->object_filaments();
+    double              height    = 0.0;
+    for (const ModelObject *object : m->model.objects)
         height = std::max(height, object->instance_bounding_box(0).size().z());
-    }
     const auto *timelapse = config.option<ConfigOptionEnum<TimelapseType>>("timelapse_type");
     const bool  wrapping  = config.has("enable_wrapping_detection") && config.opt_bool("enable_wrapping_detection");
     const bool  needed    = (timelapse != nullptr && timelapse->value == TimelapseType::tlSmooth) || wrapping;
@@ -1208,6 +1241,69 @@ void Engine::set_wipe_tower_position(double x, double y)
         values.resize(std::max(values.size(), m->plates.size()), values.empty() ? 0.0 : values.front());
         values[m->plate] = value;
     }
+}
+
+std::vector<LayerChange> Engine::layer_changes() const
+{
+    std::vector<LayerChange> out;
+    const CustomGCode::Info  info = m->model.get_curr_plate_custom_gcodes();
+    for (const CustomGCode::Item &item : info.gcodes) {
+        LayerChange change;
+        change.z = item.print_z;
+        switch (item.type) {
+        case CustomGCode::PausePrint: change.action = LayerChange::Action::Pause; break;
+        case CustomGCode::ToolChange:
+            change.action   = LayerChange::Action::FilamentChange;
+            change.filament = size_t(std::max(item.extruder, 1) - 1);
+            break;
+        case CustomGCode::Custom:
+            change.action = LayerChange::Action::Custom;
+            change.gcode  = item.extra;
+            break;
+        default: continue; // os outros tipos ficam como estão, sem aparecer aqui
+        }
+        out.push_back(std::move(change));
+    }
+    return out;
+}
+
+void Engine::set_layer_changes(const std::vector<LayerChange> &changes)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    CustomGCode::Info &info = m->model.plates_custom_gcodes[m->model.curr_plate_index];
+    std::vector<CustomGCode::Item> items;
+    for (const CustomGCode::Item &item : info.gcodes)
+        if (item.type != CustomGCode::PausePrint && item.type != CustomGCode::ToolChange && item.type != CustomGCode::Custom)
+            items.push_back(item);
+    const std::vector<std::string> colors = filament_colors();
+    for (const LayerChange &change : changes) {
+        if (!(change.z > 0))
+            throw std::invalid_argument("layer change below the first layer");
+        CustomGCode::Item item{change.z, CustomGCode::PausePrint, 1, "", ""};
+        switch (change.action) {
+        case LayerChange::Action::Pause: break;
+        case LayerChange::Action::FilamentChange:
+            m->check_filament(change.filament);
+            item.type     = CustomGCode::ToolChange;
+            item.extruder = int(change.filament) + 1;
+            item.color    = colors[change.filament];
+            break;
+        case LayerChange::Action::Custom:
+            item.type  = CustomGCode::Custom;
+            item.extra = change.gcode;
+            break;
+        }
+        items.push_back(std::move(item));
+    }
+    std::sort(items.begin(), items.end());
+    info.gcodes = std::move(items);
+    info.mode   = m->layer_change_mode();
+}
+
+bool Engine::filament_change_available() const
+{
+    return m->bundle && m->layer_change_mode() == CustomGCode::MultiAsSingle;
 }
 
 void Engine::calc_flush_volumes()
@@ -1282,7 +1378,10 @@ void Engine::Impl::store_3mf(const std::string &path, const Thumbnail &thumbnail
         if (const ConfigOption *nozzle = config.option("nozzle_diameter"))
             data->nozzle_diameters = nozzle->serialize();
         const Vec3d origin = to_3d(gcode_path.empty() ? plate_origin(index, count) : Vec2d::Zero(), 0.);
-        for (const ModelObject *object : plate_model(source).objects) {
+        const Model &source_model = plate_model(source);
+        if (auto it = source_model.plates_custom_gcodes.find(0); it != source_model.plates_custom_gcodes.end())
+            all.plates_custom_gcodes[int(index)] = it->second;
+        for (const ModelObject *object : source_model.objects) {
             ModelInstance *placed = copy_object(all, *object)->instances.front();
             placed->set_offset(placed->get_offset() + origin);
             data->objects_and_instances.emplace_back(int(all.objects.size() - 1), 0);
@@ -1567,6 +1666,10 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
         auto *opt = config.option<ConfigOptionFloats>(key);
         opt->values = {opt->get_at(m->plate)};
     }
+
+    // Os filamentos dos objetos podem ter mudado desde que as ações por altura foram gravadas.
+    if (auto it = m->model.plates_custom_gcodes.find(m->model.curr_plate_index); it != m->model.plates_custom_gcodes.end())
+        it->second.mode = m->layer_change_mode();
 
     Print &print = m->print;
     // Igual à GUI (Plater): firmware Bambu pula validações/ajustes feitos para Marlin.

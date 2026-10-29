@@ -99,6 +99,17 @@ struct WipeTower {
     double rotation = 0.0;
 };
 
+// Ação antes de uma camada, como na barra de camadas do Orca. FilamentChange troca para
+// filament (a partir de 0) daí em diante e só vale com todos os objetos num filamento só
+// (filament_change_available()); Custom insere gcode.
+struct LayerChange {
+    enum class Action { Pause = 0, FilamentChange = 1, Custom = 2 };
+    double      z = 0.0; // topo da camada, mm
+    Action      action = Action::Pause;
+    size_t      filament = 0;
+    std::string gcode;
+};
+
 struct Canceled : std::runtime_error {
     Canceled() : std::runtime_error("slicing canceled") {}
 };
@@ -246,6 +257,13 @@ public:
     std::optional<WipeTower> wipe_tower() const;
     // Posição (canto da frente à esquerda) da torre na placa da mesa.
     void set_wipe_tower_position(double x, double y);
+
+    // Pausas, trocas de filamento e G-code personalizado por altura na placa da mesa, por z.
+    std::vector<LayerChange> layer_changes() const;
+    void set_layer_changes(const std::vector<LayerChange> &changes);
+    // Se a troca de filamento por altura vale: projeto com mais de um filamento e todos os
+    // objetos da mesa num só (o modo "MultiAsSingle" do Orca).
+    bool filament_change_available() const;
 
     // Recalcula a matriz pelas cores, como o "Auto-calcular" do Orca. As mudanças de
     // filamento (acrescentar, cor, preset de suporte) já recalculam as linhas dele.

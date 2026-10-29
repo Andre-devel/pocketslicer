@@ -369,6 +369,45 @@ class SlicerEngineTest {
         assertEquals(1, engine.flushVolumes().size)
     }
 
+    @Test
+    fun layerChangesPauseAndSwitchFilament() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        // Um filamento só: só pausa e G-code.
+        assertTrue(!engine.filamentChangeAvailable())
+        engine.addFilament()
+        assertTrue(engine.filamentChangeAvailable())
+
+        engine.setLayerChanges(
+            listOf(
+                LayerChange(10f, LayerChange.Action.FILAMENT_CHANGE, filament = 1),
+                LayerChange(5f, LayerChange.Action.PAUSE),
+                LayerChange(15f, LayerChange.Action.CUSTOM, gcode = "M117 teste"),
+            ),
+        )
+        assertEquals(listOf(5f, 10f, 15f), engine.layerChanges().map { it.z })
+        val gcode = File(work, "changes.gcode")
+        engine.slice(gcode) { _, _ -> }
+        val text = gcode.readText()
+        assertTrue("pausa da A1", "M400 U1" in text)
+        assertTrue("M117 teste" in text)
+        // Abaixo de 10 mm, filamento 1; acima, o 2.
+        val toolpaths = engine.toolpaths()
+        val wall = SlicerEngine.roleNames.indexOf("Outer wall")
+        val walls = (0 until toolpaths.segmentCount).filter { toolpaths.roles[it].toInt() == wall }
+        assertEquals(setOf(0), walls.filter { toolpaths.extrusions[it * 9 + 2] < 9.9f }.map { toolpaths.filaments[it].toInt() }.toSet())
+        assertEquals(setOf(1), walls.filter { toolpaths.extrusions[it * 9 + 2] > 10.1f }.map { toolpaths.filaments[it].toInt() }.toSet())
+
+        // O projeto guarda as ações; excluir o filamento leva a troca para ele junto.
+        val project = File(work, "changes.3mf")
+        engine.saveProject(project, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+        engine.openProject(project)
+        assertEquals(3, engine.layerChanges().size)
+        engine.removeFilament(1)
+        assertEquals(listOf(LayerChange.Action.PAUSE, LayerChange.Action.CUSTOM), engine.layerChanges().map { it.action })
+    }
+
     // Projetos do Bambu Studio 2.x (MakerWorld) gravam filament_notes como texto, lista no Orca.
     @Test
     fun opensBambuStudioProjectWithTextFilamentNotes() = runBlocking {

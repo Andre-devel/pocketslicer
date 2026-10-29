@@ -272,4 +272,15 @@
     <string name="flush_multiplier">Multiplicador</string>
     <string name="extruder_n">Extrusor %1$d</string>
     <string name="recalculate">Recalcular</string>
+    <string name="layer_changes">Ações por camada</string>
+    <string name="add_layer_change">Adicionar ação antes desta camada</string>
+    <string name="remove_layer_change">Remover ação</string>
+    <string name="layer_pause">Pausa</string>
+    <string name="layer_filament_change">Trocar filamento</string>
+    <string name="layer_filament_change_to">Trocar para o filamento %1$s</string>
+    <string name="layer_custom_gcode">G-code personalizado</string>
+    <string name="layer_change_title">Antes da camada %1$d (%2$.2f mm)</string>
+    <string name="layer_action">Ação</string>
+    <string name="layer_pause_hint">A impressora roda o G-code de pausa dela (machine_pause_gcode) antes desta camada, para você trocar o filamento à mão.</string>
+    <string name="layer_filament_change_unavailable">A troca de filamento por altura exige todos os objetos num filamento só.</string>
 </resources>

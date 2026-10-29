@@ -57,6 +57,17 @@ class Toolpaths(
  */
 data class WipeTower(val x: Float, val y: Float, val width: Float, val depth: Float, val height: Float, val rotation: Float)
 
+/**
+ * Ação antes da camada de topo [z] (mm), como na barra de camadas do Orca: pausa, troca para o
+ * [filament] (a partir de 0; só com [SlicerEngine.filamentChangeAvailable]) ou o [gcode] dado.
+ */
+data class LayerChange(val z: Float, val action: Action, val filament: Int = 0, val gcode: String = "") {
+    enum class Action { PAUSE, FILAMENT_CHANGE, CUSTOM }
+}
+
+/** [LayerChange] como o JNI cria (ordinal da ação). */
+internal class LayerChangeData(val z: Double, val action: Int, val filament: Int, val gcode: String)
+
 /** Imagem RGBA de [width] × [height] com as linhas de baixo para cima (a ordem do glReadPixels). */
 class Thumbnail(val width: Int, val height: Int, val rgba: ByteArray)
 
@@ -321,6 +332,24 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Canto da frente à esquerda da torre, na placa da mesa. */
     suspend fun setWipeTowerPosition(x: Float, y: Float) = call { nativeSetWipeTowerPosition(handle, x.toDouble(), y.toDouble()) }
 
+    /** Pausas, trocas de filamento e G-code personalizado por altura na placa da mesa, por z. */
+    suspend fun layerChanges(): List<LayerChange> = call {
+        nativeLayerChanges(handle).map { LayerChange(it.z.toFloat(), LayerChange.Action.entries[it.action], it.filament, it.gcode) }
+    }
+
+    suspend fun setLayerChanges(changes: List<LayerChange>) = call {
+        nativeSetLayerChanges(
+            handle,
+            DoubleArray(changes.size) { changes[it].z.toDouble() },
+            IntArray(changes.size) { changes[it].action.ordinal },
+            IntArray(changes.size) { changes[it].filament },
+            Array(changes.size) { changes[it].gcode },
+        )
+    }
+
+    /** Se a troca de filamento por altura vale: mais de um filamento e todos os objetos num só. */
+    suspend fun filamentChangeAvailable(): Boolean = call { nativeFilamentChangeAvailable(handle) }
+
     /** Recalcula a matriz de purga pelas cores, como o "Auto-calcular" do Orca. */
     suspend fun calcFlushVolumes() = call { nativeCalcFlushVolumes(handle) }
 
@@ -481,6 +510,9 @@ private external fun nativeSetFlushVolumes(handle: Long, matrix: DoubleArray)
 private external fun nativeFlushMultipliers(handle: Long): DoubleArray
 private external fun nativeSetFlushMultiplier(handle: Long, extruder: Int, multiplier: Double)
 private external fun nativeCalcFlushVolumes(handle: Long)
+private external fun nativeLayerChanges(handle: Long): Array<LayerChangeData>
+private external fun nativeSetLayerChanges(handle: Long, z: DoubleArray, action: IntArray, filament: IntArray, gcode: Array<String>)
+private external fun nativeFilamentChangeAvailable(handle: Long): Boolean
 private external fun nativeWipeTower(handle: Long): DoubleArray
 private external fun nativeSetWipeTowerPosition(handle: Long, x: Double, y: Double)
 private external fun nativePlacements(handle: Long): DoubleArray

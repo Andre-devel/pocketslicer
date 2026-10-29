@@ -300,6 +300,8 @@ private fun Workspace(
     var previewSettings by remember(state.preview) { mutableStateOf(PreviewSettings()) }
     var sending by rememberSaveable { mutableStateOf(false) }
     val send = { sending = true }
+    // Camada (a partir de 0) em que o usuário está pondo uma pausa ou troca de filamento.
+    var addingLayerChange by remember(state.preview) { mutableStateOf<Int?>(null) }
 
     val header = @Composable {
         if (previewing) PreviewHeader(state, viewModel, pickers, compact = !wide)
@@ -317,7 +319,13 @@ private fun Workspace(
             val preview = state.preview
             val done = state.slice as? SliceState.Done
             if (previewing && preview != null && done != null) {
-                PreviewOverlay(preview, done.stats, state.roleLabels, previewSettings, { previewSettings = it }, compact = !wide, viewPicker)
+                PreviewOverlay(
+                    preview, done.stats, state.roleLabels, previewSettings, { previewSettings = it }, compact = !wide, viewPicker,
+                    onAddLayerChange = { addingLayerChange = it },
+                )
+                addingLayerChange?.let { layer ->
+                    LayerChangeDialog(state, viewModel, layer + 1, preview.toolpaths.layerZ[layer]) { addingLayerChange = null }
+                }
             } else {
                 PrepareOverlay(state, viewModel, pickers, compact = !wide, viewPicker)
             }

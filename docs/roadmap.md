@@ -122,10 +122,12 @@ nova e pergunta se instala (Configurações → Atualizações); `versionCode` s
    - Feito (2026-10-29): 3MF multicolor do Orca/Bambu fatia igual ao Orca desktop; filamentos do
      projeto (acrescentar, excluir, preset e cor), filamento do objeto, volumes de purga com o
      cálculo pelas cores do Orca, torre de purga na mesa (estimada e arrastável) e pré-visualização
-     por filamento com o peso de cada um.
+     por filamento com o peso de cada um. Ações por camada na pré-visualização, como a barra de
+     camadas do Orca: pausa (machine_pause_gcode), troca de filamento (com todos os objetos num
+     filamento só) e G-code personalizado, guardadas por placa no 3MF. O M600 do "Color change"
+     não entra: no Orca 2.4 ele está desligado no gerador de G-code (BBS).
    - Falta: mapear filamentos para os slots do AMS ao imprimir numa Bambu (o início de impressão
-     pela LAN ainda não funciona, ver plano-envio.md); troca de cor por altura (M600/pausa);
-     pintura com o dedo (adiada).
+     pela LAN ainda não funciona, ver plano-envio.md); pintura com o dedo (adiada).
 5. Reativar OpenVDB (hollowing, reparo) e OCCT (STEP) se o tamanho do APK permitir.
 6. Ferramentas de calibração reaproveitando os geradores do Orca.
 7. Play Asset Delivery para perfis sob demanda; ABI x86_64 para emulador.

@@ -7,6 +7,7 @@
 
 #include <jni.h>
 
+#include <algorithm>
 #include <array>
 #include <iterator>
 #include <new>
@@ -495,6 +496,59 @@ JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetWipeTowerPosition(JNIEnv *env, jclass, jlong handle, jdouble x, jdouble y)
 {
     guarded(env, [&] { engine(handle)->set_wipe_tower_position(x, y); });
+}
+
+// LayerChange(z: Double, action: Int, filament: Int, gcode: String) como arrays paralelos.
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeLayerChanges(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&]() -> jobjectArray {
+        const std::vector<slicer::LayerChange> changes = engine(handle)->layer_changes();
+        jclass cls = env->FindClass("io/github/andredevel/slicer/core/LayerChangeData");
+        jmethodID init = env->GetMethodID(cls, "<init>", "(DIILjava/lang/String;)V");
+        jobjectArray out = env->NewObjectArray(jsize(changes.size()), cls, nullptr);
+        for (size_t i = 0; i < changes.size(); ++i) {
+            jstring gcode = env->NewStringUTF(changes[i].gcode.c_str());
+            jobject change = env->NewObject(cls, init, changes[i].z, jint(changes[i].action), jint(changes[i].filament), gcode);
+            env->SetObjectArrayElement(out, jsize(i), change);
+            env->DeleteLocalRef(gcode);
+            env->DeleteLocalRef(change);
+        }
+        return out;
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetLayerChanges(JNIEnv *env, jclass, jlong handle, jdoubleArray z,
+                                                                         jintArray action, jintArray filament, jobjectArray gcode)
+{
+    guarded(env, [&] {
+        const jsize n = env->GetArrayLength(z);
+        const auto           count = static_cast<size_t>(n);
+        std::vector<jdouble> zs(count);
+        std::vector<jint>    actions(count), filaments(count);
+        env->GetDoubleArrayRegion(z, 0, n, zs.data());
+        env->GetIntArrayRegion(action, 0, n, actions.data());
+        env->GetIntArrayRegion(filament, 0, n, filaments.data());
+        std::vector<slicer::LayerChange> changes;
+        for (jsize i = 0; i < n; ++i) {
+            auto text = static_cast<jstring>(env->GetObjectArrayElement(gcode, i));
+            slicer::LayerChange change;
+            change.z        = zs[size_t(i)];
+            change.action   = slicer::LayerChange::Action(actions[size_t(i)]);
+            change.filament = size_t(std::max(filaments[size_t(i)], 0));
+            change.gcode    = to_string(env, text);
+            env->DeleteLocalRef(text);
+            changes.push_back(std::move(change));
+        }
+        engine(handle)->set_layer_changes(changes);
+    });
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentChangeAvailable(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return jboolean(engine(handle)->filament_change_available()); });
 }
 
 JNIEXPORT void JNICALL

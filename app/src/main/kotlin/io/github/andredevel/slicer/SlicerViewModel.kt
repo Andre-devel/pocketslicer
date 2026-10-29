@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.andredevel.slicer.core.LayerChange
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
 import io.github.andredevel.slicer.core.PresetValues
@@ -45,6 +46,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import java.io.File
 import java.io.IOException
 import java.util.Locale
@@ -156,6 +158,10 @@ data class SlicerUiState(
     /** Purga (mm³) da troca entre filamentos: matriz n x n por linha, uma por extrusor; ver [flushMultipliers]. */
     val flushVolumes: DoubleArray = DoubleArray(0),
     val flushMultipliers: DoubleArray = DoubleArray(0),
+    /** Pausas, trocas de filamento e G-code por altura da placa da mesa, por z. */
+    val layerChanges: List<LayerChange> = emptyList(),
+    /** Troca de filamento por altura possível (vários filamentos, objetos todos num só). */
+    val filamentChangeAvailable: Boolean = false,
     /** Definições das opções editáveis (PrintConfigDef do Orca); textos no idioma do app. */
     val optionDefs: Map<PresetKind, List<OptionDef>> = emptyMap(),
     /** Nomes dos tipos de extrusão (índice em SlicerEngine.roleNames) no idioma do app. */
@@ -656,6 +662,20 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun layOnFace(objectIndex: Int, triangle: Int) = editScene { it.layOnFace(objectIndex, triangle); null }
 
+    /** Acrescenta (ou substitui, na mesma altura) uma ação por camada. */
+    fun addLayerChange(change: LayerChange) = editLayerChanges { list -> list.filter { abs(it.z - change.z) > Z_EPSILON } + change }
+
+    fun removeLayerChange(change: LayerChange) = editLayerChanges { list -> list - change }
+
+    private fun editLayerChanges(edit: (List<LayerChange>) -> List<LayerChange>) = launchEngine(null) { engine ->
+        try {
+            engine.setLayerChanges(edit(engine.layerChanges()))
+            markChanged(StaleReason(app.getString(R.string.layer_changes)))
+        } finally {
+            refreshScene(engine)
+        }
+    }
+
     fun setWipeTowerPosition(x: Float, y: Float) = editScene { it.setWipeTowerPosition(x, y); null }
 
     fun setPlacement(objectIndex: Int, offset: FloatArray, rotation: FloatArray, scale: FloatArray) =
@@ -903,9 +923,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val plates = engine.plates()
         val colors = engine.filamentColors().map(::rgba)
         val tower = engine.wipeTower()
+        val layerChanges = engine.layerChanges()
+        val filamentChange = engine.filamentChangeAvailable()
         _state.update { state ->
             val selected = state.scene?.selected?.takeIf { (meshes == null || keepSelection) && it < placements.size }
-            state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors, tower), plates = plates)
+            state.copy(
+                scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors, tower), plates = plates,
+                layerChanges = layerChanges, filamentChangeAvailable = filamentChange,
+            )
         }
     }
 
@@ -988,6 +1013,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     private companion object {
         const val TAG = "SlicerViewModel"
+        /** Duas ações a menos que isto (mm) são da mesma camada. */
+        const val Z_EPSILON = 0.001f
         const val DEFAULT_VENDOR = "BambuStudio/BBL"
         const val BAMBU_VENDOR = "BBL"
         /** Lado da miniatura do projeto, como THUMBNAIL_SIZE_3MF do Orca. */

@@ -129,6 +129,7 @@ fun PreviewOverlay(
     onSettings: (PreviewSettings) -> Unit,
     compact: Boolean,
     viewPicker: @Composable (Modifier) -> Unit,
+    onAddLayerChange: (layer: Int) -> Unit,
 ) {
     val toolpaths = preview.toolpaths
     val lastLayer = (toolpaths.layerCount - 1).coerceAtLeast(0)
@@ -157,7 +158,7 @@ fun PreviewOverlay(
 
         if (lastLayer > 0) {
             LayerSlider(
-                toolpaths, minLayer, maxLayer, lastLayer, settings, onSettings,
+                toolpaths, minLayer, maxLayer, lastLayer, settings, onSettings, onAddLayerChange,
                 Modifier.align(Alignment.TopEnd).fillMaxHeight().padding(
                     bottom = (if (moves > 0) MOVES_BAR_CLEARANCE else 0.dp) + (if (compact) SHEET_CLEARANCE else 0.dp),
                 ),
@@ -310,10 +311,15 @@ private fun LayerSlider(
     lastLayer: Int,
     settings: PreviewSettings,
     onSettings: (PreviewSettings) -> Unit,
+    onAddLayerChange: (layer: Int) -> Unit,
     modifier: Modifier,
 ) {
     Column(modifier.width(80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         LayerLabel(maxLayer + 1, toolpaths.layerZ.getOrElse(maxLayer) { 0f }, highlight = true)
+        // Pausa, troca de filamento ou G-code antes da camada de cima (a primeira não tem "antes").
+        if (maxLayer > 0) {
+            AppIconButton(R.drawable.ic_add, stringResource(R.string.add_layer_change), { onAddLayerChange(maxLayer) }, tonal = true)
+        }
         RangeSlider(
             value = minLayer.toFloat()..maxLayer.toFloat(),
             onValueChange = { range ->
@@ -354,6 +360,7 @@ fun PreviewPanel(state: SlicerUiState, viewModel: SlicerViewModel, pickers: File
         }
         SummaryTiles(state, stats)
         StaleWarning(state, viewModel)
+        LayerChangesSection(state, viewModel)
         Spacer(Modifier.weight(1f))
         GcodeActions(state, pickers, onSend)
     }
@@ -371,6 +378,7 @@ fun PreviewSheet(state: SlicerUiState, viewModel: SlicerViewModel, pickers: File
         StaleWarning(state, viewModel)
         GcodeActions(state, pickers, onSend, compact = true)
         SummaryTiles(state, stats)
+        LayerChangesSection(state, viewModel)
     }
 }
 
