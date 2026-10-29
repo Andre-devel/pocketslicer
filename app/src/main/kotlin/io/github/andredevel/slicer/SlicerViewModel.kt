@@ -153,6 +153,9 @@ data class SlicerUiState(
     val filaments: List<String> = emptyList(),
     /** Quantos filamentos o projeto pode ter com a impressora selecionada. */
     val filamentLimits: IntRange = 1..1,
+    /** Purga (mm³) da troca entre filamentos: matriz n x n por linha, uma por extrusor; ver [flushMultipliers]. */
+    val flushVolumes: DoubleArray = DoubleArray(0),
+    val flushMultipliers: DoubleArray = DoubleArray(0),
     /** Definições das opções editáveis (PrintConfigDef do Orca); textos no idioma do app. */
     val optionDefs: Map<PresetKind, List<OptionDef>> = emptyMap(),
     /** Nomes dos tipos de extrusão (índice em SlicerEngine.roleNames) no idioma do app. */
@@ -587,6 +590,25 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setObjectFilament(objectIndex: Int, filament: Int) = editFilaments { it.setObjectFilament(objectIndex, filament) }
 
+    /** Purga da troca de [from] para [to] no extrusor [nozzle]. */
+    fun setFlushVolume(nozzle: Int, from: Int, to: Int, volume: Double) = editFlush { engine ->
+        val n = _state.value.filaments.size
+        engine.setFlushVolumes(engine.flushVolumes().also { it[nozzle * n * n + from * n + to] = volume })
+    }
+
+    fun setFlushMultiplier(nozzle: Int, multiplier: Double) = editFlush { it.setFlushMultiplier(nozzle, multiplier) }
+
+    fun calcFlushVolumes() = editFlush { it.calcFlushVolumes() }
+
+    private fun editFlush(edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
+        try {
+            edit(engine)
+            markChanged(StaleReason(app.getString(R.string.flush_volumes)))
+        } finally {
+            refreshPresets(engine)
+        }
+    }
+
     /** Filamentos do projeto: mudam presets, cores e o filamento de cada triângulo. */
     private fun editFilaments(reason: StaleReason = StaleReason(null), edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
         try {
@@ -862,7 +884,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
         val filaments = engine.filamentPresets()
         val limits = engine.filamentLimits()
-        _state.update { it.copy(presets = presets, filaments = filaments, filamentLimits = limits) }
+        val flush = engine.flushVolumes()
+        val multipliers = engine.flushMultipliers()
+        _state.update {
+            it.copy(presets = presets, filaments = filaments, filamentLimits = limits, flushVolumes = flush, flushMultipliers = multipliers)
+        }
     }
 
     /**

@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -23,10 +26,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.core.PresetKind
+import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
+import io.github.andredevel.slicer.ui.components.ButtonStyle
+import io.github.andredevel.slicer.ui.components.NumberField
+import io.github.andredevel.slicer.ui.components.PillTabs
 import io.github.andredevel.slicer.ui.components.FormField
 import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.SelectField
@@ -39,6 +47,7 @@ import io.github.andredevel.slicer.ui.components.SelectField
 fun FilamentsSection(state: SlicerUiState, viewModel: SlicerViewModel, enabled: Boolean, openParameters: (PresetKind) -> Unit) {
     var coloring by remember { mutableStateOf<Int?>(null) }
     var removing by remember { mutableStateOf<Int?>(null) }
+    var flushing by remember { mutableStateOf(false) }
     val count = state.filaments.size
     SectionLabel(stringResource(R.string.filaments)) {
         AppIconButton(
@@ -64,6 +73,14 @@ fun FilamentsSection(state: SlicerUiState, viewModel: SlicerViewModel, enabled: 
         }
     }
 
+    if (count > 1) {
+        AppButton(
+            stringResource(R.string.flush_volumes), { flushing = true }, Modifier.fillMaxWidth(),
+            style = ButtonStyle.OUTLINED, enabled = enabled,
+        )
+    }
+
+    if (flushing) FlushDialog(state, viewModel) { flushing = false }
     coloring?.let { i ->
         ColorDialog(
             current = state.scene?.filamentColors?.getOrNull(i)?.let(::hexColor),
@@ -86,6 +103,70 @@ fun FilamentsSection(state: SlicerUiState, viewModel: SlicerViewModel, enabled: 
         )
     }
 }
+
+/**
+ * Volumes de purga de cada troca (linha: de qual filamento; coluna: para qual), como a janela
+ * do Orca. Cada valor vale ao sair do campo; "Recalcular" refaz a matriz pelas cores.
+ */
+@Composable
+private fun FlushDialog(state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit) {
+    val n = state.filaments.size
+    val nozzles = if (n == 0) 0 else state.flushVolumes.size / (n * n)
+    var nozzle by remember { mutableStateOf(0) }
+    val focus = LocalFocusManager.current
+    // Fecha depois de tirar o foco, para o campo em edição gravar o valor.
+    val close = { focus.clearFocus(); onDismiss() }
+    AlertDialog(
+        onDismissRequest = close,
+        title = { Text(stringResource(R.string.flush_volumes)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.flush_volumes_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (nozzles > 1) {
+                    PillTabs((1..nozzles).map { stringResource(R.string.extruder_n, it) }, nozzle, { nozzle = it })
+                }
+                Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.width(CELL_WIDTH / 2))
+                        for (to in 0 until n) {
+                            Box(Modifier.width(CELL_WIDTH), contentAlignment = Alignment.Center) {
+                                ColorSwatch(state.scene?.filamentColors?.getOrNull(to), "${to + 1}", Modifier.size(28.dp))
+                            }
+                        }
+                    }
+                    for (from in 0 until n) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(CELL_WIDTH / 2)) {
+                                ColorSwatch(state.scene?.filamentColors?.getOrNull(from), "${from + 1}", Modifier.size(28.dp))
+                            }
+                            for (to in 0 until n) {
+                                val value = state.flushVolumes.getOrNull(nozzle * n * n + from * n + to) ?: 0.0
+                                NumberField(
+                                    value.toFloat(), { viewModel.setFlushVolume(nozzle, from, to, it.toDouble()) },
+                                    Modifier.width(CELL_WIDTH), decimals = 0, min = 0f, enabled = from != to,
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.flush_multiplier), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    NumberField(
+                        (state.flushMultipliers.getOrNull(nozzle) ?: 1.0).toFloat(),
+                        { viewModel.setFlushMultiplier(nozzle, it.toDouble()) },
+                        Modifier.width(CELL_WIDTH), min = 0.01f,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = close) { Text(stringResource(R.string.close)) } },
+        dismissButton = {
+            TextButton(onClick = { focus.clearFocus(); viewModel.calcFlushVolumes() }) { Text(stringResource(R.string.recalculate)) }
+        },
+    )
+}
+
+private val CELL_WIDTH = 72.dp
 
 /** Filamento do objeto selecionado; só com mais de um no projeto. */
 @Composable
