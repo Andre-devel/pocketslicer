@@ -39,7 +39,8 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
   Print, `host_type: octoprint`, 4 bicos 0.4, mesa 260x260x260), 6 processos e 43 filamentos
   "@Creality K3". Tem chaves próprias do Creality Print que o libslic3r do Orca ignora.
 - Perfis copiados do Creality Print 7.3 instalado no PC (com os do Bambu Studio, QIDI Studio e
-  Snapmaker Orca e os presets do usuário) em `profiles/imported/` (2026-10-29); ainda fora do APK.
+  Snapmaker Orca e os presets do usuário) em `profiles/imported/` (2026-10-29). No app, aparecem
+  como `CrealityPrint/Creality` etc., antes dos do Orca; falta compilar e testar.
 - Próximo passo: trazer esses perfis para o app (começando por uma cor, T0), comparar o G-code com
   o do Creality Print desktop no PC que tem a K3 e só então imprimir uma peça pequena.
 

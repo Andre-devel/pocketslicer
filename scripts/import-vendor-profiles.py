@@ -102,15 +102,38 @@ def import_app(app: str, appdata: Path, out: Path) -> None:
         if not keys:
             continue
         v = vendors[vendor]
+        # O Bambu Studio 2.x tira o G-code das máquinas para perfis "... template <opção>",
+        # trazidos por "include", que o Orca não conhece: as opções vão para o próprio perfil
+        # (nenhuma está nos dois) e os modelos saem.
+        merged = {}
+        for key in keys:
+            profile = v.data[key]
+            if "include" not in profile:
+                continue
+            profile = {k: val for k, val in profile.items() if k != "include"}
+            for name in as_list(v.data[key]["include"]):
+                for opt, val in v.data[(key[0], name)].items():
+                    if opt not in ("name", "instantiation", "type", "from", "setting_id"):
+                        if opt in profile:
+                            raise SystemExit(f"{app}: '{opt}' em '{key[1]}' e no include '{name}'")
+                        profile[opt] = val
+            merged[key] = profile
+        templates = {(k, n) for key in merged for k, n in [(key[0], i) for i in as_list(v.data[key]["include"])]}
+        keys = keys - templates
         index = dict(v.index)
         for k in KINDS:
             if k in index:
                 index[k] = [e for e in v.index[k] if (k, e["name"]) in keys]
         for key in keys:
-            target = dest / "system" / vendor / v.entries[key]
+            target = dest / vendor / v.entries[key]
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(v.dir / v.entries[key], target)
-        with (dest / "system" / f"{vendor}.json").open("w", encoding="utf-8", newline="\n") as f:
+            if key in merged:
+                with target.open("w", encoding="utf-8", newline="\n") as f:
+                    json.dump(merged[key], f, ensure_ascii=False, indent=4)
+                    f.write("\n")
+            else:
+                shutil.copyfile(v.dir / v.entries[key], target)
+        with (dest / f"{vendor}.json").open("w", encoding="utf-8", newline="\n") as f:
             json.dump(index, f, ensure_ascii=False, indent=4)
             f.write("\n")
         counts = ", ".join(f"{KINDS[k]} {sum(1 for (kk, _) in keys if kk == k)}" for k in KINDS)

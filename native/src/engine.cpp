@@ -39,6 +39,7 @@ namespace slicer {
 
 struct Engine::Impl {
     fs::path                      profiles_dir;
+    fs::path                      vendors_dir; // perfis dos fatiadores dos fabricantes: <app>/<fabricante>.json
     AppConfig                     app_config;
     std::unique_ptr<PresetBundle> bundle;
     std::string                   vendor; // de bundle
@@ -54,6 +55,18 @@ struct Engine::Impl {
     Model              project;
     std::vector<Plate> plates;
     size_t             plate = 0; // a da mesa
+
+    // Índice de um fabricante de vendors(): "<app>/<fabricante>" está em vendors_dir, e o
+    // nome só, em profiles_dir. Os perfis ficam no diretório de mesmo nome, sem o .json.
+    fs::path vendor_index(const std::string &vendor) const
+    {
+        if (vendor.empty() || vendor.find("..") != std::string::npos)
+            throw std::invalid_argument("unknown vendor: " + vendor);
+        const fs::path index = (vendor.find('/') == std::string::npos ? profiles_dir : vendors_dir) / (vendor + ".json");
+        if (!fs::exists(index))
+            throw std::invalid_argument("unknown vendor: " + vendor);
+        return index;
+    }
 
     PresetCollection &collection(PresetKind kind)
     {
@@ -190,6 +203,7 @@ Engine::Engine(const std::string &resources_dir, const std::string &data_dir) : 
     fs::create_directories(temp_dir);
     set_temporary_dir(temp_dir.string());
     m->profiles_dir = fs::path(Slic3r::resources_dir()) / "profiles";
+    m->vendors_dir  = fs::path(Slic3r::resources_dir()) / "vendors";
     PresetBundle().setup_directories();
 }
 
@@ -210,21 +224,35 @@ void Engine::set_language(const std::string &language)
 
 std::vector<std::string> Engine::vendors() const
 {
+    const auto indexes = [](const fs::path &dir, const std::string &prefix) {
+        std::vector<std::string> out;
+        if (!fs::is_directory(dir))
+            return out;
+        for (const fs::directory_entry &entry : fs::directory_iterator(dir)) {
+            const fs::path &path = entry.path();
+            if (path.extension() == ".json" && fs::is_directory(path.parent_path() / path.stem()) &&
+                path.stem() != PresetBundle::ORCA_FILAMENT_LIBRARY)
+                out.push_back(prefix + path.stem().string());
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+    // Primeiro os dos fatiadores dos fabricantes, depois os do Orca.
     std::vector<std::string> out;
-    for (const fs::directory_entry &entry : fs::directory_iterator(m->profiles_dir)) {
-        const fs::path &path = entry.path();
-        if (path.extension() == ".json" && fs::is_directory(path.parent_path() / path.stem()) &&
-            path.stem() != PresetBundle::ORCA_FILAMENT_LIBRARY)
-            out.push_back(path.stem().string());
-    }
+    if (fs::is_directory(m->vendors_dir))
+        for (const fs::directory_entry &app : fs::directory_iterator(m->vendors_dir))
+            if (fs::is_directory(app.path()))
+                for (std::string &vendor : indexes(app.path(), app.path().filename().string() + "/"))
+                    out.push_back(std::move(vendor));
     std::sort(out.begin(), out.end());
+    for (std::string &vendor : indexes(m->profiles_dir, ""))
+        out.push_back(std::move(vendor));
     return out;
 }
 
 void Engine::load_vendor(const std::string &vendor)
 {
-    if (!fs::exists(m->profiles_dir / (vendor + ".json")))
-        throw std::invalid_argument("unknown vendor: " + vendor);
+    const fs::path index = m->vendor_index(vendor);
 
     // PresetBundle carrega todo fabricante presente em <data_dir>/system. Como na
     // GUI do Orca, só entram os "instalados": aqui, o escolhido e a biblioteca de
@@ -233,9 +261,11 @@ void Engine::load_vendor(const std::string &vendor)
     const fs::path system_dir = fs::path(data_dir()) / PRESET_SYSTEM_DIR;
     fs::remove_all(system_dir);
     fs::create_directories(system_dir);
-    for (const std::string &name : {std::string(PresetBundle::ORCA_FILAMENT_LIBRARY), vendor}) {
-        fs::create_symlink(m->profiles_dir / (name + ".json"), system_dir / (name + ".json"));
-        fs::create_directory_symlink(m->profiles_dir / name, system_dir / name);
+    // O PresetBundle identifica o fabricante pelo nome do arquivo em system/ ("BBL" liga o
+    // tratamento das Bambu), então os de vendors_dir entram sem o "<app>/".
+    for (const fs::path &json : {m->profiles_dir / (std::string(PresetBundle::ORCA_FILAMENT_LIBRARY) + ".json"), index}) {
+        fs::create_symlink(json, system_dir / json.filename());
+        fs::create_directory_symlink(json.parent_path() / json.stem(), system_dir / json.stem());
     }
 
     auto bundle = std::make_unique<PresetBundle>();
@@ -375,20 +405,18 @@ SliceStats stats_of(const GCodeProcessorResult &result)
     return stats;
 }
 
-// Fabricante (em resources/profiles) que declara uma das impressoras.
-std::string vendor_of(const fs::path &profiles_dir, const std::set<std::string> &printers)
+// O primeiro fabricante (na ordem de vendors, com o índice de cada um) que declara uma das
+// impressoras.
+std::string vendor_of(const std::vector<std::pair<std::string, fs::path>> &vendors, const std::set<std::string> &printers)
 {
-    for (const fs::directory_entry &entry : fs::directory_iterator(profiles_dir)) {
-        const fs::path &path = entry.path();
-        if (path.extension() != ".json" || !fs::is_directory(path.parent_path() / path.stem()))
-            continue;
+    for (const auto &[vendor, path] : vendors) {
         boost::nowide::ifstream in(path.string());
         const nlohmann::json index = nlohmann::json::parse(in, nullptr, false);
         if (!index.is_object() || !index.contains("machine_list"))
             continue;
         for (const nlohmann::json &machine : index["machine_list"])
             if (printers.count(machine.value("name", "")) > 0)
-                return path.stem().string();
+                return vendor;
     }
     return {};
 }
@@ -532,7 +560,11 @@ std::string Engine::open_project(const std::string &path)
     std::set<std::string> printers{config.opt_string("printer_settings_id")};
     if (const auto *inherits = config.option<ConfigOptionStrings>("inherits_group"); inherits != nullptr && !inherits->values.empty())
         printers.insert(inherits->values.back());
-    std::string vendor = vendor_of(m->profiles_dir, printers);
+    // Com o mesmo nome no Orca e no fatiador do fabricante, vale o do fabricante.
+    std::vector<std::pair<std::string, fs::path>> indexes;
+    for (const std::string &v : vendors())
+        indexes.emplace_back(v, m->vendor_index(v));
+    std::string vendor = vendor_of(indexes, printers);
     if (vendor.empty())
         vendor = m->vendor;
     if (vendor.empty())

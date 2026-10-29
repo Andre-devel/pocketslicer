@@ -5,9 +5,11 @@ pasta `system/` de cada app em `%APPDATA%` (os perfis já atualizados pelo próp
 que os do instalador). Só entram as impressoras do usuário, os processos e filamentos compatíveis
 com elas e tudo de que dependem. Para atualizar, rode o script de novo neste PC.
 
-**Ainda não entram no APK**: o `zipOrcaResources` (`profiles/build.gradle.kts`) só empacota os
-perfis do OrcaSlicer. Antes de empacotar, cada conjunto precisa ser testado com o libslic3r do Orca
-(ver "Diferenças" abaixo).
+Cada `<app>/<fabricante>.json` com a pasta `<app>/<fabricante>/` é um fabricante, no formato do
+Orca. O `zipOrcaResources` (`profiles/build.gradle.kts`) os empacota em `vendors/` (sem `user/`), e
+o app os mostra como `<app>/<fabricante>` (ex.: `BambuStudio/BBL`) antes dos do Orca, que
+continuam como opção (`BBL`, `Creality`, ...). O padrão é `BambuStudio/BBL`. Ao abrir um projeto,
+se a impressora existir nos dois, vale o do fabricante.
 
 | Pasta | App | Fabricante (versão dos perfis) | Impressoras | Máquinas / processos / filamentos |
 |---|---|---|---|---|
@@ -22,7 +24,8 @@ este projeto.
 ## Presets do usuário (`<app>/user/{machine,process,filament}`)
 
 Os presets que o usuário criou em cada app, sem a pasta da conta, os `.info` e o `sync_data`.
-No formato do Orca: só a diferença para o preset pai (`inherits`), que está em `system/`. A
+Não vão no APK (são pessoais): entram pelo "Importar preset" do app. No formato do Orca: só a
+diferença para o preset pai (`inherits`), que está nos perfis do fabricante. A
 exceção são os de `BambuStudio/user/filament/base/`, presets completos sem pai, que são o pai de
 `VOOLT3D PETG TRANSLUCIDO` e `Voolt3D PLA PLA outletCalibrated`.
 
@@ -37,16 +40,17 @@ exceção são os de `BambuStudio/user/filament/base/`, presets completos sem pa
 ## Diferenças em relação aos perfis do Orca 2.4.2
 
 - **Bambu Studio** usa `include` (o G-code inicial, final, de troca de filamento, etc. da A1 vem de
-  perfis `... template machine_start_gcode`), que o Orca não conhece. É preciso juntar os
-  `include` no perfil antes de usar (como o `scripts/flatten-profile.py` já junta o `inherits`).
-  Também traz chaves dos bicos múltiplos (H2D), em listas por variante de extrusora.
+  perfis `... template machine_start_gcode`), que o Orca não conhece. O script junta essas opções
+  no próprio perfil da máquina e tira os modelos. Também traz chaves dos bicos múltiplos (H2D),
+  em listas por variante de extrusora.
 - **Creality Print** é o único com perfil da K3 (o Orca não tem). Tem chaves próprias, que o
   libslic3r ignora. Os nomes da K2 batem com os do Orca (`Creality K2 0.4 nozzle`).
 - **QIDI Studio** chama o fabricante de `Q Series` e as máquinas de `Q2 0.4 nozzle` (no Orca:
   `Qidi` e `Qidi Q2 0.4 nozzle`). Os nomes não colidem com os do Orca.
 - **Snapmaker Orca**: o fabricante e os nomes (`Snapmaker U1 (0.4 nozzle)`) são iguais aos do
-  Orca, então não pode entrar ao lado do `Snapmaker` do Orca: um substitui o outro. O OrcaSlicer
+  Orca. O OrcaSlicer
   instalado neste PC já tem perfis Snapmaker mais novos (02.04.00.07, com a U1 0.4+0.6) que os do
   Snapmaker Orca (02.03.03.03).
-- `BBL` e `Creality` também colidem com os do Orca (conferido no OrcaSlicer instalado:
-  `Bambu Lab A1 0.4 nozzle`, `Creality K2 0.4 nozzle`). Não dá para carregar os dois de uma vez.
+- `BBL` e `Creality` também têm os nomes do Orca (conferido no OrcaSlicer instalado:
+  `Bambu Lab A1 0.4 nozzle`, `Creality K2 0.4 nozzle`). Não há conflito: o motor carrega um
+  fabricante por vez, com o nome do arquivo sem o `<app>/` (`BBL` liga o tratamento das Bambu).

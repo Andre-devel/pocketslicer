@@ -82,7 +82,8 @@ using ProgressFn = std::function<void(int percent, const std::string &text)>;
 
 class Engine {
 public:
-    // resources_dir: cópia de resources/ do OrcaSlicer (profiles/, info/, flush/).
+    // resources_dir: cópia de resources/ do OrcaSlicer (profiles/, info/, flush/), mais
+    // vendors/ (perfis dos fatiadores dos fabricantes, ver vendors()).
     // data_dir: diretório gravável; recebe system/ (symlinks para o fabricante carregado)
     // e user/. Ao apagá-lo, não siga symlinks (File.deleteRecursively() segue) ou os
     // perfis em resources_dir vão junto.
@@ -94,7 +95,9 @@ public:
     // processo todo (i18n.hpp); sem esse diretório, os textos ficam como no código.
     void set_language(const std::string &language);
 
-    // Fabricantes disponíveis em resources/profiles (sem a biblioteca de filamentos).
+    // Fabricantes disponíveis: primeiro os copiados dos fatiadores dos fabricantes, em
+    // resources/vendors/<app>/, como "<app>/<fabricante>" (ex.: "BambuStudio/BBL"); depois os
+    // do Orca, em resources/profiles (sem a biblioteca de filamentos).
     std::vector<std::string> vendors() const;
 
     // Carrega os perfis do fabricante (mais OrcaFilamentLibrary) e seleciona sua

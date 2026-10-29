@@ -370,7 +370,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun printerPreset(): String? = _state.value.presets[PresetKind.PRINTER]?.selected
 
     /** Tipo de envio sugerido para uma impressora nova, pelo fabricante do perfil em uso. */
-    fun printerKind(): Kind = if (_state.value.vendors.selected == BAMBU_VENDOR) Kind.BAMBU_LAN else Kind.MOONRAKER
+    fun printerKind(): Kind = if (_state.value.vendors.selected?.substringAfterLast('/') == BAMBU_VENDOR) Kind.BAMBU_LAN else Kind.MOONRAKER
 
     /** Se "Enviar e imprimir" vale para [host]. */
     fun canStart(host: PrinterHost): Boolean = uploader(host.kind, app.assets).canStart
@@ -533,7 +533,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     private companion object {
         const val TAG = "SlicerViewModel"
-        const val DEFAULT_VENDOR = "BBL"
+        const val DEFAULT_VENDOR = "BambuStudio/BBL"
         const val BAMBU_VENDOR = "BBL"
         /** Lado da miniatura do projeto, como THUMBNAIL_SIZE_3MF do Orca. */
         const val PROJECT_THUMBNAIL_SIZE = 512

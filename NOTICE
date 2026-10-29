@@ -11,6 +11,10 @@ contributors). All of them are licensed under the GNU AGPL-3.0. OrcaSlicer is
 included as the git submodule third_party/OrcaSlicer, with the changes in
 native/patches.
 
+The APK also contains printer, process and filament profiles copied from Bambu
+Studio (Bambu Lab), Creality Print (Creality), QIDI Studio (QIDI) and Snapmaker
+Orca (Snapmaker), all licensed under the GNU AGPL-3.0; see profiles/imported.
+
 The APK contains the following third-party software. Versions are those pinned by
 OrcaSlicer v2.4.2 (third_party/OrcaSlicer/deps), except OpenSSL, set in native/deps; the full license
 texts are in each project's source distribution.

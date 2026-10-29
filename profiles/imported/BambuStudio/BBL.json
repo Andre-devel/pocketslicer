@@ -1450,46 +1450,6 @@
     ],
     "machine_list": [
         {
-            "name": "Bambu Lab A1 0.4 nozzle template change_filament_gcode",
-            "sub_path": "machine/Bambu Lab A1 0.4 nozzle template change_filament_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 0.4 nozzle template layer_change_gcode",
-            "sub_path": "machine/Bambu Lab A1 0.4 nozzle template layer_change_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 0.4 nozzle template machine_end_gcode",
-            "sub_path": "machine/Bambu Lab A1 0.4 nozzle template machine_end_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 0.4 nozzle template machine_start_gcode",
-            "sub_path": "machine/Bambu Lab A1 0.4 nozzle template machine_start_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 0.4 nozzle template time_lapse_gcode",
-            "sub_path": "machine/Bambu Lab A1 0.4 nozzle template time_lapse_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 mini 0.4 nozzle template change_filament_gcode",
-            "sub_path": "machine/Bambu Lab A1 mini 0.4 nozzle template change_filament_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 mini 0.4 nozzle template layer_change_gcode",
-            "sub_path": "machine/Bambu Lab A1 mini 0.4 nozzle template layer_change_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 mini 0.4 nozzle template machine_end_gcode",
-            "sub_path": "machine/Bambu Lab A1 mini 0.4 nozzle template machine_end_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 mini 0.4 nozzle template machine_start_gcode",
-            "sub_path": "machine/Bambu Lab A1 mini 0.4 nozzle template machine_start_gcode.json"
-        },
-        {
-            "name": "Bambu Lab A1 mini 0.4 nozzle template time_lapse_gcode",
-            "sub_path": "machine/Bambu Lab A1 mini 0.4 nozzle template time_lapse_gcode.json"
-        },
-        {
             "name": "fdm_machine_common",
             "sub_path": "machine/fdm_machine_common.json"
         },
