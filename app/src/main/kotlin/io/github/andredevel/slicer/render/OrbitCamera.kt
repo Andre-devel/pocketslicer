@@ -29,17 +29,23 @@ class OrbitCamera {
     // Raio enquadrado por frame(); null depois que o usuário mexe na câmera.
     private var framedRadius: Float? = null
 
+    // Fração da altura coberta embaixo (bottom sheet) no último frame(): a imagem sobe para o
+    // centro da parte visível. Fica até o próximo frame(), para a cena não pular depois.
+    private var bottomInset = 0f
+
     /** Vista do último frame(); null depois que o usuário mexe na câmera. */
     var cameraView: CameraView? = null
         private set
 
     /**
-     * Enquadra uma esfera de raio [radius] centrada em [center] pelo ângulo de [view]. Até o
-     * usuário mexer na câmera, o enquadramento acompanha mudanças de proporção do viewport.
+     * Enquadra uma esfera de raio [radius] centrada em [center] pelo ângulo de [view], na parte
+     * do viewport acima de [bottomInset] (fração da altura coberta). Até o usuário mexer na
+     * câmera, o enquadramento acompanha mudanças de proporção do viewport.
      */
-    fun frame(center: FloatArray, radius: Float, view: CameraView = CameraView.HOME) {
+    fun frame(center: FloatArray, radius: Float, view: CameraView = CameraView.HOME, bottomInset: Float = 0f) {
         center.copyInto(target)
         framedRadius = radius
+        this.bottomInset = bottomInset.coerceIn(0f, 0.9f)
         cameraView = view
         yaw = view.yaw
         pitch = view.pitch
@@ -78,8 +84,9 @@ class OrbitCamera {
     /** Distância em que a esfera enquadrada cabe no menor dos campos de visão (retrato: o horizontal). */
     private fun fitFramedRadius() {
         val radius = framedRadius ?: return
-        val halfVertical = Math.toRadians(FOV_DEG / 2.0)
-        val halfHorizontal = atan(tan(halfVertical) * aspect)
+        val tanHalf = tan(Math.toRadians(FOV_DEG / 2.0))
+        val halfVertical = atan(tanHalf * (1 - bottomInset))
+        val halfHorizontal = atan(tanHalf * aspect)
         distance = radius / sin(min(halfVertical, halfHorizontal)).toFloat()
     }
 
@@ -91,6 +98,8 @@ class OrbitCamera {
         val eyeZ = target[2] + distance * sin(pitchRad).toFloat()
         Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ, target[0], target[1], target[2], 0f, 0f, 1f)
         Matrix.perspectiveM(projection, 0, FOV_DEG.toFloat(), aspect, distance * 0.01f, distance * 10f)
+        // Desloca a imagem bottomInset para cima em NDC (y_clip += bottomInset * w_clip, w_clip = -z).
+        projection[9] -= bottomInset
     }
 
     private companion object {

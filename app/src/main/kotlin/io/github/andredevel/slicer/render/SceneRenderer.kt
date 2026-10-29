@@ -243,12 +243,15 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
     private var bedCenter = floatArrayOf(0f, 0f, 0f)
     private var bedRadius = 0f
 
+    /** Altura em pixels coberta embaixo do viewport (bottom sheet); setView enquadra acima dela. */
+    var bottomInset = 0
+
     /** Enquadra a mesa pelo ângulo de [view]. */
     fun setView(view: CameraView) {
         if (bedRadius <= 0f) return
         // De frente a mesa vira uma linha: o alvo sobe para ela ficar no terço de baixo.
         val center = if (view == CameraView.FRONT) bedCenter.copyOf().also { it[2] = bedRadius / 2 } else bedCenter
-        camera.frame(center, bedRadius, view)
+        camera.frame(center, bedRadius, view, if (viewportHeight > 0) bottomInset.toFloat() / viewportHeight else 0f)
     }
 
     private fun upload(scene: Scene): GpuScene {

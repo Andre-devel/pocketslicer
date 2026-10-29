@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -21,6 +23,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +59,10 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
     // G-code feito para outra máquina.
     val preset = viewModel.printerPreset()
     var selectedId by remember { mutableStateOf(state.printers.find { it.preset == preset }?.id) }
+    // A pré-escolhida pode estar abaixo da parte visível da lista: rola até ela ao abrir.
+    val preselected = remember { BringIntoViewRequester() }
+    val preselectedId = remember { selectedId }
+    LaunchedEffect(Unit) { if (preselectedId != null) preselected.bringIntoView() }
     var confirmPrint by remember { mutableStateOf(false) }
     val close = {
         viewModel.cancelSend()
@@ -99,6 +106,7 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
                                 if (selectedId != host.id) viewModel.clearSendState()
                                 selectedId = host.id
                             },
+                            modifier = if (host.id == preselectedId) Modifier.bringIntoViewRequester(preselected) else Modifier,
                             enabled = !working, accent = true, radio = true,
                         ) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

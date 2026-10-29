@@ -275,8 +275,10 @@ private fun BoxScope.BottomControls(state: SlicerUiState, viewModel: SlicerViewM
     val bottom = if (compact) Modifier.align(Alignment.TopStart).padding(top = if (state.anyOutside) 110.dp else 0.dp)
     else Modifier.align(Alignment.BottomStart)
     Row(bottom.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (state.objectCount > 0 || plates.objects.size > 1) PlateControls(plates, viewModel, editable, compact)
-        Spacer(Modifier.weight(1f))
+        // As placas ficam com o espaço que sobra das ações; muitas abas rolam na horizontal.
+        Box(Modifier.weight(1f)) {
+            if (state.objectCount > 0 || plates.objects.size > 1) PlateControls(plates, viewModel, editable, compact)
+        }
         if (state.objectCount > 0) {
             if (compact) viewPicker(Modifier)
             if (!compact) {

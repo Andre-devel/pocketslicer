@@ -92,6 +92,9 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
 
     fun setView(view: CameraView) = onGlThread { renderer.setView(view) }
 
+    /** Altura em pixels coberta embaixo pelo bottom sheet; as vistas enquadram acima dela. */
+    fun setBottomInset(px: Int) = onGlThread { renderer.bottomInset = px }
+
     private var preview: Preview? = null
     private var showPreview = false
     private var previewSettings = PreviewSettings()

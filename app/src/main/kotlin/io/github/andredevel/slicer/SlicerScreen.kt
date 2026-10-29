@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,14 +41,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
@@ -323,6 +327,7 @@ private fun Workspace(
     Column(Modifier.fillMaxSize()) {
         header()
         if (wide) {
+            LaunchedEffect(viewport) { viewport?.setBottomInset(0) }
             Row(Modifier.weight(1f)) {
                 viewportArea(Modifier.weight(1f).fillMaxHeight())
                 VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -333,8 +338,17 @@ private fun Workspace(
             }
         } else {
             val sheetMaxHeight = configuration.screenHeightDp.dp * 0.7f
+            val scaffoldState = rememberBottomSheetScaffoldState()
+            var areaHeight by remember { mutableIntStateOf(0) }
+            // As vistas da câmera enquadram a mesa na parte que o sheet deixa à mostra.
+            LaunchedEffect(viewport, areaHeight) {
+                snapshotFlow { runCatching { scaffoldState.bottomSheetState.requireOffset() }.getOrNull() }.collect { top ->
+                    viewport?.setBottomInset(top?.let { (areaHeight - it.roundToInt()).coerceAtLeast(0) } ?: 0)
+                }
+            }
             BottomSheetScaffold(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).onSizeChanged { areaHeight = it.height },
+                scaffoldState = scaffoldState,
                 sheetPeekHeight = SHEET_PEEK_HEIGHT,
                 sheetContainerColor = MaterialTheme.colorScheme.surface,
                 sheetContent = {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -101,22 +103,28 @@ fun PillTabs(
     val scheme = MaterialTheme.colorScheme
     FloatingCard(modifier, RoundedCornerShape(24.dp)) {
         Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            labels.forEachIndexed { index, label ->
-                val isSelected = index == selected
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = when {
-                        isSelected -> scheme.inverseOnSurface
-                        enabled(index) -> scheme.onSurface
-                        else -> scheme.outline
-                    },
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(if (isSelected) scheme.inverseSurface else Color.Transparent)
-                        .selectable(isSelected, enabled = enabled(index), role = Role.Tab) { if (!isSelected) onSelect(index) }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                )
+            // Sem espaço para todas, as abas rolam; [trailing] fica sempre à vista.
+            Row(
+                Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                labels.forEachIndexed { index, label ->
+                    val isSelected = index == selected
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = when {
+                            isSelected -> scheme.inverseOnSurface
+                            enabled(index) -> scheme.onSurface
+                            else -> scheme.outline
+                        },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSelected) scheme.inverseSurface else Color.Transparent)
+                            .selectable(isSelected, enabled = enabled(index), role = Role.Tab) { if (!isSelected) onSelect(index) }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
             }
             trailing()
         }
