@@ -338,7 +338,7 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, 
     return guarded(env, [&]() -> jobjectArray {
         const std::vector<slicer::ObjectMesh> meshes = engine(handle)->objects();
         jclass cls = env->FindClass("io/github/andredevel/slicer/core/ObjectMesh");
-        jmethodID init = env->GetMethodID(cls, "<init>", "([F[I[B)V");
+        jmethodID init = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;[F[I[B)V");
         jobjectArray out = env->NewObjectArray(jsize(meshes.size()), cls, nullptr);
         for (size_t i = 0; i < meshes.size(); ++i) {
             const slicer::ObjectMesh &mesh = meshes[i];
@@ -347,9 +347,10 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, 
             env->SetIntArrayRegion(indices, 0, jsize(mesh.indices.size()), reinterpret_cast<const jint *>(mesh.indices.data()));
             jbyteArray filaments = env->NewByteArray(jsize(mesh.filaments.size()));
             env->SetByteArrayRegion(filaments, 0, jsize(mesh.filaments.size()), reinterpret_cast<const jbyte *>(mesh.filaments.data()));
-            jobject object = env->NewObject(cls, init, positions, indices, filaments);
+            jstring name = env->NewStringUTF(mesh.name.c_str());
+            jobject object = env->NewObject(cls, init, name, positions, indices, filaments);
             env->SetObjectArrayElement(out, jsize(i), object);
-            for (jobject ref : {jobject(positions), jobject(indices), jobject(filaments), object})
+            for (jobject ref : {jobject(name), jobject(positions), jobject(indices), jobject(filaments), object})
                 env->DeleteLocalRef(ref);
         }
         return out;
@@ -362,7 +363,7 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentColors(JNIEnv
     return guarded(env, [&] { return to_array(env, engine(handle)->filament_colors()); });
 }
 
-// Por objeto, 26 valores: matriz 4x4 (coluna), offset, rotação (graus), escala e
+// Por objeto, 29 valores: matriz 4x4 (coluna), offset, rotação (graus), escala, tamanho (mm) e
 // 1 se estiver fora do volume de impressão (senão 0).
 JNIEXPORT jdoubleArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePlacements(JNIEnv *env, jclass, jlong handle)
@@ -371,7 +372,7 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePlacements(JNIEnv *en
         std::vector<jdouble> values;
         for (const slicer::Placement &p : engine(handle)->placements()) {
             values.insert(values.end(), p.transform.begin(), p.transform.end());
-            for (const slicer::Vec3 *v : {&p.offset, &p.rotation, &p.scale})
+            for (const slicer::Vec3 *v : {&p.offset, &p.rotation, &p.scale, &p.size})
                 values.insert(values.end(), v->begin(), v->end());
             values.push_back(p.outside ? 1.0 : 0.0);
         }

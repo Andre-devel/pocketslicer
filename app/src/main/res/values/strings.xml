@@ -152,6 +152,7 @@
     <string name="no_printers">No saved printers yet. Add one or search the network.</string>
     <string name="none">None</string>
     <string name="object_n">Object %1$d</string>
+    <string name="object_size" translatable="false">%1$.1f × %2$.1f × %3$.1f mm</string>
     <string name="on_device">On device</string>
     <string name="on_device_note">Everything is sliced on this device. No account, no login, no telemetry.</string>
     <string name="open_file_short">Open file</string>

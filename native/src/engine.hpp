@@ -50,6 +50,7 @@ struct Bed {
 // Malha de um objeto em coordenadas locais, com os volumes já transformados. As partes
 // pintadas em várias cores vêm divididas nos triângulos da pintura.
 struct ObjectMesh {
+    std::string           name;      // ModelObject::name (em geral o nome do arquivo)
     std::vector<float>    positions; // x, y, z por vértice
     std::vector<uint32_t> indices;   // 3 por triângulo
     std::vector<uint8_t>  filaments; // filamento (a partir de 0) por triângulo, em ordem crescente
@@ -71,6 +72,7 @@ struct Placement {
     Vec3 offset{};       // mm
     Vec3 rotation{};     // graus, ângulos de Euler XYZ como no Orca
     Vec3 scale{};        // fator (1 = 100%)
+    Vec3 size{};         // mm, caixa da instância já transformada
     bool outside = false; // fora (total ou parcialmente) do volume de impressão
 };
 

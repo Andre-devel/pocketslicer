@@ -363,10 +363,15 @@ private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
         return
     }
     Text(
-        stringResource(R.string.object_n, index + 1),
+        state.scene.meshes.getOrNull(index)?.name?.takeIf { it.isNotBlank() } ?: stringResource(R.string.object_n, index + 1),
         style = MaterialTheme.typography.titleSmall,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
+    )
+    Text(
+        stringResource(R.string.object_size, placement.size[0], placement.size[1], placement.size[2]),
+        style = MonoStyles.small,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     PlacementFields(index, placement, viewModel, state.editable)
 }

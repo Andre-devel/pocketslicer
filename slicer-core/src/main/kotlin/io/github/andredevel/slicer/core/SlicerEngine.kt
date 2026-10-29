@@ -48,23 +48,25 @@ class Thumbnail(val width: Int, val height: Int, val rgba: ByteArray)
 class Bed(val shape: FloatArray, val maxHeight: Float)
 
 /**
- * Malha de um objeto em coordenadas locais: x, y, z por vértice; 3 índices por triângulo e o
+ * Malha de um objeto, com o [name] dele no modelo (em geral o nome do arquivo; pode ser vazio),
+ * em coordenadas locais: x, y, z por vértice; 3 índices por triângulo e o
  * filamento (a partir de 0, índice em [SlicerEngine.filamentColors]) de cada triângulo, que vêm
  * agrupados por filamento em ordem crescente. As partes pintadas em várias cores vêm divididas
  * nos triângulos da pintura.
  */
-class ObjectMesh(val positions: FloatArray, val indices: IntArray, val filaments: ByteArray)
+class ObjectMesh(val name: String, val positions: FloatArray, val indices: IntArray, val filaments: ByteArray)
 
 /**
  * Posição de um objeto na mesa: [transform] é a matriz 4x4 em ordem de coluna (OpenGL),
  * decomposta em [offset] (mm), [rotation] (graus, Euler XYZ como no Orca) e [scale] (1 = 100%).
- * [outside]: fora, total ou parcialmente, do volume de impressão (impede o fatiamento).
+ * [size]: largura, profundidade e altura (mm) do objeto já transformado. [outside]: fora, total ou parcialmente, do volume de impressão (impede o fatiamento).
  */
 class Placement(
     val transform: FloatArray,
     val offset: FloatArray,
     val rotation: FloatArray,
     val scale: FloatArray,
+    val size: FloatArray,
     val outside: Boolean,
 )
 
@@ -248,9 +250,9 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
 
     suspend fun placements(): List<Placement> = call {
         val v = nativePlacements(handle)
-        List(v.size / 26) { i ->
-            fun part(from: Int, size: Int) = FloatArray(size) { v[i * 26 + from + it].toFloat() }
-            Placement(part(0, 16), part(16, 3), part(19, 3), part(22, 3), outside = v[i * 26 + 25] != 0.0)
+        List(v.size / 29) { i ->
+            fun part(from: Int, size: Int) = FloatArray(size) { v[i * 29 + from + it].toFloat() }
+            Placement(part(0, 16), part(16, 3), part(19, 3), part(22, 3), part(25, 3), outside = v[i * 29 + 28] != 0.0)
         }
     }
 

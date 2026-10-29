@@ -770,6 +770,7 @@ std::vector<ObjectMesh> Engine::objects() const
     std::vector<ObjectMesh> out;
     for (const ModelObject *object : m->model.objects) {
         ObjectMesh                 mesh;
+        mesh.name = object->name;
         const indexed_triangle_set its = object_mesh(*object, &mesh.filaments);
         mesh.positions.reserve(its.vertices.size() * 3);
         for (const stl_vertex &v : its.vertices)
@@ -805,6 +806,8 @@ std::vector<Placement> Engine::placements() const
             p.rotation[i] = Geometry::rad2deg(rotation[i]);
             p.scale[i] = scale[i];
         }
+        const Vec3d size = object->instance_bounding_box(0).size();
+        std::copy(size.data(), size.data() + 3, p.size.begin());
         p.outside = m->bundle && instance.calc_print_volume_state(volume) != ModelInstancePVS_Inside;
         out.push_back(p);
     }

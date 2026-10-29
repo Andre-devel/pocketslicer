@@ -68,7 +68,7 @@ que faltar entra lá, sem depender do ViewModel.
 
 ### Etapa 2 — motor (engine.cpp, jni_bridge.cpp, SlicerEngine.kt)
 
-9. Nome e dimensões dos objetos: `ModelObject::name` e a caixa da instância já transformada
+9. (Feito) Nome e dimensões dos objetos: `ModelObject::name` e a caixa da instância já transformada
    (mm) em `nativeObjects`/`nativePlacements`; mostrar no painel e no sheet.
 10. Filamentos do projeto: presets de filamento por extrusor e quais cada objeto usa (já há
     `ObjectMesh.filaments`); lista "1 · PLA Preto, 2 · PLA Laranja" no Perfil.

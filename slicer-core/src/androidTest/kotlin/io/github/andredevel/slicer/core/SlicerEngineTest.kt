@@ -59,6 +59,7 @@ class SlicerEngineTest {
         engine.loadModel(testAsset("cube20.stl"))
         val mesh = engine.objects().single()
         assertEquals(12, mesh.indices.size / 3)
+        assertTrue(mesh.name, mesh.name.startsWith("cube20"))
         // Cubo de 20 mm apoiado em z = 0 no centro.
         val world = worldVertices(mesh, engine.placements().single())
         assertEquals(118f, world.minOf { it[0] }, 0.01f)
@@ -82,6 +83,9 @@ class SlicerEngineTest {
         var placement = engine.placements().single()
         assertEquals(45f, placement.rotation[2], 0.01f)
         assertEquals(2f, placement.scale[0], 0.001f)
+        // Cubo de 40 mm girado 45° em z: diagonal na largura e na profundidade.
+        assertEquals(40f * Math.sqrt(2.0).toFloat(), placement.size[0], 0.01f)
+        assertEquals(40f, placement.size[2], 0.01f)
         var world = worldVertices(mesh, placement)
         assertEquals(0f, world.minOf { it[2] }, 0.01f)
         assertEquals(40f, world.maxOf { it[2] }, 0.01f)
@@ -270,7 +274,7 @@ class SlicerEngineTest {
 
         // Outro fabricante carregado: abrir o projeto volta para o da impressora dele.
         engine.loadVendor("Prusa")
-        assertEquals("BBL", engine.openProject(project))
+        assertEquals("BambuStudio/BBL", engine.openProject(project))
         assertEquals("Bambu Lab A1 0.4 nozzle", engine.selected(PresetKind.PRINTER))
         val process = engine.values(PresetKind.PROCESS)
         assertEquals("35%", process.values["sparse_infill_density"])
@@ -307,7 +311,7 @@ class SlicerEngineTest {
         assertTrue("\"filament_notes\": \"\"" in java.util.zip.ZipFile(project).use { zip ->
             zip.getInputStream(zip.getEntry("Metadata/project_settings.config")).use { it.readBytes().decodeToString() }
         })
-        assertEquals("BBL", engine.openProject(project))
+        assertEquals("BambuStudio/BBL", engine.openProject(project))
         assertEquals(1, engine.placements().size)
     }
 
