@@ -13,8 +13,10 @@ android {
         applicationId = "io.github.andredevel.pocketslicer"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
         versionName = "0.1.0"
+        // Derivado do versionName (0.1.0 → 100, 1.2.3 → 10203): o Android recusa atualizar para um
+        // versionCode menor, e a atualização pelo GitHub (update/AppUpdater) compara o versionName.
+        versionCode = versionName!!.split('.').map(String::toInt).fold(0) { code, part -> code * 100 + part }
     }
 
     // Chave de release fora do repositório (scripts/make-release-key.sh). Sem ela, o

@@ -29,6 +29,8 @@ import io.github.andredevel.slicer.send.PrinterStatus
 import io.github.andredevel.slicer.send.PrinterStore
 import io.github.andredevel.slicer.send.SendException
 import io.github.andredevel.slicer.send.uploader
+import io.github.andredevel.slicer.update.AppUpdater
+import io.github.andredevel.slicer.update.Release
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,7 +78,19 @@ sealed interface SendState {
  */
 data class UserMessage(val text: String, val success: Boolean = false, val action: MessageAction? = null, val details: String? = null)
 
-enum class MessageAction { PICK_OTHER, RETRY, DETAILS, UNDO }
+enum class MessageAction { PICK_OTHER, RETRY, DETAILS, UNDO, INSTALL_UPDATE }
+
+/** Atualização do app pelo GitHub Releases (Configurações e aviso ao abrir o app). */
+sealed interface UpdateState {
+    data object Idle : UpdateState
+    data object Checking : UpdateState
+    data object UpToDate : UpdateState
+    data class Downloading(val release: Release, val progress: Float) : UpdateState
+    /** APK baixado e conferido, pronto para [SlicerViewModel.installUpdate]. */
+    data class Ready(val release: Release, val apk: File) : UpdateState
+    data object Installing : UpdateState
+    data class Failed(val error: String) : UpdateState
+}
 
 enum class SendStep { CONNECT, UPLOAD, START }
 
@@ -158,6 +172,8 @@ data class SlicerUiState(
     val dirty: Boolean = false,
     /** Moeda do custo (ISO 4217) escolhida em Configurações; null segue o idioma. */
     val currency: String? = null,
+    val autoUpdate: Boolean = true,
+    val update: UpdateState = UpdateState.Idle,
 ) {
     val objectCount get() = scene?.placements?.size ?: 0
     val anyOutside get() = scene?.placements?.any { it.outside } == true
@@ -198,6 +214,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private val printerStore = PrinterStore(File(app.filesDir, "printers.json"))
     private val recentStore = RecentFilesStore(File(app.filesDir, "recent.json"))
     private val settings = SettingsStore(app.getSharedPreferences("settings", Context.MODE_PRIVATE))
+    private val updater = AppUpdater(app)
+    val installedVersion get() = updater.installedVersion
+    private var updateJob: Job? = null
 
     private val engine = viewModelScope.async {
         val resources = withContext(Dispatchers.IO) { OrcaResources.install(app) }
@@ -218,13 +237,78 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             val printers = withContext(Dispatchers.IO) { printerStore.load() }
             val recents = withContext(Dispatchers.IO) { recentStore.load() }
             val currency = withContext(Dispatchers.IO) { settings.currency }
-            _state.update { it.copy(printers = printers, recents = recents, currency = currency) }
+            val autoUpdate = withContext(Dispatchers.IO) { settings.autoUpdate }
+            _state.update { it.copy(printers = printers, recents = recents, currency = currency, autoUpdate = autoUpdate) }
+            val due = System.currentTimeMillis() - withContext(Dispatchers.IO) { settings.lastUpdateCheck } >= UPDATE_CHECK_INTERVAL_MS
+            if (autoUpdate && due) checkUpdate(automatic = true)
         }
     }
 
     fun setCurrency(currency: String?) {
         settings.currency = currency
         _state.update { it.copy(currency = currency) }
+    }
+
+    fun setAutoUpdate(enabled: Boolean) {
+        settings.autoUpdate = enabled
+        _state.update { it.copy(autoUpdate = enabled) }
+    }
+
+    /**
+     * Procura versão nova no GitHub e já baixa o APK; pronto, avisa com "Instalar". [automatic]
+     * (ao abrir o app) fica em silêncio quando não há versão nova ou falta rede.
+     */
+    fun checkUpdate(automatic: Boolean = false) {
+        if (updateJob?.isActive == true) return
+        updateJob = viewModelScope.launch {
+            _state.update { it.copy(update = UpdateState.Checking) }
+            try {
+                val release = updater.check()
+                settings.lastUpdateCheck = System.currentTimeMillis()
+                if (release == null) {
+                    withContext(Dispatchers.IO) { updater.clear() }
+                    _state.update { it.copy(update = UpdateState.UpToDate) }
+                    return@launch
+                }
+                _state.update { it.copy(update = UpdateState.Downloading(release, 0f)) }
+                val apk = updater.download(release) { progress ->
+                    _state.update { it.copy(update = UpdateState.Downloading(release, progress)) }
+                }
+                val text = app.getString(R.string.update_ready, release.version)
+                _state.update { it.copy(update = UpdateState.Ready(release, apk), message = UserMessage(text, success = true, action = MessageAction.INSTALL_UPDATE)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "update check failed", e)
+                _state.update { it.copy(update = if (automatic) UpdateState.Idle else UpdateState.Failed(e.message ?: e.toString())) }
+            }
+        }
+    }
+
+    /**
+     * Instala o APK baixado; o Android fecha o app ao concluir. Sem a permissão de instalar apps
+     * (Android 8+, por app), abre a tela do sistema para concedê-la; tocar em Instalar de novo segue.
+     */
+    fun installUpdate() {
+        val ready = _state.value.update as? UpdateState.Ready ?: return
+        if (!app.packageManager.canRequestPackageInstalls()) {
+            val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
+            app.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(update = UpdateState.Installing) }
+            try {
+                updater.install(ready.apk)
+            } catch (e: Exception) {
+                Log.w(TAG, "update install failed", e)
+                _state.update { it.copy(update = UpdateState.Failed(e.message ?: e.toString())) }
+                return@launch
+            }
+            // Se o usuário recusar a confirmação do sistema, o app continua aberto: volta a oferecer.
+            delay(INSTALL_RETRY_DELAY_MS)
+            _state.update { if (it.update == UpdateState.Installing) it.copy(update = ready) else it }
+        }
     }
 
     /**
@@ -826,6 +910,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val PROJECT_THUMBNAIL_SIZE = 512
         /** Intervalo da consulta do estado das impressoras. */
         const val STATUS_INTERVAL_MS = 5_000L
+        /** Procura automática por versão nova no máximo a cada 12 h (a API do GitHub limita a 60/h). */
+        const val UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000L
+        /** Sem resposta da instalação nesse tempo (confirmação recusada), volta a oferecer "Instalar". */
+        const val INSTALL_RETRY_DELAY_MS = 10_000L
         /** Número da camada em "Generating G-code: layer N", em qualquer idioma. */
         val LAST_NUMBER = Regex("""\d+(?=\D*$)""")
 

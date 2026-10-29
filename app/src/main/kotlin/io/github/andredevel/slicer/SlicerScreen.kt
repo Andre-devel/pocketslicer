@@ -136,6 +136,7 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
                 MessageAction.RETRY -> viewModel.retry()
                 MessageAction.DETAILS -> details = message.details
                 MessageAction.UNDO -> viewModel.undoOpen()
+                MessageAction.INSTALL_UPDATE -> viewModel.installUpdate()
                 null -> {}
             }
         }
@@ -223,6 +224,7 @@ private val MESSAGE_ACTION_LABELS = mapOf(
     MessageAction.RETRY to R.string.action_retry,
     MessageAction.DETAILS to R.string.action_details,
     MessageAction.UNDO to R.string.undo,
+    MessageAction.INSTALL_UPDATE to R.string.update_install,
 )
 
 /** Texto técnico de um erro inesperado, com cópia para relatar o problema. */

@@ -48,6 +48,12 @@ publicar atualizações):
 ./gradlew :app:assembleRelease                        # app/build/outputs/apk/release/
 ```
 
+O app se atualiza pelo GitHub Releases (Configurações → Atualizações): ao abrir, procura a
+release mais nova (pré-releases incluídas), baixa o APK e oferece "Instalar". Para publicar uma
+versão, suba `versionName` em `app/build.gradle.kts` (o `versionCode` sai dele), crie a release
+com o tag `vX.Y.Z` e anexe o APK assinado com a mesma chave. Do Android 12 em diante, depois da
+primeira atualização feita pelo próprio app, a instalação não pede mais confirmação do sistema.
+
 A compilação nativa usa um job para cada 4 GB de RAM (`-DSLICER_COMPILE_JOBS=N` muda): com um
 job por núcleo, libslic3r passava de 25 GB e o sistema matava processos.
 
