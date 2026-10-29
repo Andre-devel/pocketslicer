@@ -53,6 +53,15 @@
     <string name="error_read_file">Could not read the file.</string>
     <string name="error_write_file">Could not save the file.</string>
     <string name="error_out_of_memory">Not enough memory for this operation.</string>
+    <string name="error_unexpected_short">Unexpected error in the app.</string>
+    <string name="project_saved">Project saved.</string>
+    <string name="project_saved_thumbnail">Project saved with thumbnail.</string>
+    <string name="gcode_saved">G-code saved.</string>
+    <string name="action_pick_other">Choose another</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_details">Details</string>
+    <string name="error_details">Error details</string>
+    <string name="copy">Copy</string>
     <string name="error_unexpected">Unexpected error: %1$s</string>
     <string name="send_to_printer">Send to printer</string>
     <string name="send_title">Send to printer</string>

@@ -52,6 +52,15 @@
     <string name="error_read_file">Não foi possível ler o arquivo.</string>
     <string name="error_write_file">Não foi possível gravar o arquivo.</string>
     <string name="error_out_of_memory">Memória insuficiente para esta operação.</string>
+    <string name="error_unexpected_short">Erro inesperado no app.</string>
+    <string name="project_saved">Projeto salvo.</string>
+    <string name="project_saved_thumbnail">Projeto salvo com miniatura.</string>
+    <string name="gcode_saved">G-code salvo.</string>
+    <string name="action_pick_other">Escolher outro</string>
+    <string name="action_retry">Tentar de novo</string>
+    <string name="action_details">Detalhes</string>
+    <string name="error_details">Detalhes do erro</string>
+    <string name="copy">Copiar</string>
     <string name="error_unexpected">Erro inesperado: %1$s</string>
     <string name="send_to_printer">Enviar para impressora</string>
     <string name="send_title">Enviar para impressora</string>

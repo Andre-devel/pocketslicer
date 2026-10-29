@@ -62,7 +62,7 @@ que faltar entra lá, sem depender do ViewModel.
    resultado "Conectada · Moonraker v0.9 · 38 ms".
 7. (Feito) Etapas do envio: `SendState.Working` com etapa (conectar / enviar / iniciar), bytes enviados
    e tempo de cada uma; lista com ícones como no design.
-8. Mensagens de estado (4a): mapear os erros do ViewModel para `Banner` com ação (Escolher
+8. (Feito, menos "Abrir com … Desfazer") Mensagens de estado (4a): mapear os erros do ViewModel para `Banner` com ação (Escolher
    outro, Tentar de novo, Detalhes), "Aberto via Abrir com … Desfazer" e "Projeto salvo com
    miniatura" no snackbar.
 

@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -26,8 +30,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -39,10 +46,13 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -54,17 +64,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.Thumbnail
+import io.github.andredevel.slicer.render.CameraView
 import io.github.andredevel.slicer.render.PreviewSettings
 import io.github.andredevel.slicer.render.ViewportListener
-import io.github.andredevel.slicer.render.CameraView
 import io.github.andredevel.slicer.render.ViewportView
 import io.github.andredevel.slicer.ui.components.AppMark
 import io.github.andredevel.slicer.ui.components.AppNavigationBar
 import io.github.andredevel.slicer.ui.components.AppNavigationRail
+import io.github.andredevel.slicer.ui.components.Banner
 import io.github.andredevel.slicer.ui.components.MenuPill
 import io.github.andredevel.slicer.ui.components.NavItem
 import io.github.andredevel.slicer.ui.components.PillTabs
+import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.blockTouches
+import io.github.andredevel.slicer.ui.theme.MonoStyles
 import kotlin.math.roundToInt
 
 /** Destinos da navegação principal. */
@@ -109,13 +122,23 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
         saveGcode = { saveGcode.launch(viewModel.gcodeName()) },
     )
 
-    LaunchedEffect(state.error) {
-        state.error?.let {
-            // Até o usuário fechar: a mensagem explica por que algo não aconteceu.
-            snackbar.showSnackbar(it, withDismissAction = true, duration = SnackbarDuration.Indefinite)
-            viewModel.dismissError()
+    // Texto técnico de um erro inesperado, aberto pelo botão "Detalhes".
+    var details by remember { mutableStateOf<String?>(null) }
+    val actionLabels = MessageAction.entries.associateWith { stringResource(MESSAGE_ACTION_LABELS.getValue(it)) }
+    LaunchedEffect(state.message) {
+        val message = state.message ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(MessageVisuals(message, message.action?.let(actionLabels::getValue)))
+        viewModel.dismissMessage()
+        if (result == SnackbarResult.ActionPerformed) {
+            when (message.action) {
+                MessageAction.PICK_OTHER -> pickers.openFile()
+                MessageAction.RETRY -> viewModel.retry()
+                MessageAction.DETAILS -> details = message.details
+                null -> {}
+            }
         }
     }
+    details?.let { ErrorDetailsDialog(it) { details = null } }
 
     // Parâmetros ou Impressoras por cima da área de trabalho; null mostra Preparar/Visualizar,
     // conforme a pré-visualização do ViewModel.
@@ -142,7 +165,19 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
     val configuration = LocalConfiguration.current
     val rail = configuration.screenWidthDp >= RAIL_MIN_WIDTH_DP
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = {
+            SnackbarHost(snackbar) { data ->
+                val message = (data.visuals as MessageVisuals).userMessage
+                Banner(
+                    if (message.success) Tone.SUCCESS else Tone.ERROR,
+                    message.text,
+                    Modifier.padding(12.dp).widthIn(max = 560.dp).shadow(6.dp, MaterialTheme.shapes.medium),
+                    actionLabel = data.visuals.actionLabel,
+                    onAction = data::performAction,
+                    onDismiss = data::dismiss,
+                )
+            }
+        },
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (!rail) AppNavigationBar(items, current.ordinal, { navigate(Destination.entries[it]) })
@@ -168,6 +203,36 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
             }
         }
     }
+}
+
+/** [UserMessage] no SnackbarHost: erros ficam até serem fechados, sucessos somem sozinhos. */
+private class MessageVisuals(val userMessage: UserMessage, override val actionLabel: String?) : SnackbarVisuals {
+    override val message get() = userMessage.text
+    override val withDismissAction get() = true
+    override val duration get() = if (userMessage.success) SnackbarDuration.Short else SnackbarDuration.Indefinite
+}
+
+private val MESSAGE_ACTION_LABELS = mapOf(
+    MessageAction.PICK_OTHER to R.string.action_pick_other,
+    MessageAction.RETRY to R.string.action_retry,
+    MessageAction.DETAILS to R.string.action_details,
+)
+
+/** Texto técnico de um erro inesperado, com cópia para relatar o problema. */
+@Composable
+private fun ErrorDetailsDialog(details: String, onClose: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(stringResource(R.string.error_details)) },
+        text = {
+            Text(details, style = MonoStyles.small, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()))
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.close)) } },
+        dismissButton = {
+            TextButton(onClick = { clipboard.setText(AnnotatedString(details)) }) { Text(stringResource(R.string.copy)) }
+        },
+    )
 }
 
 /** Rodapé da navegação lateral: lembra que tudo roda no aparelho. */

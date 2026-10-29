@@ -66,6 +66,14 @@ sealed interface SendState {
     data class Failed(val message: String) : SendState
 }
 
+/**
+ * Mensagem sobre o fim de uma operação: erro (fica até ser fechada) ou sucesso. [action]: o que
+ * o botão da mensagem faz; [details]: texto técnico de [MessageAction.DETAILS].
+ */
+data class UserMessage(val text: String, val success: Boolean = false, val action: MessageAction? = null, val details: String? = null)
+
+enum class MessageAction { PICK_OTHER, RETRY, DETAILS }
+
 enum class SendStep { CONNECT, UPLOAD, START }
 
 /**
@@ -94,7 +102,7 @@ sealed interface SliceState {
 data class SlicerUiState(
     /** Operação em andamento que bloqueia os controles (carregar perfis, modelo...). */
     @StringRes val busy: Int? = R.string.busy_installing_profiles,
-    val error: String? = null,
+    val message: UserMessage? = null,
     val vendors: PresetChoice = PresetChoice(),
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
     /** Definições das opções editáveis (PrintConfigDef do Orca); textos no idioma do app. */
@@ -144,6 +152,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
      */
     var thumbnails: (suspend (width: Int, height: Int) -> Thumbnail?)? = null
     private var sliceJob: Job? = null
+    private var retryAction: (() -> Unit)? = null
     private var sendJob: Job? = null
     private val printerStore = PrinterStore(File(app.filesDir, "printers.json"))
     private val recentStore = RecentFilesStore(File(app.filesDir, "recent.json"))
@@ -339,7 +348,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val file = File(app.cacheDir, "project.3mf")
         engine.saveProject(file, thumbnail)
         write(file, uri)
-        _state.update { it.copy(dirty = false) }
+        val text = app.getString(if (thumbnail != null) R.string.project_saved_thumbnail else R.string.project_saved)
+        _state.update { it.copy(dirty = false, message = UserMessage(text, success = true)) }
     }
 
     /** Nome sugerido para o projeto: o do modelo com a extensão trocada. */
@@ -385,7 +395,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         editScene { it.setPlacement(objectIndex, offset, rotation, scale); null }
 
     fun slice() {
-        sliceJob = launchEngine(null) { engine ->
+        sliceJob = launchEngine(null, retry = ::slice) { engine ->
             _state.update { it.copy(slice = SliceState.Running(0, "")) }
             try {
                 val thumbnails = engine.gcodeThumbnailSizes().mapNotNull { (width, height) -> this.thumbnails?.invoke(width, height) }
@@ -406,7 +416,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         sliceJob?.cancel()
     }
 
-    fun saveGcode(uri: Uri) = launchEngine(R.string.busy_saving) { engine -> write(printFile(engine), uri) }
+    fun saveGcode(uri: Uri) = launchEngine(R.string.busy_saving) { engine ->
+        write(printFile(engine), uri)
+        _state.update { it.copy(message = UserMessage(app.getString(R.string.gcode_saved), success = true)) }
+    }
 
     /**
      * Arquivo do último fatiamento no formato da impressora: o G-code, ou o .gcode.3mf com ele
@@ -434,7 +447,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 withContext(Dispatchers.IO) { printerStore.save(printers) }
             } catch (e: IOException) {
                 Log.w(TAG, e)
-                _state.update { it.copy(error = app.getString(R.string.error_write_file)) }
+                _state.update { it.copy(message = UserMessage(app.getString(R.string.error_write_file))) }
             }
         }
     }
@@ -516,7 +529,12 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun dismissError() = _state.update { it.copy(error = null) }
+    fun dismissMessage() = _state.update { it.copy(message = null) }
+
+    /** Repete a operação que falhou com [MessageAction.RETRY]. */
+    fun retry() {
+        retryAction?.invoke()
+    }
 
     /** Nome sugerido para o G-code: o do modelo com a extensão trocada (.gcode ou .gcode.3mf). */
     fun gcodeName(): String {
@@ -604,25 +622,30 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             if (cursor.moveToFirst()) cursor.getString(0) else null
         } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "model.stl"
 
-    private fun launchEngine(@StringRes busy: Int?, block: suspend (SlicerEngine) -> Unit): Job = viewModelScope.launch {
-        _state.update { it.copy(busy = busy, error = null) }
+    /** [retry]: operação que a mensagem de erro oferece repetir. */
+    private fun launchEngine(@StringRes busy: Int?, retry: (() -> Unit)? = null, block: suspend (SlicerEngine) -> Unit): Job = viewModelScope.launch {
+        _state.update { it.copy(busy = busy, message = null) }
+        val fail = { text: String, action: MessageAction?, details: String? ->
+            retryAction = retry
+            _state.update { it.copy(message = UserMessage(text, action = action ?: MessageAction.RETRY.takeIf { retry != null }, details = details)) }
+        }
         try {
             block(engine.await())
         } catch (e: SlicerException) {
             // Já traduzida pelo motor.
-            _state.update { it.copy(error = e.message) }
+            fail(e.message.orEmpty(), null, null)
         } catch (e: UserException) {
             Log.w(TAG, e.cause)
-            _state.update { it.copy(error = app.getString(e.text)) }
+            fail(app.getString(e.text), MessageAction.PICK_OTHER.takeIf { e.text == R.string.error_read_file }, null)
         } catch (e: CancellationException) {
             throw e
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "out of memory", e)
-            _state.update { it.copy(error = app.getString(R.string.error_out_of_memory)) }
+            fail(app.getString(R.string.error_out_of_memory), null, null)
         } catch (e: Exception) {
             // Falha do app, não do arquivo: avisa em vez de fechar e perder a mesa.
             Log.e(TAG, "unexpected error", e)
-            _state.update { it.copy(error = app.getString(R.string.error_unexpected, e.toString())) }
+            fail(app.getString(R.string.error_unexpected_short), MessageAction.DETAILS, Log.getStackTraceString(e))
         } finally {
             _state.update { it.copy(busy = null) }
         }
