@@ -17,6 +17,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +25,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -159,11 +162,15 @@ private fun PrinterForm(
     val working = send is SendState.Working
     val isNew = state.printers.none { it.id == host.id }
     val bambu = host.kind == Kind.BAMBU_LAN
+    val (address, port) = splitAddress(host.address)
+    val addressCheck = checkAddress(address.trim())
+    val portValid = port.isEmpty() || port.toIntOrNull() in 1..65535
     // A Bambu sempre pede o código de acesso; a API key do Moonraker é opcional.
-    val valid = host.name.isNotBlank() && host.address.isNotBlank() && (!bambu || !host.secret.isNullOrBlank())
+    val valid = host.name.isNotBlank() && addressCheck == AddressCheck.OK && portValid && (!bambu || !host.secret.isNullOrBlank())
     // Espaços nas pontas (teclado, colar) quebrariam o endereço.
     val trimmed = { host.copy(name = host.name.trim(), address = host.address.trim()) }
     var showSecret by remember(host.id) { mutableStateOf(false) }
+    val portFocus = remember { FocusRequester() }
 
     Column(modifier) {
         ScreenHeader(stringResource(if (isNew) R.string.new_printer else R.string.edit_printer)) {
@@ -185,11 +192,37 @@ private fun PrinterForm(
             )
             Text(stringResource(host.kind.description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FormField(host.name, { onChange(host.copy(name = it)) }, stringResource(R.string.printer_name), enabled = !working)
-            FormField(
-                host.address, { onChange(host.copy(address = it)) }, stringResource(R.string.printer_address),
-                enabled = !working, placeholder = "192.168.0.50", monospace = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FormField(
+                    address,
+                    { text ->
+                        // "ip:porta" digitado ou colado: a porta vai para o campo dela.
+                        val (typedAddress, typedPort) = splitAddress(text)
+                        if (typedAddress != text) {
+                            onChange(host.copy(address = joinAddress(typedAddress, typedPort.ifEmpty { port })))
+                            portFocus.requestFocus()
+                        } else {
+                            onChange(host.copy(address = joinAddress(text, port)))
+                        }
+                    },
+                    stringResource(R.string.printer_address),
+                    Modifier.weight(1f), enabled = !working, placeholder = "192.168.0.50", monospace = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    isError = addressCheck == AddressCheck.INVALID,
+                    supportingText = when (addressCheck) {
+                        AddressCheck.INVALID -> stringResource(R.string.address_invalid)
+                        AddressCheck.INCOMPLETE -> stringResource(R.string.address_incomplete)
+                        else -> null
+                    },
+                )
+                FormField(
+                    port, { text -> onChange(host.copy(address = joinAddress(address, text.filter(Char::isDigit)))) },
+                    stringResource(R.string.printer_port), Modifier.width(120.dp).focusRequester(portFocus), enabled = !working,
+                    placeholder = stringResource(R.string.port_default), monospace = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    isError = !portValid,
+                )
+            }
             FormField(
                 host.secret.orEmpty(), { onChange(host.copy(secret = it.ifEmpty { null })) },
                 stringResource(if (bambu) R.string.printer_access_code else R.string.printer_api_key),
@@ -219,6 +252,34 @@ private fun PrinterForm(
     }
 }
 
+/**
+ * [PrinterHost.address] ("ip:porta") em endereço e porta, para os dois campos do formulário; o
+ * esquema (`http://`) fica no endereço.
+ */
+private fun splitAddress(address: String): Pair<String, String> {
+    val schemeEnd = address.indexOf("://").let { if (it >= 0) it + 3 else 0 }
+    val colon = address.indexOf(':', schemeEnd)
+    if (colon < 0) return address to ""
+    return address.substring(0, colon) to address.substring(colon + 1).filter(Char::isDigit)
+}
+
+private fun joinAddress(address: String, port: String) = if (port.isEmpty()) address else "$address:$port"
+
+private enum class AddressCheck { OK, EMPTY, INCOMPLETE, INVALID }
+
+/** Só números e pontos é um IPv4, conferido enquanto se digita; o resto vale como nome. */
+private fun checkAddress(address: String): AddressCheck {
+    if (address.isEmpty()) return AddressCheck.EMPTY
+    if (!address.all { it.isDigit() || it == '.' }) return AddressCheck.OK
+    val parts = address.split('.')
+    return when {
+        parts.size > 4 || parts.any { it.length > 3 || (it.toIntOrNull() ?: 0) > 255 } -> AddressCheck.INVALID
+        parts.dropLast(1).any { it.isEmpty() } -> AddressCheck.INVALID
+        parts.size < 4 || parts.last().isEmpty() -> AddressCheck.INCOMPLETE
+        else -> AddressCheck.OK
+    }
+}
+
 /** Perfil de impressora com que a impressora vem escolhida no envio; troca pelo atual. */
 @Composable
 private fun LinkedPreset(host: PrinterHost, current: String?, enabled: Boolean, onLink: (String) -> Unit) {
@@ -245,13 +306,17 @@ private fun NetworkScan(saved: List<PrinterHost>, onPick: (FoundPrinter) -> Unit
     var scanning by remember { mutableStateOf(false) }
     // null: ainda não procurou.
     var found by remember { mutableStateOf<List<FoundPrinter>?>(null) }
+    var subnet by remember { mutableStateOf<String?>(null) }
     val scan = {
         scanning = true
+        subnet = PrinterScanner.subnet(context.applicationContext)
         scope.launch {
             found = PrinterScanner.scan(context.applicationContext)
             scanning = false
         }
     }
+    // Procura sozinha ao abrir a tela.
+    LaunchedEffect(Unit) { scan() }
     Column(modifier) {
         ScreenHeader(stringResource(R.string.scan_network)) {
             AppIconButton(R.drawable.ic_refresh, stringResource(R.string.scan_network), { scan() }, enabled = !scanning)
@@ -259,7 +324,7 @@ private fun NetworkScan(saved: List<PrinterHost>, onPick: (FoundPrinter) -> Unit
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             when {
                 scanning -> {
-                    Text(stringResource(R.string.scan_running), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(subnet?.let { stringResource(R.string.scan_running_subnet, it) } ?: stringResource(R.string.scan_running), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 found == null -> AppButton(stringResource(R.string.scan_network), { scan() }, style = ButtonStyle.OUTLINED, icon = R.drawable.ic_search)

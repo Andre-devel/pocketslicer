@@ -75,10 +75,15 @@
     <string name="send_error_start">%1$s received the file but refused to start the print (%2$s). On Bambu Lab printers with recent firmware, starting from other apps may require LAN Only Mode with Developer Mode; you can start it from the printer screen.</string>
     <string name="send_error_start_unconfirmed">The file was sent and the print command too, but %1$s did not confirm. Check the printer screen.</string>
     <string name="printer_name">Name</string>
-    <string name="printer_address">IP address (port optional)</string>
+    <string name="printer_address">IP address or name</string>
     <string name="printer_api_key">API key (optional)</string>
     <string name="test_connection">Test connection</string>
     <string name="scan_network">Search network</string>
+    <string name="printer_port">Port</string>
+    <string name="port_default">Default</string>
+    <string name="address_invalid">Invalid IP address</string>
+    <string name="address_incomplete">Incomplete IP address</string>
+    <string name="scan_running_subnet">Searching %1$s…</string>
     <string name="scan_running">Searching for printers…</string>
     <string name="scan_none">No printer found. Check that the printer is on and on the same Wi-Fi.</string>
     <string name="send_connecting">Connecting…</string>

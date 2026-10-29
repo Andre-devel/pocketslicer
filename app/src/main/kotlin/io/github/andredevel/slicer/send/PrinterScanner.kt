@@ -90,23 +90,31 @@ object PrinterScanner {
         found.values.sortedBy { address -> address.address.substringAfterLast('.').toIntOrNull() ?: 0 }
     }
 
-    /**
-     * Os IPs da sub-rede do Wi-Fi, sem o do próprio aparelho; redes maiores que /24 ficam no /24
-     * em volta dele, para não varrer milhares de endereços.
-     */
+    /** Sub-rede que [scan] varre, como "192.168.1.0/24"; null sem Wi-Fi. */
+    fun subnet(context: Context): String? = ownNetwork(context)?.let { (_, network, prefix) -> "${dotted(network)}/$prefix" }
+
+    /** Os IPs da sub-rede do Wi-Fi ([subnet]), sem o do próprio aparelho. */
     private fun subnetHosts(context: Context): List<String> {
+        val (ip, network, prefix) = ownNetwork(context) ?: return emptyList()
+        val size = 1L shl (32 - prefix)
+        return (1 until size - 1).map { network + it }.filter { it != ip }.map(::dotted)
+    }
+
+    /**
+     * IP do aparelho, rede e prefixo; redes maiores que /24 ficam no /24 em volta dele, para não
+     * varrer milhares de endereços.
+     */
+    private fun ownNetwork(context: Context): Triple<Long, Long, Int>? {
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
-        val link = connectivity.getLinkProperties(connectivity.activeNetwork) ?: return emptyList()
-        val own = link.linkAddresses.firstOrNull { it.address is Inet4Address } ?: return emptyList()
-        val bytes = own.address.address
-        val ip = bytes.fold(0L) { acc, b -> (acc shl 8) or (b.toLong() and 0xff) }
+        val link = connectivity.getLinkProperties(connectivity.activeNetwork) ?: return null
+        val own = link.linkAddresses.firstOrNull { it.address is Inet4Address } ?: return null
+        val ip = own.address.address.fold(0L) { acc, b -> (acc shl 8) or (b.toLong() and 0xff) }
         val prefix = own.prefixLength.coerceIn(24, 30)
         val size = 1L shl (32 - prefix)
-        val network = ip and (size - 1).inv()
-        return (1 until size - 1).map { network + it }.filter { it != ip }.map { n ->
-            "${n shr 24 and 0xff}.${n shr 16 and 0xff}.${n shr 8 and 0xff}.${n and 0xff}"
-        }
+        return Triple(ip, ip and (size - 1).inv(), prefix)
     }
+
+    private fun dotted(n: Long) = "${n shr 24 and 0xff}.${n shr 16 and 0xff}.${n shr 8 and 0xff}.${n and 0xff}"
 
     private fun isOpen(ip: String, port: Int): Boolean = try {
         Socket().use { it.connect(InetSocketAddress(ip, port), CONNECT_TIMEOUT_MS) }
