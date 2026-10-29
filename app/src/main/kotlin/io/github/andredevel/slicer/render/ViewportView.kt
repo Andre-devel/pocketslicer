@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.view.MotionEvent
+import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.Thumbnail
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -24,6 +25,8 @@ interface ViewportListener {
     fun onTransform(objectIndex: Int, transform: FloatArray)
     /** Toque numa face do objeto selecionado com [Tool.LAY_ON_FACE]. */
     fun onLayOnFace(objectIndex: Int, triangle: Int)
+    /** Fim de um arraste da torre de purga: canto da frente à esquerda na mesa. */
+    fun onWipeTowerMoved(x: Float, y: Float)
     /** Toque longo num objeto, em (x, y) pixels do viewport. */
     fun onLongPress(objectIndex: Int, x: Float, y: Float)
     /** A câmera foi para uma vista pronta, ou saiu dela (null) com um gesto. */
@@ -32,8 +35,8 @@ interface ViewportListener {
 
 /**
  * Viewport 3D. Gestos: toque seleciona; toque longo abre o menu do objeto; 1 dedo gira a
- * câmera, ou aplica [tool] se o arraste começar sobre o objeto selecionado; 2 dedos movem
- * (pan) e aproximam (pinça).
+ * câmera, ou aplica [tool] se o arraste começar sobre o objeto selecionado, ou move a torre de
+ * purga se começar nela; 2 dedos movem (pan) e aproximam (pinça).
  *
  * Os eventos de toque são interpretados na thread GL (queueEvent), onde estão a
  * câmera e a cena; o estado do arraste (campos "drag*") só é usado nela.
@@ -76,6 +79,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     private var dragTool = Tool.MOVE
     private var dragGrabZ = 0f
     private var dragLast: FloatArray? = null
+    private var draggingTower = false
 
     init {
         setEGLContextClientVersion(3)
@@ -172,6 +176,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                                 camera.zoom(zoom)
                             }
                             dragObject != null -> drag(x, y, dx, dy)
+                            draggingTower -> dragTower(x, y)
                             else -> camera.rotate(-dx * ROTATE_DEG_PER_PX, dy * ROTATE_DEG_PER_PX)
                         }
                     }
@@ -208,13 +213,42 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
 
     private fun startDrag(x: Float, y: Float, tool: Tool) {
         dragObject = null
-        val selected = renderer.scene?.selected ?: return
+        draggingTower = false
         if (tool == Tool.LAY_ON_FACE) return
-        val hit = pickAt(x, y)?.takeIf { it.objectIndex == selected } ?: return
-        dragObject = selected
-        dragTool = tool
-        dragGrabZ = hit.point[2]
-        dragLast = hit.point
+        val hit = pickAt(x, y)
+        val selected = renderer.scene?.selected
+        if (hit != null && hit.objectIndex == selected) {
+            dragObject = selected
+            dragTool = tool
+            dragGrabZ = hit.point[2]
+            dragLast = hit.point
+            return
+        }
+        // A torre, se estiver na frente de qualquer objeto.
+        val tower = pickTower(x, y) ?: return
+        val origin = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight).origin
+        fun distance(p: FloatArray) = hypot(hypot(p[0] - origin[0], p[1] - origin[1]), p[2] - origin[2])
+        if (hit != null && distance(hit.point) < distance(tower.point)) return
+        draggingTower = true
+        dragGrabZ = tower.point[2]
+        dragLast = tower.point
+    }
+
+    private fun pickTower(x: Float, y: Float): Hit? {
+        if (renderer.showPreview) return null
+        val transform = renderer.towerTransform() ?: return null
+        val ray = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight)
+        return pick(ray, listOf(TOWER_MESH), listOf(transform))
+    }
+
+    private fun dragTower(x: Float, y: Float) {
+        val tower = renderer.scene?.wipeTower ?: return
+        val ray = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight)
+        val point = ray.intersectZ(dragGrabZ) ?: return
+        val last = dragLast ?: return
+        val current = renderer.dragTower ?: floatArrayOf(tower.x, tower.y)
+        renderer.dragTower = floatArrayOf(current[0] + point[0] - last[0], current[1] + point[1] - last[1])
+        dragLast = point
     }
 
     private fun drag(x: Float, y: Float, dx: Float, dy: Float) {
@@ -256,6 +290,12 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     }
 
     private fun endDrag() {
+        if (draggingTower) {
+            draggingTower = false
+            val position = renderer.dragTower ?: return
+            post { listener?.onWipeTowerMoved(position[0], position[1]) }
+            return
+        }
         val index = dragObject ?: return
         dragObject = null
         val transform = renderer.dragTransform ?: return
@@ -289,6 +329,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     }
 
     private companion object {
+        val TOWER_MESH = ObjectMesh("", SceneRenderer.UNIT_BOX, SceneRenderer.UNIT_BOX_INDICES, ByteArray(0), 0)
         const val ROTATE_DEG_PER_PX = 0.3f
         const val SCALE_PER_PX = 0.004f
     }

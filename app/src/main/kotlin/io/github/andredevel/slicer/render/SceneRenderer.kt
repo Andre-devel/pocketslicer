@@ -6,6 +6,7 @@ import android.opengl.Matrix
 import io.github.andredevel.slicer.core.Bed
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.Placement
+import io.github.andredevel.slicer.core.WipeTower
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
@@ -19,7 +20,8 @@ import kotlin.math.sqrt
  * [placements] na mesma ordem). Para trocar só posições ou seleção, reutilize a
  * mesma lista [meshes]: as malhas só são reenviadas à GPU quando ela muda.
  * [filamentColors]: RGBA de cada filamento; com mais de um, os objetos são pintados com
- * a cor do filamento de cada triângulo, senão com a cor padrão.
+ * a cor do filamento de cada triângulo, senão com a cor padrão. [wipeTower]: a torre de purga
+ * que o fatiamento vai ter, se houver.
  */
 data class Scene(
     val bed: Bed,
@@ -27,6 +29,7 @@ data class Scene(
     val placements: List<Placement> = emptyList(),
     val selected: Int? = null,
     val filamentColors: List<FloatArray> = emptyList(),
+    val wipeTower: WipeTower? = null,
 )
 
 /**
@@ -48,6 +51,7 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
             field = value
             // Posições novas do motor substituem a transformação provisória do arraste.
             dragTransform = null
+            dragTower = null
             if (old?.bed !== value?.bed || old?.meshes !== value?.meshes) {
                 gpu?.let(::release)
                 gpu = null
@@ -59,6 +63,21 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
 
     /** Transformação provisória do objeto selecionado durante um arraste. */
     var dragTransform: FloatArray? = null
+
+    /** Posição provisória (canto x, y) da torre de purga durante um arraste. */
+    var dragTower: FloatArray? = null
+
+    /** Caixa unitária da torre de purga levada à posição, rotação e tamanho dela (e a do arraste). */
+    fun towerTransform(): FloatArray? {
+        val tower = scene?.wipeTower ?: return null
+        val position = dragTower ?: floatArrayOf(tower.x, tower.y)
+        return FloatArray(16).also {
+            Matrix.setIdentityM(it, 0)
+            Matrix.translateM(it, 0, position[0], position[1], 0f)
+            Matrix.rotateM(it, 0, tower.rotation, 0f, 0f, 1f)
+            Matrix.scaleM(it, 0, tower.width, tower.depth, tower.height.coerceAtLeast(MIN_TOWER_HEIGHT))
+        }
+    }
 
     /** Transformações em uso: as da cena, com a [dragTransform] no objeto selecionado. */
     fun transforms(): List<FloatArray> {
@@ -225,6 +244,15 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
                 gpu.objects[i].geometry.draw(colorLocation, color, first, count)
             }
         }
+        // A torre não entra na miniatura (não é um objeto do projeto).
+        val tower = towerTransform()
+        if (highlight && tower != null) {
+            Matrix.multiplyMM(modelView, 0, camera.view, 0, tower, 0)
+            Matrix.multiplyMM(mvp, 0, camera.projection, 0, modelView, 0)
+            glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
+            glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
+            gpu.tower.draw(colorLocation, if (dragTower != null) SELECTED else TOWER)
+        }
     }
 
     private fun frameBed(bed: Bed) {
@@ -262,6 +290,7 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
             bedOutline = Geometry(GL_LINE_LOOP, fan),
             bedGrid = Geometry(GL_LINES, gridLines(outline)),
             objects = scene.meshes.map(::objectGeometry),
+            tower = Geometry(GL_TRIANGLES, UNIT_BOX, UNIT_BOX_INDICES),
         )
     }
 
@@ -281,7 +310,7 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
     }
 
     private fun release(gpu: GpuScene) {
-        (listOf(gpu.bedSurface, gpu.bedOutline, gpu.bedGrid) + gpu.objects.map { it.geometry }).forEach(Geometry::release)
+        (listOf(gpu.bedSurface, gpu.bedOutline, gpu.bedGrid, gpu.tower) + gpu.objects.map { it.geometry }).forEach(Geometry::release)
     }
 
     private class GpuScene(
@@ -289,6 +318,7 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
         val bedOutline: Geometry,
         val bedGrid: Geometry,
         val objects: List<ObjectGeometry>,
+        val tower: Geometry,
     )
 
     /** [count] índices a partir de [first], todos do [filament]. */
@@ -352,6 +382,17 @@ class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
             bedOutline = floatArrayOf(0.780f, 0.761f, 0.725f, 1f),
         )
         private val OBJECT = floatArrayOf(0.68f, 0.71f, 0.73f, 1f)
+        // Verde da torre de purga na legenda da pré-visualização (cor do Orca).
+        private val TOWER = floatArrayOf(0.70f, 0.89f, 0.67f, 1f)
+        // Com objetos de altura zero a caixa ainda aparece.
+        private const val MIN_TOWER_HEIGHT = 0.2f
+
+        /** Caixa de 0 a 1 nos três eixos (vértices e triângulos). */
+        val UNIT_BOX = floatArrayOf(0f, 0f, 0f, 1f, 0f, 0f, 1f, 1f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, 1f, 0f, 1f, 1f, 1f, 1f, 0f, 1f, 1f)
+        val UNIT_BOX_INDICES = intArrayOf(
+            0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+            1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7,
+        )
         private val SELECTED = floatArrayOf(1.00f, 0.54f, 0.24f, 1f)
         private val OUTSIDE = floatArrayOf(1.00f, 0.42f, 0.37f, 1f)
         private val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)

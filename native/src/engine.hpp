@@ -90,6 +90,15 @@ struct Placement {
     bool outside = false; // fora (total ou parcialmente) do volume de impressão
 };
 
+// Torre de purga da mesa, estimada como a GUI do Orca a desenha antes de fatiar
+// (PartPlate::estimate_wipe_tower_size). (x, y): canto da frente à esquerda, em mm na mesa;
+// rotation em graus em torno dele.
+struct WipeTower {
+    double x = 0.0, y = 0.0;
+    double width = 0.0, depth = 0.0, height = 0.0;
+    double rotation = 0.0;
+};
+
 struct Canceled : std::runtime_error {
     Canceled() : std::runtime_error("slicing canceled") {}
 };
@@ -232,6 +241,12 @@ public:
     // Multiplicador dos volumes, por extrusor (flush_multiplier).
     std::vector<double> flush_multipliers() const;
     void set_flush_multiplier(size_t extruder, double multiplier);
+    // A torre de purga da mesa, se o fatiamento vai ter uma: torre ligada (enable_prime_tower)
+    // e mais de um filamento nos objetos (ou timelapse suave).
+    std::optional<WipeTower> wipe_tower() const;
+    // Posição (canto da frente à esquerda) da torre na placa da mesa.
+    void set_wipe_tower_position(double x, double y);
+
     // Recalcula a matriz pelas cores, como o "Auto-calcular" do Orca. As mudanças de
     // filamento (acrescentar, cor, preset de suporte) já recalculam as linhas dele.
     void calc_flush_volumes();

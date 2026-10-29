@@ -477,6 +477,26 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetFlushMultiplier(JN
     guarded(env, [&] { engine(handle)->set_flush_multiplier(size_t(extruder), multiplier); });
 }
 
+// x, y, largura, profundidade, altura, rotação; vazio sem torre.
+JNIEXPORT jdoubleArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeWipeTower(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] {
+        std::vector<jdouble> values;
+        if (const auto tower = engine(handle)->wipe_tower())
+            values = {tower->x, tower->y, tower->width, tower->depth, tower->height, tower->rotation};
+        jdoubleArray out = env->NewDoubleArray(jsize(values.size()));
+        env->SetDoubleArrayRegion(out, 0, jsize(values.size()), values.data());
+        return out;
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetWipeTowerPosition(JNIEnv *env, jclass, jlong handle, jdouble x, jdouble y)
+{
+    guarded(env, [&] { engine(handle)->set_wipe_tower_position(x, y); });
+}
+
 JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeCalcFlushVolumes(JNIEnv *env, jclass, jlong handle)
 {

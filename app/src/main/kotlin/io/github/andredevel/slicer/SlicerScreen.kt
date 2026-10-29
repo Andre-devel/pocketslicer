@@ -406,6 +406,7 @@ private fun Viewport(
                         override fun onSelect(objectIndex: Int?) = viewModel.select(objectIndex)
                         override fun onTransform(objectIndex: Int, transform: FloatArray) { viewModel.setTransform(objectIndex, transform) }
                         override fun onLayOnFace(objectIndex: Int, triangle: Int) { viewModel.layOnFace(objectIndex, triangle) }
+                        override fun onWipeTowerMoved(x: Float, y: Float) { viewModel.setWipeTowerPosition(x, y) }
                         override fun onLongPress(objectIndex: Int, x: Float, y: Float) {
                             viewModel.select(objectIndex)
                             menu = objectIndex to Offset(x, y)

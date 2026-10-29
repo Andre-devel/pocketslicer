@@ -375,8 +375,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.select(kind, name)
         markChanged(StaleReason(name))
         refreshPresets(engine)
-        // A mesa muda com a impressora, e o modelo é recentralizado nela.
-        if (kind == PresetKind.PRINTER) refreshScene(engine)
+        // A mesa muda com a impressora, e o modelo é recentralizado nela; a torre, com o processo.
+        refreshScene(engine)
     }
 
     /** [value] no formato do Orca; erros de valor aparecem como mensagem. */
@@ -388,8 +388,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             // Também no erro: o campo volta a mostrar o valor em vigor.
             refreshPresets(engine)
         }
-        // Mesa e volume vêm da impressora.
-        if (kind == PresetKind.PRINTER) refreshScene(engine)
+        // Mesa e volume vêm da impressora; a torre de purga, do processo.
+        refreshScene(engine)
     }
 
     fun discardChanges(kind: PresetKind) = launchEngine(null) { engine ->
@@ -656,6 +656,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun layOnFace(objectIndex: Int, triangle: Int) = editScene { it.layOnFace(objectIndex, triangle); null }
 
+    fun setWipeTowerPosition(x: Float, y: Float) = editScene { it.setWipeTowerPosition(x, y); null }
+
     fun setPlacement(objectIndex: Int, offset: FloatArray, rotation: FloatArray, scale: FloatArray) =
         editScene { it.setPlacement(objectIndex, offset, rotation, scale); null }
 
@@ -900,9 +902,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val placements = engine.placements()
         val plates = engine.plates()
         val colors = engine.filamentColors().map(::rgba)
+        val tower = engine.wipeTower()
         _state.update { state ->
             val selected = state.scene?.selected?.takeIf { (meshes == null || keepSelection) && it < placements.size }
-            state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors), plates = plates)
+            state.copy(scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors, tower), plates = plates)
         }
     }
 

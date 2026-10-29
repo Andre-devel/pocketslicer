@@ -19,6 +19,7 @@
 #include "libslic3r/FlushVolCalc.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
+#include "libslic3r/GCode/WipeTower.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
 #include "libslic3r/GCode/Thumbnails.hpp"
 #include "libslic3r/I18N.hpp"
@@ -1136,6 +1137,79 @@ void Engine::set_flush_multiplier(size_t extruder, double multiplier)
     values[extruder] = multiplier;
 }
 
+std::optional<WipeTower> Engine::wipe_tower() const
+{
+    if (!m->bundle || m->model.objects.empty())
+        return std::nullopt;
+    const DynamicPrintConfig config = m->bundle->full_config();
+    if (!config.opt_bool("enable_prime_tower"))
+        return std::nullopt;
+
+    std::set<int> filaments;
+    double        height = 0.0;
+    for (const ModelObject *object : m->model.objects) {
+        for (const ModelVolume *volume : object->volumes)
+            if (volume->is_model_part()) {
+                filaments.insert(volume->extruder_id());
+                for (int painted : volume->get_extruders())
+                    filaments.insert(painted);
+            }
+        height = std::max(height, object->instance_bounding_box(0).size().z());
+    }
+    const auto *timelapse = config.option<ConfigOptionEnum<TimelapseType>>("timelapse_type");
+    const bool  wrapping  = config.has("enable_wrapping_detection") && config.opt_bool("enable_wrapping_detection");
+    const bool  needed    = (timelapse != nullptr && timelapse->value == TimelapseType::tlSmooth) || wrapping;
+    if (filaments.size() < 2 && !needed)
+        return std::nullopt;
+
+    // PartPlate::estimate_wipe_tower_size() do Orca.
+    const int    nozzles      = m->bundle->get_printer_extruder_count();
+    const int    used         = int(std::max<size_t>(filaments.size(), 1));
+    const double layer_height = config.opt_float("layer_height");
+    const double width        = config.opt_float("prime_tower_width");
+    const double spacing      = config.option("prime_tower_infill_gap")->getFloat() / 100.;
+    const double change_length = [&] {
+        const auto *opt = config.option<ConfigOptionFloats>("filament_change_length");
+        return opt == nullptr || opt->values.empty() ? 0.0 : *std::max_element(opt->values.begin(), opt->values.end());
+    }();
+    const auto  *diameters = config.option<ConfigOptionFloats>("filament_diameter");
+    const double diameter  = diameters->values.empty() ? 1.75 : *std::max_element(diameters->values.begin(), diameters->values.end());
+    double volume = config.opt_float("prime_volume") * (nozzles == 2 ? used : used - 1);
+    if (nozzles == 2)
+        volume += change_length * PI * diameter * diameter / 4. * (used / 2);
+
+    WipeTower tower;
+    tower.height = height;
+    const float min_depth = Slic3r::WipeTower::get_limit_depth_by_height(float(height));
+    const auto *wall      = config.option<ConfigOptionEnum<WipeTowerWallType>>("wipe_tower_wall_type");
+    if (wall != nullptr && wall->value == WipeTowerWallType::wtwRib) {
+        const double volume_depth = std::sqrt(volume / layer_height * spacing);
+        const double depth        = std::max(double(min_depth), volume_depth);
+        const double rib_width    = std::min(config.opt_float("wipe_tower_rib_width"), depth / 2);
+        tower.width = tower.depth = rib_width / std::sqrt(2) + std::max(depth + config.opt_float("wipe_tower_extra_rib_length"), volume_depth);
+    } else {
+        tower.width = width;
+        tower.depth = std::max(double(min_depth), volume / (layer_height * width) * spacing);
+    }
+    const DynamicPrintConfig &project = m->bundle->project_config;
+    tower.x        = project.option<ConfigOptionFloats>("wipe_tower_x")->get_at(m->plate);
+    tower.y        = project.option<ConfigOptionFloats>("wipe_tower_y")->get_at(m->plate);
+    tower.rotation = config.opt_float("wipe_tower_rotation_angle");
+    return tower;
+}
+
+void Engine::set_wipe_tower_position(double x, double y)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    // Um valor por placa, como no Orca (as que faltam ficam com o da primeira).
+    for (const auto &[key, value] : {std::pair{"wipe_tower_x", x}, std::pair{"wipe_tower_y", y}}) {
+        auto &values = m->bundle->project_config.option<ConfigOptionFloats>(key)->values;
+        values.resize(std::max(values.size(), m->plates.size()), values.empty() ? 0.0 : values.front());
+        values[m->plate] = value;
+    }
+}
+
 void Engine::calc_flush_volumes()
 {
     if (!m->bundle)
@@ -1488,6 +1562,11 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
             throw std::runtime_error("object outside the printable volume: " + object->name);
 
     DynamicPrintConfig config = m->bundle->full_config();
+    // Print lê a torre na posição da placa 0 (sem set_plate_index); aqui, a da placa da mesa.
+    for (const char *key : {"wipe_tower_x", "wipe_tower_y"}) {
+        auto *opt = config.option<ConfigOptionFloats>(key);
+        opt->values = {opt->get_at(m->plate)};
+    }
 
     Print &print = m->print;
     // Igual à GUI (Plater): firmware Bambu pula validações/ajustes feitos para Marlin.

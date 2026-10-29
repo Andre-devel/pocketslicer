@@ -336,8 +336,22 @@ class SlicerEngineTest {
         engine.setObjectFilament(1, 1)
         assertEquals(listOf(0, 1), engine.objects().map { it.filament })
         assertEquals(1, engine.objects()[1].filaments.distinct().single().toInt())
+        // Dois filamentos nos objetos: torre de purga, que o usuário pode mover.
+        val tower = engine.wipeTower()!!
+        assertTrue(tower.width > 0 && tower.depth > 0)
+        assertEquals(engine.placements().maxOf { it.size[2] }, tower.height, 0.01f)
+        engine.setWipeTowerPosition(40f, 50f)
+        assertEquals(40f, engine.wipeTower()!!.x, 0.001f)
+        assertEquals(50f, engine.wipeTower()!!.y, 0.001f)
         val stats = engine.slice(File(work, "two.gcode")) { _, _ -> }
         assertEquals(listOf(0, 1), stats.filaments.map { it.index })
+        // A torre sai onde foi posta, e cada segmento tem o filamento e a cor dele.
+        val toolpaths = engine.toolpaths()
+        val prime = SlicerEngine.roleNames.indexOf("Prime tower")
+        val towerX = (0 until toolpaths.segmentCount).filter { toolpaths.roles[it].toInt() == prime }.map { toolpaths.extrusions[it * 9] }
+        assertTrue("torre em x ${towerX.minOrNull()}", towerX.isNotEmpty() && towerX.min() > 25f && towerX.min() < 60f)
+        assertEquals(setOf(0, 1), toolpaths.filaments.map { it.toInt() }.toSet())
+        assertEquals("#000000", toolpaths.filamentColors[1].uppercase())
 
         // O projeto guarda filamentos, cores e o filamento de cada objeto.
         val project = File(work, "two.3mf")

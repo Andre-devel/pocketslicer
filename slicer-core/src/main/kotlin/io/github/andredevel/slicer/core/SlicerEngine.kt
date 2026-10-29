@@ -51,6 +51,12 @@ class Toolpaths(
     val layerCount get() = layerZ.size
 }
 
+/**
+ * Torre de purga estimada antes de fatiar: [x], [y] = canto da frente à esquerda (mm na mesa),
+ * [rotation] em graus em torno dele.
+ */
+data class WipeTower(val x: Float, val y: Float, val width: Float, val depth: Float, val height: Float, val rotation: Float)
+
 /** Imagem RGBA de [width] × [height] com as linhas de baixo para cima (a ordem do glReadPixels). */
 class Thumbnail(val width: Int, val height: Int, val rgba: ByteArray)
 
@@ -305,6 +311,16 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
 
     suspend fun setFlushMultiplier(extruder: Int, multiplier: Double) = call { nativeSetFlushMultiplier(handle, extruder, multiplier) }
 
+    /** A torre de purga da mesa, se o fatiamento vai ter uma (torre ligada e mais de um filamento). */
+    suspend fun wipeTower(): WipeTower? = call {
+        nativeWipeTower(handle).takeIf { it.size == 6 }?.let {
+            WipeTower(it[0].toFloat(), it[1].toFloat(), it[2].toFloat(), it[3].toFloat(), it[4].toFloat(), it[5].toFloat())
+        }
+    }
+
+    /** Canto da frente à esquerda da torre, na placa da mesa. */
+    suspend fun setWipeTowerPosition(x: Float, y: Float) = call { nativeSetWipeTowerPosition(handle, x.toDouble(), y.toDouble()) }
+
     /** Recalcula a matriz de purga pelas cores, como o "Auto-calcular" do Orca. */
     suspend fun calcFlushVolumes() = call { nativeCalcFlushVolumes(handle) }
 
@@ -465,6 +481,8 @@ private external fun nativeSetFlushVolumes(handle: Long, matrix: DoubleArray)
 private external fun nativeFlushMultipliers(handle: Long): DoubleArray
 private external fun nativeSetFlushMultiplier(handle: Long, extruder: Int, multiplier: Double)
 private external fun nativeCalcFlushVolumes(handle: Long)
+private external fun nativeWipeTower(handle: Long): DoubleArray
+private external fun nativeSetWipeTowerPosition(handle: Long, x: Double, y: Double)
 private external fun nativePlacements(handle: Long): DoubleArray
 private external fun nativeSetTransform(handle: Long, objectIndex: Int, transform: DoubleArray)
 private external fun nativeSetPlacement(handle: Long, objectIndex: Int, values: DoubleArray)
