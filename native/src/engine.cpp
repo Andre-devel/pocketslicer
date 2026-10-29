@@ -791,6 +791,11 @@ std::vector<std::string> Engine::filament_colors() const
     return colors != nullptr ? colors->values : std::vector<std::string>{};
 }
 
+std::vector<std::string> Engine::filament_presets() const
+{
+    return m->bundle ? m->bundle->filament_presets : std::vector<std::string>{};
+}
+
 std::vector<Placement> Engine::placements() const
 {
     std::vector<Placement> out;

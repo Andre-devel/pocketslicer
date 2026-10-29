@@ -276,6 +276,9 @@ class SlicerEngineTest {
         engine.loadVendor("Prusa")
         assertEquals("BambuStudio/BBL", engine.openProject(project))
         assertEquals("Bambu Lab A1 0.4 nozzle", engine.selected(PresetKind.PRINTER))
+        // Um preset por filamento do projeto, o primeiro é o selecionado.
+        assertEquals(engine.filamentColors().size, engine.filamentPresets().size)
+        assertEquals(engine.selected(PresetKind.FILAMENT), engine.filamentPresets().first())
         val process = engine.values(PresetKind.PROCESS)
         assertEquals("35%", process.values["sparse_infill_density"])
         assertTrue("sparse_infill_density" in process.dirty)

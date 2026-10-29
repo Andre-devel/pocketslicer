@@ -105,6 +105,8 @@ data class SlicerUiState(
     val message: UserMessage? = null,
     val vendors: PresetChoice = PresetChoice(),
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
+    /** Preset de cada filamento do projeto (cores em [Scene.filamentColors], na mesma ordem). */
+    val filaments: List<String> = emptyList(),
     /** Definições das opções editáveis (PrintConfigDef do Orca); textos no idioma do app. */
     val optionDefs: Map<PresetKind, List<OptionDef>> = emptyMap(),
     /** Nomes dos tipos de extrusão (índice em SlicerEngine.roleNames) no idioma do app. */
@@ -616,8 +618,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val presets = PresetKind.entries.associateWith {
             PresetChoice(engine.presets(it), engine.selected(it), engine.userPresets(it).toSet(), engine.values(it))
         }
+        val filaments = engine.filamentPresets()
         // Perfis mudaram: o G-code anterior não corresponde mais à seleção.
-        _state.update { it.copy(presets = presets, slice = SliceState.Idle) }
+        _state.update { it.copy(presets = presets, filaments = filaments, slice = SliceState.Idle) }
     }
 
     /**

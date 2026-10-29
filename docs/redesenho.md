@@ -70,7 +70,7 @@ que faltar entra lá, sem depender do ViewModel.
 
 9. (Feito) Nome e dimensões dos objetos: `ModelObject::name` e a caixa da instância já transformada
    (mm) em `nativeObjects`/`nativePlacements`; mostrar no painel e no sheet.
-10. Filamentos do projeto: presets de filamento por extrusor e quais cada objeto usa (já há
+10. (Feito) Filamentos do projeto: presets de filamento por extrusor e quais cada objeto usa (já há
     `ObjectMesh.filaments`); lista "1 · PLA Preto, 2 · PLA Laranja" no Perfil.
 11. Resumo por filamento e custo: `print_statistics.total_volumes_per_extruder` → gramas e custo
     por filamento; preço por kg do preset; moeda da tela de Configurações (decisão 1), que entra

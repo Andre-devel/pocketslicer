@@ -1,5 +1,7 @@
 package io.github.andredevel.slicer
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -9,8 +11,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -28,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -342,6 +347,30 @@ private fun ProfileSummary(state: SlicerUiState, openParameters: (PresetKind) ->
             tag = choice?.values?.dirty?.size?.takeIf { it > 0 }?.let { stringResource(R.string.modified_count, it) },
         )
     }
+    // Projeto com vários filamentos: o preset de cada um (a linha acima é o primeiro).
+    if (state.filaments.size > 1) {
+        Column(Modifier.padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            state.filaments.forEachIndexed { i, name -> FilamentLabel(i, state.scene?.filamentColors?.getOrNull(i), name) }
+        }
+    }
+}
+
+/** Número e cor de um filamento do projeto, com [name] ao lado quando dado. */
+@Composable
+private fun FilamentLabel(index: Int, color: FloatArray?, name: String? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            Modifier.size(12.dp)
+                .background(color?.let { Color(it[0], it[1], it[2]) } ?: MaterialTheme.colorScheme.outline, CircleShape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+        )
+        Text(
+            if (name != null) "${index + 1} · $name" else "${index + 1}",
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 /** Objeto selecionado: ações e campos de posição, rotação e escala. */
@@ -373,6 +402,13 @@ private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
         style = MonoStyles.small,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    // Filamentos que o objeto usa, quando o projeto tem mais de um.
+    val used = state.scene.meshes.getOrNull(index)?.filaments?.distinct().orEmpty()
+    if (state.filaments.size > 1 && used.isNotEmpty()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            for (filament in used) FilamentLabel(filament.toInt(), state.scene.filamentColors.getOrNull(filament.toInt()))
+        }
+    }
     PlacementFields(index, placement, viewModel, state.editable)
 }
 

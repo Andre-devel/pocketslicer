@@ -182,6 +182,8 @@ public:
     // Cor de cada filamento do projeto ("#RRGGBB", filament_colour), pelo índice de
     // ObjectMesh::filaments.
     std::vector<std::string> filament_colors() const;
+    // Preset de filamento de cada filamento do projeto, na mesma ordem de filament_colors().
+    std::vector<std::string> filament_presets() const;
     std::vector<Placement> placements() const;
 
     // As alterações de posição sempre apoiam o objeto na mesa (z mínimo = 0).

@@ -363,6 +363,12 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentColors(JNIEnv
     return guarded(env, [&] { return to_array(env, engine(handle)->filament_colors()); });
 }
 
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentPresets(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return to_array(env, engine(handle)->filament_presets()); });
+}
+
 // Por objeto, 29 valores: matriz 4x4 (coluna), offset, rotação (graus), escala, tamanho (mm) e
 // 1 se estiver fora do volume de impressão (senão 0).
 JNIEXPORT jdoubleArray JNICALL

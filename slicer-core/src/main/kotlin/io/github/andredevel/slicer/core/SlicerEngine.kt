@@ -248,6 +248,9 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Cor (`#RRGGBB`) de cada filamento do projeto, pelo índice de [ObjectMesh.filaments]. */
     suspend fun filamentColors(): List<String> = call { nativeFilamentColors(handle).asList() }
 
+    /** Preset de filamento de cada filamento do projeto, na ordem de [filamentColors]. */
+    suspend fun filamentPresets(): List<String> = call { nativeFilamentPresets(handle).asList() }
+
     suspend fun placements(): List<Placement> = call {
         val v = nativePlacements(handle)
         List(v.size / 29) { i ->
@@ -382,6 +385,7 @@ private external fun nativeRemove(handle: Long, objectIndex: Int)
 private external fun nativeArrange(handle: Long)
 private external fun nativeObjects(handle: Long): Array<ObjectMesh>
 private external fun nativeFilamentColors(handle: Long): Array<String>
+private external fun nativeFilamentPresets(handle: Long): Array<String>
 private external fun nativePlacements(handle: Long): DoubleArray
 private external fun nativeSetTransform(handle: Long, objectIndex: Int, transform: DoubleArray)
 private external fun nativeSetPlacement(handle: Long, objectIndex: Int, values: DoubleArray)
