@@ -412,6 +412,31 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun qidiStudioQ2ChangesFilamentLikeQidiStudio() = runBlocking {
+        engine.loadVendor("QIDIStudio/Q Series")
+        engine.select(PresetKind.PRINTER, "Q2 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.addModel(testAsset("cube20.stl"))
+        engine.addFilament()
+        engine.setObjectFilament(1, 1)
+        val gcode = File(work, "q2-two-colors.gcode")
+        engine.slice(gcode) { _, _ -> }
+        val lines = gcode.readLines()
+        // O filamento inicial já está carregado depois do G-code inicial: a primeira troca é
+        // para o outro filamento, já com a peça começada (o Orca cortava e descarregava o
+        // filamento inicial antes da primeira camada).
+        val firstLayer = lines.indexOfFirst { it.startsWith(";LAYER_CHANGE") }
+        val changes = lines.withIndex().filter { it.value.startsWith("TOOL_CHANGE_START ") }
+        assertTrue(changes.isNotEmpty())
+        assertTrue(changes.first().index > firstLayer)
+        assertTrue(changes.none { it.value == "TOOL_CHANGE_START F=0 T=0" || it.value == "TOOL_CHANGE_START F=1 T=1" })
+        assertEquals(changes.size, lines.count { it.startsWith("CUT_FILAMENT ") })
+        // Antes do corte só as retrações do G-code de troca do QIDI Studio, sem o ramming da
+        // torre da Prusa.
+        assertTrue(lines.none { it.startsWith("; Ramming") || it.startsWith("; Retract(unload)") })
+    }
+
+    @Test
     fun crealityPrintK2Slices() = runBlocking {
         // O G-code inicial e o de troca da K2 no Creality Print testam multicolor_method,
         // flush_into_skeleton e flush_length_5, opções que o Orca não tem.

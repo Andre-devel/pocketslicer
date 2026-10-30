@@ -1806,6 +1806,10 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     // (OrcaSlicer cai no leitor do PrusaSlicer); com o gerador "PocketSlicer" e o modelo da
     // impressora no cabeçalho, cai no leitor Creality.
     set_gcode_generator_name(creality ? "PocketSlicer" : "");
+    // O QIDI Studio considera carregado o filamento inicial depois do G-code inicial (patch 0005);
+    // o Orca, só nas Bambu, e nas outras roda a troca do filamento inicial para ele mesmo, que
+    // na Q2 corta e descarrega o filamento.
+    set_bambu_start_sequence(m->vendor.rfind("QIDIStudio/", 0) == 0);
     if (creality) {
         std::set<int> used = m->object_filaments();
         if (auto it = m->model.plates_custom_gcodes.find(m->model.curr_plate_index); it != m->model.plates_custom_gcodes.end())
