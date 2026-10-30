@@ -79,7 +79,7 @@ private val TOOLS = listOf(
     Triple(Tool.LAY_ON_FACE, R.drawable.ic_vertical_align_bottom, R.string.tool_lay_on_face),
 )
 
-private val SlicerUiState.editable get() = busy == null && slice !is SliceState.Running
+internal val SlicerUiState.editable get() = busy == null && slice !is SliceState.Running
 
 /** Barra superior de Preparar: nome do projeto, menu de arquivo e, na tela larga, Fatiar. */
 @Composable
@@ -543,6 +543,7 @@ private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
         )
     }
     PlacementFields(index, placement, viewModel, state.editable)
+    ObjectSettingsSection(state, viewModel, index, placement.size[2])
 }
 
 /** Campos numéricos do objeto selecionado: posição, rotação e escala. */

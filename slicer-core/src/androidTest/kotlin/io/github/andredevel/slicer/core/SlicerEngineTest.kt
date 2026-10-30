@@ -310,6 +310,55 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun objectAndRangeSettingsChangeSlicingAndAreSavedInProject() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val layers = { gcode: File -> gcode.readLines().count { it.startsWith("; CHANGE_LAYER") } }
+        val base = File(work, "base.gcode").also { engine.slice(it) { _, _ -> } }
+        assertEquals(100, layers(base))
+
+        val objectKeys = engine.settingsKeys(SettingsTarget.Kind.OBJECT)
+        val volumeKeys = engine.settingsKeys(SettingsTarget.Kind.VOLUME)
+        val rangeKeys = engine.settingsKeys(SettingsTarget.Kind.RANGE)
+        assertTrue("enable_support" in objectKeys && "enable_support" !in volumeKeys && "enable_support" !in rangeKeys)
+        assertTrue("layer_height" in objectKeys && "layer_height" in rangeKeys && "layer_height" !in volumeKeys)
+        assertTrue("wall_loops" in volumeKeys && "extruder" !in objectKeys)
+
+        val obj = SettingsTarget(0)
+        engine.setSetting(obj, "sparse_infill_density", "40%")
+        assertThrows(SlicerException::class.java) { runBlocking { engine.setSetting(obj, "wall_loops", "abc") } }
+        assertThrows(SlicerException::class.java) { runBlocking { engine.setSetting(SettingsTarget(0, SettingsTarget.Kind.VOLUME), "enable_support", "1") } }
+        assertEquals(mapOf("sparse_infill_density" to "40%"), engine.settings(obj))
+
+        assertEquals(0, engine.addHeightRange(0, HeightRange(14.0, 20.0)))
+        assertThrows(SlicerException::class.java) { runBlocking { engine.addHeightRange(0, HeightRange(10.0, 15.0)) } }
+        assertEquals(0, engine.addHeightRange(0, HeightRange(2.0, 6.0)))
+        val range = SettingsTarget(0, SettingsTarget.Kind.RANGE, 1)
+        // A faixa nova vem com a altura de camada do processo, como na GUI.
+        assertEquals("0.2", engine.settings(range)["layer_height"])
+        engine.setSetting(range, "layer_height", "0.1")
+        engine.removeHeightRange(0, 0)
+        assertEquals(listOf(HeightRange(14.0, 20.0)), engine.heightRanges(0))
+        assertEquals(0, engine.setHeightRange(0, 0, HeightRange(10.0, 20.0)))
+        assertEquals("0.1", engine.settings(SettingsTarget(0, SettingsTarget.Kind.RANGE, 0))["layer_height"])
+
+        // 0-10 mm em 0.2 e 10-20 mm em 0.1; o objeto com 40% de preenchimento.
+        val changed = File(work, "changed.gcode").also { engine.slice(it) { _, _ -> } }
+        assertEquals(150, layers(changed))
+        assertTrue(changed.readText().length > base.readText().length)
+
+        val project = File(work, "settings.3mf")
+        engine.saveProject(project, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.openProject(project)
+        assertEquals(listOf(HeightRange(10.0, 20.0)), engine.heightRanges(0))
+        assertEquals("40%", engine.settings(obj)["sparse_infill_density"])
+        engine.eraseSetting(obj, "sparse_infill_density")
+        assertTrue(engine.settings(obj).isEmpty())
+    }
+
+    @Test
     fun projectFilamentsAreAddedAssignedAndRemoved() = runBlocking {
         engine.loadVendor("BBL")
         engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")

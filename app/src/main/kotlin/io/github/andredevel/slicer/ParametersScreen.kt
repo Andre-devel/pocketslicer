@@ -345,7 +345,7 @@ private fun DirtyDot() = Box(Modifier.size(7.dp).background(MaterialTheme.colorS
  * opção foi alterada, mostrado com ↺ ([onReset]) para voltar a ele.
  */
 @Composable
-private fun OptionRow(
+internal fun OptionRow(
     def: OptionDef,
     value: String?,
     saved: String?,

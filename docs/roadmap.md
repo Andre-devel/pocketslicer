@@ -120,8 +120,10 @@ Creality, Box da QIDI).
 1. Envio LAN: Moonraker (HTTP upload + start), Creality, Bambu LAN mode (FTPS + MQTT), OctoPrint — plano em [plano-envio.md](plano-envio.md).
 2. Modificadores por faixa de altura e volumes modificadores.
    - Feito (2026-10-30): 3MF com volume modificador e faixa de altura fatia igual ao Orca desktop
-     (caso de paridade modifier_cube). Falta a interface: lista de partes, acrescentar forma,
-     editar parâmetros do volume e da faixa, desenhar os volumes no viewport.
+     (caso de paridade modifier_cube). Configuração própria do objeto e faixas de altura no
+     Preparar (objeto selecionado), com as opções que a GUI do Orca permite em cada uma.
+     Falta: volumes modificadores (lista de partes, acrescentar forma, desenhar no viewport),
+     volume negativo, bloqueador e forçador de suporte.
 3. Pintura de suportes/seam (gizmos de pintura do Orca são GUI; reimplementar sobre `TriangleSelector` de libslic3r).
 4. Multi-material (AMS/MMU) com torre de purga.
    - Feito (2026-10-29): 3MF multicolor do Orca/Bambu fatia igual ao Orca desktop; filamentos do

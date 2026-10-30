@@ -110,6 +110,21 @@ struct LayerChange {
     std::string gcode;
 };
 
+// Onde fica uma configuração própria, que sobrepõe o processo só no que tiver: o objeto,
+// uma das suas peças (índice em ModelObject::volumes) ou uma faixa de altura (índice em
+// height_ranges()).
+struct SettingsTarget {
+    enum class Kind { Object = 0, Volume = 1, Range = 2 };
+    size_t object = 0;
+    Kind   kind = Kind::Object;
+    size_t index = 0;
+};
+
+// Faixa de altura de um objeto, em mm desde a base dele.
+struct HeightRange {
+    double min = 0.0, max = 0.0;
+};
+
 struct Canceled : std::runtime_error {
     Canceled() : std::runtime_error("slicing canceled") {}
 };
@@ -246,6 +261,27 @@ public:
     void set_filament_color(size_t filament, const std::string &color);
     // Filamento do objeto da mesa (a partir de 0).
     void set_object_filament(size_t object, size_t filament);
+
+    // --- Configurações por objeto, peça e faixa de altura (lista de objetos da GUI do Orca) ---
+
+    // Opções que o tipo de alvo aceita, entre as de options_json(Process), como na GUI:
+    // no objeto, as de PrintObjectConfig e PrintRegionConfig; numa peça, as de
+    // PrintRegionConfig; numa faixa, essas e layer_height. O filamento tem função própria.
+    std::vector<std::string> settings_keys(SettingsTarget::Kind kind) const;
+    // {key: valor serializado} das opções que o alvo sobrepõe.
+    std::string settings_json(const SettingsTarget &target) const;
+    // Valor no formato do Orca; lança se a opção não vale para o alvo ou o valor é inválido.
+    void set_setting(const SettingsTarget &target, const std::string &key, const std::string &value);
+    // Volta a opção ao valor do processo.
+    void erase_setting(const SettingsTarget &target, const std::string &key);
+    // Faixas do objeto em ordem crescente.
+    std::vector<HeightRange> height_ranges(size_t object) const;
+    // Nova faixa com a altura de camada atual (como a GUI); devolve o índice dela.
+    // Lança se min >= max ou se cruza outra faixa.
+    size_t add_height_range(size_t object, const HeightRange &range);
+    // Novos limites, com a mesma configuração; devolve o novo índice.
+    size_t set_height_range(size_t object, size_t index, const HeightRange &range);
+    void remove_height_range(size_t object, size_t index);
 
     // Volumes de purga (mm³) na troca do filamento i para o j: matriz n x n por linha
     // (flush_volumes_matrix), uma por extrusor da impressora, em sequência.

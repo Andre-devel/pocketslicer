@@ -139,6 +139,7 @@ struct Engine::Impl {
     }
 
     ModelObject &object(size_t index);
+    ModelConfig &settings(const SettingsTarget &target);
     void add(Model &&objects, bool keep_layout = true);
     // 3MF dos objetos da mesa como uma placa. Com gcode_path, um .gcode.3mf como
     // Plater::export_gcode_3mf(): sem as malhas, com o G-code e os dados do último slice().
@@ -1277,6 +1278,150 @@ void Engine::set_object_filament(size_t object, size_t filament)
         throw std::runtime_error("no vendor loaded");
     m->check_filament(filament);
     m->object(object).config.set_key_value("extruder", new ConfigOptionInt(int(filament) + 1));
+}
+
+namespace {
+
+std::vector<std::string> settings_keys_of(SettingsTarget::Kind kind)
+{
+    std::vector<std::string> keys = PrintRegionConfig().keys();
+    if (kind == SettingsTarget::Kind::Object)
+        for (const std::string &key : PrintObjectConfig().keys())
+            keys.push_back(key);
+    else if (kind == SettingsTarget::Kind::Range)
+        keys.push_back("layer_height");
+    const std::vector<std::string> &print = Preset::print_options();
+    std::vector<std::string> out;
+    for (const std::string &key : keys)
+        if (key != "extruder" && editable_def(key) != nullptr &&
+            std::find(print.begin(), print.end(), key) != print.end() &&
+            std::find(out.begin(), out.end(), key) == out.end())
+            out.push_back(key);
+    return out;
+}
+
+const std::vector<std::string> &settings_keys_cached(SettingsTarget::Kind kind)
+{
+    static const std::array<std::vector<std::string>, 3> keys = {
+        settings_keys_of(SettingsTarget::Kind::Object), settings_keys_of(SettingsTarget::Kind::Volume),
+        settings_keys_of(SettingsTarget::Kind::Range)};
+    return keys[size_t(kind)];
+}
+
+t_layer_config_ranges::iterator range_at(ModelObject &object, size_t index)
+{
+    if (index >= object.layer_config_ranges.size())
+        throw std::out_of_range("no height range " + std::to_string(index));
+    return std::next(object.layer_config_ranges.begin(), long(index));
+}
+
+void check_range(const t_layer_config_ranges &ranges, const HeightRange &range, const t_layer_height_range *ignore)
+{
+    if (!(range.min >= 0.0 && range.min < range.max))
+        throw std::invalid_argument(_u8L("The range must start below where it ends."));
+    for (const auto &[other, config] : ranges)
+        if ((ignore == nullptr || other != *ignore) && range.min < other.second && other.first < range.max)
+            throw std::invalid_argument(format(_u8L("The range overlaps %1%-%2% mm."), other.first, other.second));
+}
+
+size_t range_index(const t_layer_config_ranges &ranges, const t_layer_height_range &key)
+{
+    return size_t(std::distance(ranges.begin(), ranges.find(key)));
+}
+
+} // namespace
+
+ModelConfig &Engine::Impl::settings(const SettingsTarget &target)
+{
+    ModelObject &o = object(target.object);
+    switch (target.kind) {
+    case SettingsTarget::Kind::Object: return o.config;
+    case SettingsTarget::Kind::Volume:
+        if (target.index >= o.volumes.size())
+            throw std::out_of_range("no volume " + std::to_string(target.index));
+        return o.volumes[target.index]->config;
+    case SettingsTarget::Kind::Range: return range_at(o, target.index)->second;
+    }
+    throw std::invalid_argument("invalid settings target");
+}
+
+std::vector<std::string> Engine::settings_keys(SettingsTarget::Kind kind) const
+{
+    return settings_keys_cached(kind);
+}
+
+std::string Engine::settings_json(const SettingsTarget &target) const
+{
+    const ModelConfig &config = m->settings(target);
+    const std::vector<std::string> &keys = settings_keys_cached(target.kind);
+    nlohmann::json out = nlohmann::json::object();
+    for (const std::string &key : config.keys())
+        if (std::find(keys.begin(), keys.end(), key) != keys.end())
+            out[key] = config.opt_serialize(key);
+    return out.dump();
+}
+
+void Engine::set_setting(const SettingsTarget &target, const std::string &key, const std::string &value)
+{
+    const std::vector<std::string> &keys = settings_keys_cached(target.kind);
+    if (std::find(keys.begin(), keys.end(), key) == keys.end())
+        throw std::invalid_argument("not an option of this target: " + key);
+    ModelConfig &config = m->settings(target);
+    // Sobre uma cópia, como set_option(): um valor inválido não muda nada.
+    DynamicPrintConfig copy = config.get();
+    try {
+        copy.set_deserialize_strict(key, value);
+    } catch (const BadOptionValueException &) {
+        throw std::invalid_argument(format(_u8L("Invalid value provided for parameter %1%: %2%"), i18n::translate(editable_def(key)->label), value));
+    }
+    config.set_key_value(key, copy.option(key)->clone());
+}
+
+void Engine::erase_setting(const SettingsTarget &target, const std::string &key)
+{
+    m->settings(target).erase(key);
+}
+
+std::vector<HeightRange> Engine::height_ranges(size_t object) const
+{
+    std::vector<HeightRange> out;
+    for (const auto &[range, config] : m->object(object).layer_config_ranges)
+        out.push_back({range.first, range.second});
+    return out;
+}
+
+size_t Engine::add_height_range(size_t object, const HeightRange &range)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    ModelObject &o = m->object(object);
+    check_range(o.layer_config_ranges, range, nullptr);
+    // Como ObjectList::get_default_layer_config(): a altura de camada do objeto ou do processo.
+    const DynamicPrintConfig &print = m->bundle->prints.get_edited_preset().config;
+    const double layer_height = o.config.has("layer_height") ? o.config.opt_float("layer_height") : print.opt_float("layer_height");
+    const t_layer_height_range key{range.min, range.max};
+    ModelConfig &config = o.layer_config_ranges[key];
+    config.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+    config.set_key_value("extruder", new ConfigOptionInt(0));
+    return range_index(o.layer_config_ranges, key);
+}
+
+size_t Engine::set_height_range(size_t object, size_t index, const HeightRange &range)
+{
+    ModelObject &o = m->object(object);
+    auto it = range_at(o, index);
+    check_range(o.layer_config_ranges, range, &it->first);
+    ModelConfig config = std::move(it->second);
+    o.layer_config_ranges.erase(it);
+    const t_layer_height_range key{range.min, range.max};
+    o.layer_config_ranges[key] = std::move(config);
+    return range_index(o.layer_config_ranges, key);
+}
+
+void Engine::remove_height_range(size_t object, size_t index)
+{
+    ModelObject &o = m->object(object);
+    o.layer_config_ranges.erase(range_at(o, index));
 }
 
 std::vector<double> Engine::flush_volumes() const

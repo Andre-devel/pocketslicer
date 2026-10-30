@@ -10,12 +10,14 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.andredevel.slicer.core.BedTypes
+import io.github.andredevel.slicer.core.HeightRange
 import io.github.andredevel.slicer.core.LayerChange
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
 import io.github.andredevel.slicer.core.PresetValues
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.Plates
+import io.github.andredevel.slicer.core.SettingsTarget
 import io.github.andredevel.slicer.core.SliceStats
 import io.github.andredevel.slicer.core.SlicerEngine
 import io.github.andredevel.slicer.core.SlicerException
@@ -147,6 +149,11 @@ enum class SliceStage(@StringRes val label: Int, private val fromPercent: Int) {
     }
 }
 
+/** Opções próprias de um objeto ([values]) e as faixas de altura dele, cada uma com as suas. */
+data class ObjectSettings(val values: Map<String, String> = emptyMap(), val ranges: List<RangeSettings> = emptyList())
+
+data class RangeSettings(val range: HeightRange, val values: Map<String, String>)
+
 data class SlicerUiState(
     /** Operação em andamento que bloqueia os controles (carregar perfis, modelo...). */
     @StringRes val busy: Int? = R.string.busy_installing_profiles,
@@ -170,6 +177,10 @@ data class SlicerUiState(
     val filamentChangeAvailable: Boolean = false,
     /** Definições das opções editáveis (PrintConfigDef do Orca); textos no idioma do app. */
     val optionDefs: Map<PresetKind, List<OptionDef>> = emptyMap(),
+    /** Opções que cada tipo de alvo de configuração própria aceita; ver [SlicerEngine.settingsKeys]. */
+    val settingsKeys: Map<SettingsTarget.Kind, Set<String>> = emptyMap(),
+    /** Configuração própria de cada objeto da placa, na ordem de [Scene.placements]. */
+    val objectSettings: List<ObjectSettings> = emptyList(),
     /** Nomes dos tipos de extrusão (índice em SlicerEngine.roleNames) no idioma do app. */
     val roleLabels: List<String> = SlicerEngine.roleNames,
     /** Nome do primeiro modelo adicionado; dá nome ao G-code. */
@@ -383,7 +394,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.setLanguage(language)
         val defs = PresetKind.entries.associateWith { engine.options(it) }
         val roles = SlicerEngine.roleNames.map { engine.translate(it) }
-        _state.update { it.copy(optionDefs = defs, roleLabels = roles) }
+        val keys = SettingsTarget.Kind.entries.associateWith { engine.settingsKeys(it).toSet() }
+        _state.update { it.copy(optionDefs = defs, roleLabels = roles, settingsKeys = keys) }
     }
 
     fun selectVendor(vendor: String) = launchEngine(R.string.busy_loading_vendor) {
@@ -708,6 +720,32 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Opção própria do objeto, da peça ou da faixa; [value] no formato do Orca. */
+    fun setSetting(target: SettingsTarget, key: String, value: String) =
+        editSettings(optionLabel(PresetKind.PROCESS, key)) { it.setSetting(target, key, value) }
+
+    /** Volta a opção do alvo ao valor do processo. */
+    fun eraseSetting(target: SettingsTarget, key: String) =
+        editSettings(optionLabel(PresetKind.PROCESS, key)) { it.eraseSetting(target, key) }
+
+    fun addHeightRange(objectIndex: Int, range: HeightRange) =
+        editSettings(app.getString(R.string.height_ranges)) { it.addHeightRange(objectIndex, range) }
+
+    fun setHeightRange(objectIndex: Int, index: Int, range: HeightRange) =
+        editSettings(app.getString(R.string.height_ranges)) { it.setHeightRange(objectIndex, index, range) }
+
+    fun removeHeightRange(objectIndex: Int, index: Int) =
+        editSettings(app.getString(R.string.height_ranges)) { it.removeHeightRange(objectIndex, index) }
+
+    private fun editSettings(reason: String, edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
+        try {
+            edit(engine)
+            markChanged(StaleReason(reason))
+        } finally {
+            refreshScene(engine)
+        }
+    }
+
     fun setWipeTowerPosition(x: Float, y: Float) = editScene { it.setWipeTowerPosition(x, y); null }
 
     fun setPlacement(objectIndex: Int, offset: FloatArray, rotation: FloatArray, scale: FloatArray) =
@@ -972,11 +1010,17 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val tower = engine.wipeTower()
         val layerChanges = engine.layerChanges()
         val filamentChange = engine.filamentChangeAvailable()
+        val settings = placements.indices.map { index ->
+            val ranges = engine.heightRanges(index).mapIndexed { i, range ->
+                RangeSettings(range, engine.settings(SettingsTarget(index, SettingsTarget.Kind.RANGE, i)))
+            }
+            ObjectSettings(engine.settings(SettingsTarget(index)), ranges)
+        }
         _state.update { state ->
             val selected = state.scene?.selected?.takeIf { (meshes == null || keepSelection) && it < placements.size }
             state.copy(
                 scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors, tower), plates = plates,
-                layerChanges = layerChanges, filamentChangeAvailable = filamentChange,
+                layerChanges = layerChanges, filamentChangeAvailable = filamentChange, objectSettings = settings,
             )
         }
     }

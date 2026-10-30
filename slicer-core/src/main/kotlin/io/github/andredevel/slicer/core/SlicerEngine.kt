@@ -103,6 +103,19 @@ class Placement(
     val outside: Boolean,
 )
 
+/**
+ * Onde fica uma configuração própria, que sobrepõe o processo só no que tiver: o objeto
+ * ([Kind.OBJECT]), uma peça dele ([Kind.VOLUME], [index] da peça) ou uma faixa de altura
+ * ([Kind.RANGE], [index] em [SlicerEngine.heightRanges]).
+ */
+data class SettingsTarget(val objectIndex: Int, val kind: Kind = Kind.OBJECT, val index: Int = 0) {
+    /** Na ordem de slicer::SettingsTarget::Kind. */
+    enum class Kind { OBJECT, VOLUME, RANGE }
+}
+
+/** Faixa de altura de um objeto, em mm desde a base dele. */
+data class HeightRange(val min: Double, val max: Double)
+
 /** Placas: quantos objetos cada uma tem e a [selected] (a partir de 0), a da mesa. */
 data class Plates(val objects: List<Int>, val selected: Int)
 
@@ -319,6 +332,41 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     suspend fun setObjectFilament(objectIndex: Int, filament: Int) = call { nativeSetObjectFilament(handle, objectIndex, filament) }
 
     /**
+     * Opções (de [options] do processo) que o tipo de alvo aceita, como na GUI do Orca: no
+     * objeto, as de objeto e de região; numa peça, as de região; numa faixa, essas e a altura
+     * de camada.
+     */
+    suspend fun settingsKeys(kind: SettingsTarget.Kind): List<String> = call { nativeSettingsKeys(handle, kind.ordinal).toList() }
+
+    /** Opções que o alvo sobrepõe, com o valor serializado como no Orca. */
+    suspend fun settings(target: SettingsTarget): Map<String, String> = call {
+        val json = JSONObject(nativeSettingsJson(handle, target.objectIndex, target.kind.ordinal, target.index))
+        json.keys().asSequence().associateWith(json::getString)
+    }
+
+    /** Lança se a opção não vale para o alvo ou o valor é inválido. */
+    suspend fun setSetting(target: SettingsTarget, key: String, value: String) =
+        call { nativeSetSetting(handle, target.objectIndex, target.kind.ordinal, target.index, key, value) }
+
+    /** Volta a opção ao valor do processo. */
+    suspend fun eraseSetting(target: SettingsTarget, key: String) =
+        call { nativeEraseSetting(handle, target.objectIndex, target.kind.ordinal, target.index, key) }
+
+    /** Faixas do objeto em ordem crescente. */
+    suspend fun heightRanges(objectIndex: Int): List<HeightRange> = call {
+        nativeHeightRanges(handle, objectIndex).toList().chunked(2) { HeightRange(it[0], it[1]) }
+    }
+
+    /** Nova faixa com a altura de camada atual; devolve o índice. Lança se cruzar outra. */
+    suspend fun addHeightRange(objectIndex: Int, range: HeightRange): Int = call { nativeAddHeightRange(handle, objectIndex, range.min, range.max) }
+
+    /** Novos limites, com a mesma configuração; devolve o novo índice. */
+    suspend fun setHeightRange(objectIndex: Int, index: Int, range: HeightRange): Int =
+        call { nativeSetHeightRange(handle, objectIndex, index, range.min, range.max) }
+
+    suspend fun removeHeightRange(objectIndex: Int, index: Int) = call { nativeRemoveHeightRange(handle, objectIndex, index) }
+
+    /**
      * Volumes de purga (mm³) da troca do filamento i para o j: matriz n x n por linha, uma por
      * extrusor da impressora, em sequência.
      */
@@ -526,6 +574,14 @@ private external fun nativeRemoveFilament(handle: Long, filament: Int)
 private external fun nativeSetFilamentPreset(handle: Long, filament: Int, name: String)
 private external fun nativeSetFilamentColor(handle: Long, filament: Int, color: String)
 private external fun nativeSetObjectFilament(handle: Long, objectIndex: Int, filament: Int)
+private external fun nativeSettingsKeys(handle: Long, kind: Int): Array<String>
+private external fun nativeSettingsJson(handle: Long, objectIndex: Int, kind: Int, index: Int): String
+private external fun nativeSetSetting(handle: Long, objectIndex: Int, kind: Int, index: Int, key: String, value: String)
+private external fun nativeEraseSetting(handle: Long, objectIndex: Int, kind: Int, index: Int, key: String)
+private external fun nativeHeightRanges(handle: Long, objectIndex: Int): DoubleArray
+private external fun nativeAddHeightRange(handle: Long, objectIndex: Int, min: Double, max: Double): Int
+private external fun nativeSetHeightRange(handle: Long, objectIndex: Int, index: Int, min: Double, max: Double): Int
+private external fun nativeRemoveHeightRange(handle: Long, objectIndex: Int, index: Int)
 private external fun nativeFlushVolumes(handle: Long): DoubleArray
 private external fun nativeSetFlushVolumes(handle: Long, matrix: DoubleArray)
 private external fun nativeFlushMultipliers(handle: Long): DoubleArray

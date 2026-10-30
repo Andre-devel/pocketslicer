@@ -304,4 +304,23 @@
     <string name="layer_action">Ação</string>
     <string name="layer_pause_hint">A impressora roda o G-code de pausa dela (machine_pause_gcode) antes desta camada, para você trocar o filamento à mão.</string>
     <string name="layer_filament_change_unavailable">A troca de filamento por altura exige todos os objetos num filamento só.</string>
+    <!-- Configuração própria do objeto e faixas de altura -->
+    <string name="object_settings">Configuração própria</string>
+    <string name="settings_whole_object">Objeto inteiro</string>
+    <string name="settings_same_as_process">Igual ao processo</string>
+    <string name="settings_changed_count">%1$d alterados</string>
+    <string name="height_ranges">Faixas de altura</string>
+    <string name="add_height_range">Acrescentar faixa de altura</string>
+    <string name="height_range_value">%1$s – %2$s mm</string>
+    <string name="height_range_from">De</string>
+    <string name="height_range_to">Até</string>
+    <string name="height_range_hint">Vale para as camadas entre essas alturas, medidas desde a base do objeto.</string>
+    <string name="height_range_error_order">O início deve ficar abaixo do fim.</string>
+    <string name="height_range_error_overlap">Cruza a faixa %1$s.</string>
+    <string name="settings_object_hint">Estes valores substituem os do processo só neste objeto.</string>
+    <string name="settings_empty">Nenhum parâmetro alterado: tudo segue o processo.</string>
+    <string name="settings_add_option">Acrescentar parâmetro</string>
+    <string name="settings_suggested">Parâmetros comuns</string>
+    <string name="settings_no_match">Nenhum parâmetro encontrado.</string>
+    <string name="delete_height_range">Excluir faixa</string>
 </resources>

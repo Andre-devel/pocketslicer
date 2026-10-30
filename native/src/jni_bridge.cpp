@@ -446,6 +446,71 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetObjectFilament(JNI
     guarded(env, [&] { engine(handle)->set_object_filament(size_t(object), size_t(filament)); });
 }
 
+namespace {
+slicer::SettingsTarget to_target(jint object, jint kind, jint index)
+{
+    return {size_t(object), slicer::SettingsTarget::Kind(kind), size_t(index)};
+}
+} // namespace
+
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSettingsKeys(JNIEnv *env, jclass, jlong handle, jint kind)
+{
+    return guarded(env, [&] { return to_array(env, engine(handle)->settings_keys(slicer::SettingsTarget::Kind(kind))); });
+}
+
+JNIEXPORT jstring JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSettingsJson(JNIEnv *env, jclass, jlong handle, jint object, jint kind, jint index)
+{
+    return guarded(env, [&] { return env->NewStringUTF(engine(handle)->settings_json(to_target(object, kind, index)).c_str()); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetSetting(JNIEnv *env, jclass, jlong handle, jint object, jint kind, jint index, jstring key, jstring value)
+{
+    guarded(env, [&] { engine(handle)->set_setting(to_target(object, kind, index), to_string(env, key), to_string(env, value)); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeEraseSetting(JNIEnv *env, jclass, jlong handle, jint object, jint kind, jint index, jstring key)
+{
+    guarded(env, [&] { engine(handle)->erase_setting(to_target(object, kind, index), to_string(env, key)); });
+}
+
+// min e max de cada faixa, em sequência.
+JNIEXPORT jdoubleArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeHeightRanges(JNIEnv *env, jclass, jlong handle, jint object)
+{
+    return guarded(env, [&] {
+        std::vector<double> values;
+        for (const slicer::HeightRange &range : engine(handle)->height_ranges(size_t(object))) {
+            values.push_back(range.min);
+            values.push_back(range.max);
+        }
+        jdoubleArray out = env->NewDoubleArray(jsize(values.size()));
+        env->SetDoubleArrayRegion(out, 0, jsize(values.size()), values.data());
+        return out;
+    });
+}
+
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeAddHeightRange(JNIEnv *env, jclass, jlong handle, jint object, jdouble min, jdouble max)
+{
+    return guarded(env, [&] { return jint(engine(handle)->add_height_range(size_t(object), {min, max})); });
+}
+
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetHeightRange(JNIEnv *env, jclass, jlong handle, jint object, jint index, jdouble min, jdouble max)
+{
+    return guarded(env, [&] { return jint(engine(handle)->set_height_range(size_t(object), size_t(index), {min, max})); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemoveHeightRange(JNIEnv *env, jclass, jlong handle, jint object, jint index)
+{
+    guarded(env, [&] { engine(handle)->remove_height_range(size_t(object), size_t(index)); });
+}
+
 JNIEXPORT jdoubleArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFlushVolumes(JNIEnv *env, jclass, jlong handle)
 {
