@@ -410,6 +410,18 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun crealityPrintK2Slices() = runBlocking {
+        // O G-code inicial e o de troca da K2 no Creality Print testam multicolor_method,
+        // flush_into_skeleton e flush_length_5, opções que o Orca não tem.
+        engine.loadVendor("CrealityPrint/Creality")
+        engine.select(PresetKind.PRINTER, "Creality K2 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val gcode = File(work, "k2.gcode")
+        engine.slice(gcode) { _, _ -> }
+        assertTrue(gcode.useLines { lines -> lines.any { it.startsWith("START_PRINT ") } })
+    }
+
+    @Test
     fun otherVendorKeepsProjectFilaments() = runBlocking {
         engine.loadVendor("BBL")
         engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")

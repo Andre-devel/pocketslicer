@@ -543,19 +543,34 @@ void set_filament_id(const fs::path &path)
     out << profile.dump(4);
 }
 
-// O QIDI Studio chama de chamber_temperatures a opção chamber_temperature do Orca. O Orca já
-// renomeia a opção ao ler (PrintConfigDef::handle_legacy), mas não a variável no G-code
-// personalizado ("CHAMBER=[chamber_temperatures]" no Q2), que falharia ao fatiar.
+// Variáveis do G-code personalizado que o Orca não conhece; sem a troca, o fatiamento falha
+// ("Not a variable name"). O QIDI Studio chama de chamber_temperatures a opção
+// chamber_temperature do Orca: o Orca renomeia a opção ao ler (PrintConfigDef::handle_legacy),
+// mas não a variável ("CHAMBER=[chamber_temperatures]" no Q2). O Creality Print tem opções
+// próprias que o G-code da K2 testa: multicolor_method (purga calculada no G-code de troca em
+// vez da torre; o padrão false é o que o Orca faz), flush_into_skeleton (purga dentro da peça)
+// e flush_length_5 (o Orca divide a purga em flush_length_1..4).
 void rename_legacy_variables(const fs::path &path)
 {
-    static const std::regex legacy("\\bchamber_temperatures\\b");
+    static const std::vector<std::pair<std::regex, std::string>> replacements = {
+        {std::regex("\\bchamber_temperatures\\b"), "chamber_temperature"},
+        {std::regex("\\bmulticolor_method\\b(?!\")"), "false"},
+        {std::regex("\\bflush_into_skeleton\\b(?!\")"), "false"},
+        {std::regex("\\bflush_length_5\\b(?!\")"), "0"},
+    };
     boost::nowide::ifstream in(path.string());
-    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     in.close();
-    if (!std::regex_search(text, legacy))
+    bool changed = false;
+    for (const auto &[variable, value] : replacements)
+        if (std::regex_search(text, variable)) {
+            text = std::regex_replace(text, variable, value);
+            changed = true;
+        }
+    if (!changed)
         return;
     boost::nowide::ofstream out(path.string());
-    out << std::regex_replace(text, legacy, "chamber_temperature");
+    out << text;
 }
 
 // Copia os perfis de um fatiador do fabricante (Creality Print...) para dst, ajustando as
