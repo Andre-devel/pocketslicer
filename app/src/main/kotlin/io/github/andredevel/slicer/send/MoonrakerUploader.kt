@@ -48,8 +48,6 @@ object MoonrakerUploader : Uploader {
      */
     private const val CREALITY_START_MS = 300_000
     private const val CREALITY_POLL_MS = 5_000
-    /** `state` da interface da Creality que o Creality Print lê como imprimindo. */
-    private val CREALITY_PRINTING = setOf(1, 5)
 
     /** Campos que o Moonraker da U1 repassa ao iniciar (`metadata_fields` de _fill_metadata). */
     private val START_FIELDS = listOf(
@@ -184,9 +182,10 @@ object MoonrakerUploader : Uploader {
     /**
      * Início com o mapa do CFS, como o Creality Print: `colorMatch` com o caminho do arquivo na
      * impressora (raiz `gcodes` do Moonraker) e uma entrada por filamento usado, depois
-     * `multiColorPrint`. A impressão sai pelo caminho da Creality, que não passa pelo
-     * `print_stats` do Klipper: o início se confirma quando o estado dela informa `state` 1 ou 5
-     * (imprimindo, como o Creality Print lê) com esse arquivo em `printFileName`.
+     * `multiColorPrint`. O início se confirma pelo `print_stats` do Klipper com esse arquivo
+     * imprimindo (na K3 em 2026-10-29 ele passa a `printing` depois de aquecer e carregar o CFS);
+     * o estado do WebSocket não serve, porque depois da primeira resposta a K3 só manda os campos
+     * que mudaram.
      */
     private suspend fun crealityStart(api: URL, host: PrinterHost, path: String, mapping: List<Slot?>) {
         val gcode = gcodesRoot(api, host).trimEnd('/') + "/" + path
@@ -203,26 +202,22 @@ object MoonrakerUploader : Uploader {
                     .put("materialId", slot.cfsSlot)
             )
         }
-        val started = withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             try {
                 CrealitySocket.open(api.host, CREALITY_CONNECT_MS).use { socket ->
                     socket.send(set("colorMatch", JSONObject().put("path", gcode).put("list", list)))
                     socket.send(set("multiColorPrint", JSONObject().put("gcode", gcode).put("enableSelfTest", 0)))
                     Log.i(TAG, "colorMatch + multiColorPrint sent for $gcode: $list")
-                    // O estado vem em resposta a `reqPrinterPara`, pedido a cada CREALITY_POLL_MS.
-                    val deadline = System.currentTimeMillis() + CREALITY_START_MS
-                    var printing = false
-                    while (!printing && System.currentTimeMillis() < deadline) {
-                        socket.send(JSONObject().put("method", "get").put("params", JSONObject().put("reqPrinterPara", 1)))
-                        printing = socket.awaitMessage(CREALITY_POLL_MS) { message ->
-                            message.optInt("state", -1) in CREALITY_PRINTING && message.optString("printFileName") == gcode
-                        } != null
-                    }
-                    printing
                 }
             } catch (e: IOException) {
                 throw SendException(R.string.send_error_io, e.message ?: e.toString(), cause = e)
             }
+        }
+        val deadline = System.currentTimeMillis() + CREALITY_START_MS
+        var started = false
+        while (!started && System.currentTimeMillis() < deadline) {
+            delay(CREALITY_POLL_MS.toLong())
+            started = status(api, host).let { it.busy && it.file == path }
         }
         if (!started) throw SendException(R.string.send_error_start_unconfirmed, host.name)
     }
