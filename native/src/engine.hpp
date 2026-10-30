@@ -228,6 +228,8 @@ public:
     std::vector<std::string> filament_colors() const;
     // Preset de filamento de cada filamento do projeto, na mesma ordem de filament_colors().
     std::vector<std::string> filament_presets() const;
+    // Material de cada filamento do projeto (filament_type: "PLA", "PETG"...), na mesma ordem.
+    std::vector<std::string> filament_types() const;
 
     // --- Filamentos do projeto (como a barra lateral do Orca) ---
     // Quantos filamentos o projeto pode ter: no mínimo um por extrusor da impressora; com

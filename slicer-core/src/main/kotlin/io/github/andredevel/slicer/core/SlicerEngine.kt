@@ -294,6 +294,9 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Preset de filamento de cada filamento do projeto, na ordem de [filamentColors]. */
     suspend fun filamentPresets(): List<String> = call { nativeFilamentPresets(handle).asList() }
 
+    /** Material de cada filamento do projeto ("PLA", "PETG"...), na ordem de [filamentPresets]. */
+    suspend fun filamentTypes(): List<String> = call { nativeFilamentTypes(handle).asList() }
+
     /**
      * Quantos filamentos o projeto pode ter (mínimo, máximo): um por extrusor; com um extrusor
      * só para vários materiais (AMS, MMU), até 64.
@@ -516,6 +519,7 @@ private external fun nativeArrange(handle: Long)
 private external fun nativeObjects(handle: Long): Array<ObjectMesh>
 private external fun nativeFilamentColors(handle: Long): Array<String>
 private external fun nativeFilamentPresets(handle: Long): Array<String>
+private external fun nativeFilamentTypes(handle: Long): Array<String>
 private external fun nativeFilamentLimits(handle: Long): IntArray
 private external fun nativeAddFilament(handle: Long)
 private external fun nativeRemoveFilament(handle: Long, filament: Int)

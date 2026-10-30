@@ -155,6 +155,8 @@ data class SlicerUiState(
     val presets: Map<PresetKind, PresetChoice> = emptyMap(),
     /** Preset de cada filamento do projeto (cores em [Scene.filamentColors], na mesma ordem). */
     val filaments: List<String> = emptyList(),
+    /** Material de cada filamento do projeto ("PLA", "PETG"...), na ordem de [filaments]. */
+    val filamentTypes: List<String> = emptyList(),
     /** Quantos filamentos o projeto pode ter com a impressora selecionada. */
     val filamentLimits: IntRange = 1..1,
     /** Purga (mm³) da troca entre filamentos: matriz n x n por linha, uma por extrusor; ver [flushMultipliers]. */
@@ -937,13 +939,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             PresetChoice(engine.presets(it), engine.selected(it), engine.userPresets(it).toSet(), engine.values(it))
         }
         val filaments = engine.filamentPresets()
+        val filamentTypes = engine.filamentTypes()
         val limits = engine.filamentLimits()
         val flush = engine.flushVolumes()
         val multipliers = engine.flushMultipliers()
         val bedTypes = engine.bedTypes()
         _state.update {
             it.copy(
-                presets = presets, filaments = filaments, filamentLimits = limits, flushVolumes = flush, flushMultipliers = multipliers,
+                presets = presets, filaments = filaments, filamentTypes = filamentTypes, filamentLimits = limits, flushVolumes = flush, flushMultipliers = multipliers,
                 bedTypes = bedTypes,
             )
         }

@@ -397,6 +397,12 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentPresets(JNIEn
     return guarded(env, [&] { return to_array(env, engine(handle)->filament_presets()); });
 }
 
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentTypes(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return to_array(env, engine(handle)->filament_types()); });
+}
+
 // Mínimo e máximo.
 JNIEXPORT jintArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFilamentLimits(JNIEnv *env, jclass, jlong handle)

@@ -1032,6 +1032,14 @@ std::vector<std::string> Engine::filament_presets() const
     return m->bundle ? m->bundle->filament_presets : std::vector<std::string>{};
 }
 
+std::vector<std::string> Engine::filament_types() const
+{
+    if (!m->bundle)
+        return {};
+    const DynamicPrintConfig config = m->bundle->full_config();
+    return config.option<ConfigOptionStrings>("filament_type")->values;
+}
+
 namespace {
 
 // get_min_flush_volumes() da GUI do Orca (Plater.cpp): o volume do bico menos o que a

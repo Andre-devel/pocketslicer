@@ -233,7 +233,7 @@ private fun ConfirmPrint(
         ?.takeIf { it.isNotEmpty() } ?: listOf(0)
     val slots = (load as? SlotsLoad.Loaded)?.slots.orEmpty()
     val mapping = remember(slots) {
-        mutableStateListOf<Int>().apply { if (slots.isNotEmpty()) addAll(defaultMapping(maxOf(state.filaments.size, used.max() + 1), used, colors, slots)) }
+        mutableStateListOf<Int>().apply { if (slots.isNotEmpty()) addAll(defaultMapping(maxOf(state.filaments.size, used.max() + 1), used, colors, state.filamentTypes, slots)) }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -261,6 +261,16 @@ private fun ConfirmPrint(
                         }
                         for (slot in used.mapNotNull { l.slots.getOrNull(mapping[it]) }.distinct().filter { !it.loaded }) {
                             Banner(Tone.WARNING, stringResource(R.string.mapping_slot_empty, slotName(slot)), Modifier.fillMaxWidth())
+                        }
+                        for (filament in used) {
+                            val slot = l.slots.getOrNull(mapping[filament])?.takeIf { it.loaded } ?: continue
+                            val type = state.filamentTypes.getOrNull(filament)
+                            if (type != null && slot.type != null && !sameType(type, slot.type)) {
+                                Banner(
+                                    Tone.WARNING, stringResource(R.string.mapping_type_differs, filament + 1, type, slotName(slot), slot.type),
+                                    Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                         // Cor do projeto diferente da carregada: a vista prévia e a purga não batem com a peça.
                         val slotColors = used.mapNotNull { f ->
@@ -326,21 +336,28 @@ private fun slotName(slot: Slot): String = when {
 
 /**
  * Posição de cada filamento do projeto (0 até [count]): cada um de [used] vai para a posição
- * carregada de cor mais próxima ainda livre; os outros, e os que sobram sem posição carregada,
- * para a de mesmo número. Com bicos fixos ([Slot.nozzle]), é a posição do bico do filamento, ou
- * -1 se nenhuma o alimenta.
+ * carregada ainda livre do mesmo material ([types]) e, entre elas, de cor mais próxima; sem uma
+ * do mesmo material, para a de cor mais próxima. Os outros, e os que sobram sem posição
+ * carregada, vão para a de mesmo número. Com bicos fixos ([Slot.nozzle]), é a posição do bico do
+ * filamento, ou -1 se nenhuma o alimenta.
  */
-private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?>, slots: List<Slot>): List<Int> {
+private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?>, types: List<String>, slots: List<Slot>): List<Int> {
     if (slots.any { it.nozzle != null }) return List(count) { i -> slots.indexOfFirst { it.nozzle == i + 1 } }
     val taken = mutableSetOf<Int>()
     return List(count) { i ->
         val fallback = i % slots.size
         if (i !in used) return@List fallback
         val color = colors.getOrNull(i)
-        val best = slots.indices.filter { slots[it].loaded && it !in taken }.minByOrNull { colorDistance(color, slots[it].color) }
+        val type = types.getOrNull(i)
+        val free = slots.indices.filter { slots[it].loaded && it !in taken }
+        val sameMaterial = free.filter { type != null && slots[it].type?.let { slotType -> sameType(type, slotType) } == true }
+        val best = sameMaterial.ifEmpty { free }.minByOrNull { colorDistance(color, slots[it].color) }
         (best ?: fallback).also { taken += it }
     }
 }
+
+/** Mesmo material: a impressora e o perfil escrevem o tipo com caixa e espaços diferentes. */
+private fun sameType(a: String, b: String) = a.trim().equals(b.trim(), ignoreCase = true)
 
 /** [colorDistance] abaixo disto: a mesma cor (arredondamento de 8 bits por canal). */
 private const val COLOR_SAME = 0.0005f
