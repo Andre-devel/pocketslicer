@@ -236,6 +236,7 @@ struct Engine::Impl {
     }
 
     void calc_flush_volumes(std::optional<size_t> filament);
+    void sync_filament_colors();
 
     // Filamentos (a partir de 1) dos objetos da mesa, pintura inclusive.
     std::set<int> object_filaments() const
@@ -399,6 +400,7 @@ void Engine::select(PresetKind kind, const std::string &name)
     case PresetKind::Printer:
         collection.select_preset_by_name(name, true);
         m->bundle->update_multi_material_filament_presets();
+        m->sync_filament_colors();
         // Troca processo/filamento incompatíveis pelos primeiros compatíveis...
         m->bundle->update_compatible(PresetSelectCompatibleType::Always);
         // ...e prefere os padrões declarados pela impressora.
@@ -982,6 +984,32 @@ const char *const FILAMENT_PALETTE[] = {"#00C1AE", "#F4E2C1", "#ED1C24", "#00FF7
 
 // Sidebar::auto_calc_flushing_volumes_internal() do Orca, para as linhas e colunas do
 // filamento (ou de todos), em cada extrusor.
+// update_multi_material_filament_presets() muda o número de filamentos sem mexer nas cores do
+// projeto (a GUI do Orca as ajusta à parte); os novos recebem cores da paleta.
+void Engine::Impl::sync_filament_colors()
+{
+    DynamicPrintConfig &project = bundle->project_config;
+    auto               &colors  = project.option<ConfigOptionStrings>("filament_colour")->values;
+    const size_t        count   = filament_count();
+    const size_t        old     = colors.size();
+    if (old == count)
+        return;
+    colors.resize(count);
+    for (size_t i = old; i < count; ++i)
+        colors[i] = FILAMENT_PALETTE[i % std::size(FILAMENT_PALETTE)];
+    if (auto *multi = project.option<ConfigOptionStrings>("filament_multi_colour")) {
+        multi->values.resize(count);
+        for (size_t i = old; i < count; ++i)
+            multi->values[i] = colors[i];
+    }
+    if (auto *type = project.option<ConfigOptionStrings>("filament_colour_type"))
+        type->values.resize(count, "1");
+    if (auto *map = project.option<ConfigOptionInts>("filament_map"))
+        map->values.resize(count, 1);
+    for (size_t i = old; i < count; ++i)
+        calc_flush_volumes(i);
+}
+
 void Engine::Impl::calc_flush_volumes(std::optional<size_t> filament)
 {
     const DynamicPrintConfig full     = bundle->full_config();
@@ -1665,6 +1693,23 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     for (const char *key : {"wipe_tower_x", "wipe_tower_y"}) {
         auto *opt = config.option<ConfigOptionFloats>(key);
         opt->values = {opt->get_at(m->plate)};
+    }
+
+    // Como o Print::apply() do Creality Print: default_filament_colour com a cor de cada filamento
+    // usado (vazio nos outros). O firmware da K3 lê esse campo para escolher o primeiro bico a
+    // aquecer e para em BOX_FIRST_NOZZLE_HEATING quando ele está vazio.
+    if (m->vendor.rfind("CrealityPrint/", 0) == 0) {
+        std::set<int> used = m->object_filaments();
+        if (auto it = m->model.plates_custom_gcodes.find(m->model.curr_plate_index); it != m->model.plates_custom_gcodes.end())
+            for (const CustomGCode::Item &item : it->second.gcodes)
+                if (item.type == CustomGCode::ToolChange)
+                    used.insert(item.extruder);
+        const auto        &colors   = config.option<ConfigOptionStrings>("filament_colour")->values;
+        std::vector<std::string> defaults(colors.size());
+        for (int filament : used)
+            if (filament >= 1 && size_t(filament) <= colors.size())
+                defaults[filament - 1] = colors[filament - 1];
+        config.option<ConfigOptionStrings>("default_filament_colour", true)->values = defaults;
     }
 
     // Os filamentos dos objetos podem ter mudado desde que as ações por altura foram gravadas.

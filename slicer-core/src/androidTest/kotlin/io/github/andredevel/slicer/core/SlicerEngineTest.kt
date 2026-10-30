@@ -370,6 +370,35 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun crealityGcodeHasTheColorOfEachUsedFilament() = runBlocking {
+        engine.loadVendor("CrealityPrint/Creality")
+        engine.select(PresetKind.PRINTER, "Creality K3")
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.setFilamentColor(0, "#000000")
+        engine.setFilamentColor(1, "#26EEEE")
+        val gcode = File(work, "k3.gcode")
+        engine.slice(gcode) { _, _ -> }
+        // O firmware da K3 escolhe o primeiro bico por esta linha (como o Creality Print grava).
+        val line = gcode.useLines { lines -> lines.first { it.startsWith("; default_filament_colour =") } }
+        assertEquals("; default_filament_colour = #000000;;;", line)
+    }
+
+    @Test
+    fun printerWithMoreExtrudersGetsAColorPerFilament() = runBlocking {
+        engine.loadVendor("Prusa")
+        engine.select(PresetKind.PRINTER, "Prusa XL 0.4 nozzle")
+        assertEquals(1, engine.filamentColors().size)
+        // XL 5T: um filamento por cabeça; as cores acompanham, e cada uma pode mudar.
+        engine.select(PresetKind.PRINTER, "Prusa XL 5T 0.4 nozzle")
+        assertEquals(5, engine.filamentPresets().size)
+        assertEquals(5, engine.filamentColors().size)
+        engine.setFilamentColor(4, "#000000")
+        assertEquals("#000000", engine.filamentColors()[4])
+        // Uma matriz 5 x 5 por bico.
+        assertEquals(5 * 25, engine.flushVolumes().size)
+    }
+
+    @Test
     fun layerChangesPauseAndSwitchFilament() = runBlocking {
         engine.loadVendor("BBL")
         engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
