@@ -295,11 +295,14 @@ private fun ConfirmPrint(
     )
 }
 
-/** Filamento do projeto e a posição da impressora escolhida para ele. */
+/**
+ * Filamento do projeto e, embaixo, a posição da impressora escolhida para ele: lado a lado, no
+ * celular os dois nomes ficavam cortados.
+ */
 @Composable
 private fun MappingRow(filament: Int, color: FloatArray?, name: String?, slots: List<Slot>, slot: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilamentLabel(filament, color, name, Modifier.weight(1f))
+    FilamentLabel(filament, color, name, Modifier.padding(top = 4.dp))
+    Row(Modifier.padding(start = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             Modifier.size(12.dp)
                 .background(slots.getOrNull(slot)?.color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.outline, CircleShape)

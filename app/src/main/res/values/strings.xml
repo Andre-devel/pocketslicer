@@ -297,7 +297,7 @@
     <string name="layer_filament_change">Change filament</string>
     <string name="layer_filament_change_to">Change to filament %1$s</string>
     <string name="layer_custom_gcode">Custom G-code</string>
-    <string name="layer_change_title">Before layer %1$d (%2$.2f mm)</string>
+    <string name="layer_change_title">Before layer %1$d (%2$.2f\u00A0mm)</string>
     <string name="layer_action">Action</string>
     <string name="layer_pause_hint">The printer runs its pause G-code (machine_pause_gcode) before this layer, so you can swap the filament by hand.</string>
     <string name="layer_filament_change_unavailable">Changing filament by height needs all objects on a single filament.</string>
