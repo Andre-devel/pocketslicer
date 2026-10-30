@@ -105,6 +105,8 @@ código continua `io.github.andredevel.slicer`, que também nomeia as funções 
 assinado com a chave de `scripts/make-release-key.sh`. Release v0.1.0 no GitHub em 2026-10-29
 (pré-release). A partir da v0.1.1 o app se atualiza pelo GitHub Releases: ao abrir, baixa a versão
 nova e pergunta se instala (Configurações → Atualizações); `versionCode` sai do `versionName`.
+v0.2.0 (2026-10-30, pré-release): multi-material e mapeamento de filamentos (U1, CFS da
+Creality, Box da QIDI).
 
 1. Salvar/abrir projeto 3MF com configuração e miniatura; "Abrir com" para STL/3MF/OBJ/G-code.
 2. Miniatura no G-code por perfil de impressora.
