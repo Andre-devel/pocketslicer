@@ -286,6 +286,7 @@
     <string name="color_hex">Color (#RRGGBB)</string>
     <string name="apply">Apply</string>
     <string name="flush_volumes">Flushing volumes</string>
+    <string name="bed_type">Plate type</string>
     <string name="flush_volumes_hint">Volume (mm³) purged when changing from the filament of the row to the one of the column. Changing a color recalculates its row and column.</string>
     <string name="flush_multiplier">Multiplier</string>
     <string name="extruder_n">Extruder %1$d</string>

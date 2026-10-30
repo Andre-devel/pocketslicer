@@ -282,6 +282,7 @@
     <string name="color_hex">Cor (#RRGGBB)</string>
     <string name="apply">Aplicar</string>
     <string name="flush_volumes">Volumes de purga</string>
+    <string name="bed_type">Tipo de placa</string>
     <string name="flush_volumes_hint">Volume (mm³) purgado na troca do filamento da linha para o da coluna. Mudar uma cor recalcula a linha e a coluna dela.</string>
     <string name="flush_multiplier">Multiplicador</string>
     <string name="extruder_n">Extrusor %1$d</string>

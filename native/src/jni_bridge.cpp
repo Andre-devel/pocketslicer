@@ -478,6 +478,18 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetFlushMultiplier(JN
     guarded(env, [&] { engine(handle)->set_flush_multiplier(size_t(extruder), multiplier); });
 }
 
+JNIEXPORT jstring JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeBedTypesJson(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return env->NewStringUTF(engine(handle)->bed_types_json().c_str()); });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetBedType(JNIEnv *env, jclass, jlong handle, jstring value)
+{
+    guarded(env, [&] { engine(handle)->set_bed_type(to_string(env, value)); });
+}
+
 // x, y, largura, profundidade, altura, rotação; vazio sem torre.
 JNIEXPORT jdoubleArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeWipeTower(JNIEnv *env, jclass, jlong handle)

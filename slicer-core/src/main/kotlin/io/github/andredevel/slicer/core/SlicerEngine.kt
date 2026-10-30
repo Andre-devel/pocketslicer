@@ -55,6 +55,12 @@ class Toolpaths(
  * Torre de purga estimada antes de fatiar: [x], [y] = canto da frente à esquerda (mm na mesa),
  * [rotation] em graus em torno dele.
  */
+/**
+ * Tipo de mesa do projeto ([current], ex. "Textured PEI Plate") e os que a impressora aceita, com
+ * os rótulos traduzidos; [values] vazio quando ela só tem um tipo e não há o que escolher.
+ */
+data class BedTypes(val current: String, val values: List<String>, val labels: List<String>)
+
 data class WipeTower(val x: Float, val y: Float, val width: Float, val depth: Float, val height: Float, val rotation: Float)
 
 /**
@@ -322,6 +328,15 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
 
     suspend fun setFlushMultiplier(extruder: Int, multiplier: Double) = call { nativeSetFlushMultiplier(handle, extruder, multiplier) }
 
+    /** Tipo de mesa do projeto e os que a impressora aceita; ver [BedTypes]. */
+    suspend fun bedTypes(): BedTypes = call {
+        val json = JSONObject(nativeBedTypesJson(handle))
+        BedTypes(json.getString("current"), json.getJSONArray("values").strings(), json.getJSONArray("labels").strings())
+    }
+
+    /** [value]: um de [BedTypes.values]. */
+    suspend fun setBedType(value: String) = call { nativeSetBedType(handle, value) }
+
     /** A torre de purga da mesa, se o fatiamento vai ter uma (torre ligada e mais de um filamento). */
     suspend fun wipeTower(): WipeTower? = call {
         nativeWipeTower(handle).takeIf { it.size == 6 }?.let {
@@ -468,6 +483,8 @@ private external fun nativeVendors(handle: Long): Array<String>
 private external fun nativeLoadVendor(handle: Long, vendor: String)
 private external fun nativePresets(handle: Long, kind: Int): Array<String>
 private external fun nativeSelected(handle: Long, kind: Int): String
+private external fun nativeBedTypesJson(handle: Long): String
+private external fun nativeSetBedType(handle: Long, value: String)
 private external fun nativeSelect(handle: Long, kind: Int, name: String)
 private external fun nativeOptionsJson(handle: Long, kind: Int): String
 private external fun nativeValuesJson(handle: Long, kind: Int): String

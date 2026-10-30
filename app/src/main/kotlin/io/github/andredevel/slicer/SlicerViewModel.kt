@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.andredevel.slicer.core.BedTypes
 import io.github.andredevel.slicer.core.LayerChange
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
@@ -159,6 +160,8 @@ data class SlicerUiState(
     /** Purga (mm³) da troca entre filamentos: matriz n x n por linha, uma por extrusor; ver [flushMultipliers]. */
     val flushVolumes: DoubleArray = DoubleArray(0),
     val flushMultipliers: DoubleArray = DoubleArray(0),
+    /** Tipo de mesa do projeto; sem escolha quando a impressora só tem um ([BedTypes.values] vazio). */
+    val bedTypes: BedTypes? = null,
     /** Pausas, trocas de filamento e G-code por altura da placa da mesa, por z. */
     val layerChanges: List<LayerChange> = emptyList(),
     /** Troca de filamento por altura possível (vários filamentos, objetos todos num só). */
@@ -615,6 +618,16 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun calcFlushVolumes() = editFlush { it.calcFlushVolumes() }
 
+    /** Muda a temperatura da mesa de cada filamento (a do tipo escolhido) e o G-code inicial. */
+    fun setBedType(value: String) = launchEngine(null) { engine ->
+        try {
+            engine.setBedType(value)
+            markChanged(StaleReason(app.getString(R.string.bed_type)))
+        } finally {
+            refreshPresets(engine)
+        }
+    }
+
     private fun editFlush(edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
         try {
             edit(engine)
@@ -927,8 +940,12 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val limits = engine.filamentLimits()
         val flush = engine.flushVolumes()
         val multipliers = engine.flushMultipliers()
+        val bedTypes = engine.bedTypes()
         _state.update {
-            it.copy(presets = presets, filaments = filaments, filamentLimits = limits, flushVolumes = flush, flushMultipliers = multipliers)
+            it.copy(
+                presets = presets, filaments = filaments, filamentLimits = limits, flushVolumes = flush, flushMultipliers = multipliers,
+                bedTypes = bedTypes,
+            )
         }
     }
 

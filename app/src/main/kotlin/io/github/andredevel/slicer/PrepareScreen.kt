@@ -463,6 +463,19 @@ private fun ProfileSummary(state: SlicerUiState, viewModel: SlicerViewModel, ope
             tag = choice?.values?.dirty?.size?.takeIf { it > 0 }?.let { stringResource(R.string.modified_count, it) },
         )
     }
+    state.bedTypes?.takeIf { it.values.isNotEmpty() }?.let { bed ->
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(painterResource(R.drawable.ic_category), null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            SelectField(
+                bed.current, bed.values, viewModel::setBedType, Modifier.weight(1f),
+                label = stringResource(R.string.bed_type), labels = bed.labels, enabled = state.editable,
+            )
+        }
+    }
     FilamentsSection(state, viewModel, state.editable, openParameters)
 }
 

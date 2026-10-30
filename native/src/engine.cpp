@@ -1310,6 +1310,63 @@ void Engine::set_flush_multiplier(size_t extruder, double multiplier)
     values[extruder] = multiplier;
 }
 
+namespace {
+
+// Tipos de mesa que a impressora selecionada aceita, como Sidebar::reset_bed_type_combox_choices():
+// todos menos os do not_support_bed_type do modelo. Os perfis escrevem ali o rótulo do Orca
+// ("Smooth Cool Plate"), o valor ("Cool Plate") ou o nome do Bambu Studio ("Smooth PEI Plate").
+std::vector<BedType> supported_bed_types(PresetBundle &bundle)
+{
+    const Preset &printer = bundle.printers.get_selected_preset();
+    const auto *multi = printer.config.option<ConfigOptionBool>("support_multi_bed_types");
+    if (!bundle.is_bbl_vendor() && !(multi != nullptr && multi->value))
+        return {};
+    const Preset *system = printer.is_system ? &printer : bundle.printers.get_selected_preset_parent();
+    const VendorProfile::PrinterModel *model = system != nullptr ? PresetUtils::system_printer_model(*system) : nullptr;
+    const ConfigOptionDef *def = print_config_def.get("curr_bed_type");
+    std::vector<BedType> types;
+    for (size_t i = 0; i < def->enum_values.size(); ++i) {
+        const BedType type = BedType(i + 1);
+        std::vector<std::string> names{def->enum_values[i], def->enum_labels[i]};
+        if (type == btPEI)
+            names.emplace_back("Smooth PEI Plate");
+        const bool unsupported = model != nullptr && std::any_of(names.begin(), names.end(), [&](const std::string &name) {
+            return std::find(model->not_support_bed_types.begin(), model->not_support_bed_types.end(), name) != model->not_support_bed_types.end();
+        });
+        if (!unsupported)
+            types.push_back(type);
+    }
+    return types;
+}
+
+} // namespace
+
+std::string Engine::bed_types_json() const
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    const ConfigOptionDef *def = print_config_def.get("curr_bed_type");
+    const BedType current = m->bundle->project_config.opt_enum<BedType>("curr_bed_type");
+    nlohmann::json values = nlohmann::json::array(), labels = nlohmann::json::array();
+    for (BedType type : supported_bed_types(*m->bundle)) {
+        values.push_back(def->enum_values[type - 1]);
+        labels.push_back(i18n::translate(def->enum_labels[type - 1]));
+    }
+    const std::string current_value = current > btDefault && current < btCount ? def->enum_values[current - 1] : "";
+    return nlohmann::json{{"current", current_value}, {"values", values}, {"labels", labels}}.dump();
+}
+
+void Engine::set_bed_type(const std::string &value)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    BedType type;
+    const std::vector<BedType> supported = supported_bed_types(*m->bundle);
+    if (!ConfigOptionEnum<BedType>::from_string(value, type) || std::find(supported.begin(), supported.end(), type) == supported.end())
+        throw std::invalid_argument("bed type not available: " + value);
+    m->bundle->project_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(type));
+}
+
 std::optional<WipeTower> Engine::wipe_tower() const
 {
     if (!m->bundle || m->model.objects.empty())

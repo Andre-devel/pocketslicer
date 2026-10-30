@@ -9,6 +9,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -396,6 +397,29 @@ class SlicerEngineTest {
         val gcode = File(work, "a1.gcode")
         engine.slice(gcode) { _, _ -> }
         assertEquals("; curr_bed_type = Textured PEI Plate", gcode.useLines { lines -> lines.first { it.startsWith("; curr_bed_type =") } })
+    }
+
+    @Test
+    fun bedTypeFollowsPrinterModel() = runBlocking {
+        // O modelo Qidi Q2 declara not_support_bed_type "Engineering Plate;Supertack Plate".
+        engine.loadVendor("QIDIStudio/Q Series")
+        engine.select(PresetKind.PRINTER, "Q2 0.4 nozzle")
+        val types = engine.bedTypes()
+        assertEquals(listOf("Cool Plate", "High Temp Plate", "Textured PEI Plate", "Textured Cool Plate"), types.values)
+        assertEquals(types.values.size, types.labels.size)
+        assertTrue(types.current in types.values)
+        assertThrows(SlicerException::class.java) { runBlocking { engine.setBedType("Engineering Plate") } }
+
+        engine.setBedType("Cool Plate")
+        assertEquals("Cool Plate", engine.bedTypes().current)
+        engine.loadModel(testAsset("cube20.stl"))
+        val gcode = File(work, "q2-cool.gcode")
+        engine.slice(gcode) { _, _ -> }
+        assertTrue(gcode.useLines { lines -> lines.any { it == "; curr_bed_type = Cool Plate" } })
+
+        // Trocar de impressora volta para o tipo padrão dela.
+        engine.select(PresetKind.PRINTER, "Q2 0.4 nozzle")
+        assertTrue(engine.bedTypes().current in engine.bedTypes().values)
     }
 
     @Test

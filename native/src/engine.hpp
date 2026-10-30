@@ -252,6 +252,13 @@ public:
     // Multiplicador dos volumes, por extrusor (flush_multiplier).
     std::vector<double> flush_multipliers() const;
     void set_flush_multiplier(size_t extruder, double multiplier);
+
+    // Tipo de mesa do projeto (curr_bed_type), em JSON: {"current": valor, "values": [...],
+    // "labels": [...]} com os tipos que a impressora aceita; "values" vazio quando ela tem um
+    // tipo só (o Orca só mostra a escolha nas Bambu e com support_multi_bed_types).
+    std::string bed_types_json() const;
+    // [value]: um dos "values" de bed_types_json(), ex. "Textured PEI Plate".
+    void set_bed_type(const std::string &value);
     // A torre de purga da mesa, se o fatiamento vai ter uma: torre ligada (enable_prime_tower)
     // e mais de um filamento nos objetos (ou timelapse suave).
     std::optional<WipeTower> wipe_tower() const;
