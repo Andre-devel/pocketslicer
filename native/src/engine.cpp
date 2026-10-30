@@ -95,6 +95,33 @@ struct Engine::Impl {
         bundle->set_filament_preset(0, bundle->filaments.get_selected_preset_name());
     }
 
+    // Tipo de mesa padrão da impressora: o default_bed_type do preset ou, sem ele, o do modelo
+    // da impressora (machine_model_list do índice do fabricante), como o Bambu Studio lê. O Orca
+    // ignora o do modelo, onde o Bambu Studio e o QIDI Studio o declaram.
+    BedType default_bed_type()
+    {
+        Preset &printer = bundle->printers.get_selected_preset();
+        if (printer.config.opt_string("default_bed_type").empty()) {
+            const fs::path index = vendor_index(vendor);
+            boost::nowide::ifstream in(index.string());
+            const nlohmann::json vendor_json = nlohmann::json::parse(in, nullptr, false);
+            const std::string &model = printer.config.opt_string("printer_model");
+            if (vendor_json.is_object() && vendor_json.contains("machine_model_list"))
+                for (const nlohmann::json &entry : vendor_json["machine_model_list"]) {
+                    if (entry.value("name", "") != model)
+                        continue;
+                    boost::nowide::ifstream model_in((index.parent_path() / index.stem() / entry.value("sub_path", "")).string());
+                    const nlohmann::json model_json = nlohmann::json::parse(model_in, nullptr, false);
+                    BedType bed_type;
+                    if (model_json.is_object() && model_json.contains("default_bed_type") && model_json["default_bed_type"].is_string() &&
+                        ConfigOptionEnum<BedType>::from_string(model_json["default_bed_type"].get<std::string>(), bed_type) &&
+                        bed_type > btDefault && bed_type < btCount)
+                        return bed_type;
+                }
+        }
+        return printer.get_default_bed_type(bundle.get());
+    }
+
     // Como PresetBundle::load_selections() faz para uma impressora recém-instalada.
     void select_printer_defaults()
     {
@@ -433,8 +460,7 @@ void Engine::select(PresetKind kind, const std::string &name)
         m->select_printer_defaults();
         // Tipo de mesa padrão da impressora, como o Plater da GUI faz (a validação
         // recusa filamentos sem temperatura para a mesa escolhida).
-        m->bundle->project_config.set_key_value("curr_bed_type",
-            new ConfigOptionEnum<BedType>(m->bundle->printers.get_selected_preset().get_default_bed_type(m->bundle.get())));
+        m->bundle->project_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(m->default_bed_type()));
         m->place_on_bed();
         break;
     case PresetKind::Filament:

@@ -388,6 +388,17 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun printerDefaultBedTypeByName() = runBlocking {
+        // O Bambu Studio grava default_bed_type pelo nome; o Orca 2.4.2 só lia o número.
+        engine.loadVendor("BambuStudio/BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val gcode = File(work, "a1.gcode")
+        engine.slice(gcode) { _, _ -> }
+        assertEquals("; curr_bed_type = Textured PEI Plate", gcode.useLines { lines -> lines.first { it.startsWith("; curr_bed_type =") } })
+    }
+
+    @Test
     fun qidiStudioQ2Slices() = runBlocking {
         // O G-code inicial do Q2 no QIDI Studio usa [chamber_temperatures], que no Orca é chamber_temperature.
         engine.loadVendor("QIDIStudio/Q Series")

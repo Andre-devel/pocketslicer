@@ -62,14 +62,23 @@ O G-code não é idêntico byte a byte, e não se espera que seja:
 
 ## Patches no OrcaSlicer
 
-Um único patch, `native/patches/0001-android-no-occt.patch`, aplicado por `scripts/apply-patches.sh`:
+O primeiro patch, `native/patches/0001-android-no-occt.patch`, aplicado por `scripts/apply-patches.sh`:
 
 - `src/libslic3r/CMakeLists.txt`: opção `SLIC3R_NO_OCCT` que tira OpenCASCADE, OpenCV e Draco
   do link, remove os fontes que dependem deles e adiciona `native/src/android_stubs.cpp`.
 - `Format/STEP.hpp`, `Model.cpp`: STEP vira erro claro em vez de depender de OCCT.
 - `LocalesUtils.hpp`: faltava `#include <sstream>` (com a libc++ do NDK o header não vem por tabela).
 
-Fora do patch, `native/CMakeLists.txt` substitui o CMake raiz do Orca (sem GUI, Python nem
+Depois vieram outros, na mesma pasta:
+
+- `0002-chamber-cooling-mode.patch`: variável `chamber_cooling_mode` do G-code inicial da Snapmaker U1,
+  como o Snapmaker Orca calcula.
+- `0003-gcode-generator-name.patch`: nome do gerador e linha `printer_model` no cabeçalho do G-code,
+  para o firmware da Creality K2/K3 reconhecer o arquivo.
+- `0004-default-bed-type-names.patch`: `default_bed_type` pelo nome da mesa ("Textured PEI Plate"),
+  como os perfis gravam; trazido do Orca atual (o 2.4.2 só lia o número e caía em High Temp Plate).
+
+Fora dos patches, `native/CMakeLists.txt` substitui o CMake raiz do Orca (sem GUI, Python nem
 desktop integration) e `native/deps/` cross-compila as dependências.
 
 ## Recursos desligados no Android
