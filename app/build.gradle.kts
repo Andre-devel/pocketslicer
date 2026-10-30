@@ -11,6 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "io.github.andredevel.pocketslicer"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 29
         targetSdk = 37
         versionName = "0.2.0"
@@ -68,6 +69,10 @@ androidComponents {
 dependencies {
     implementation(project(":slicer-core"))
     implementation(project(":profiles"))
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

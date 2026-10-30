@@ -222,6 +222,7 @@
     <string name="slot_empty">sem filamento</string>
     <string name="cfs_slot">Slot %1$s</string>
     <string name="external_spool">Carretel externo</string>
+    <string name="ams_slot">AMS %1$s</string>
     <string name="qidi_box_slot">Box %1$d, posição %2$d</string>
     <string name="print_heats_note">A impressora começa a aquecer assim que o arquivo chegar.</string>
     <string name="printer_from">Impressora · %1$s</string>

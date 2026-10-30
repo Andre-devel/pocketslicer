@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.andredevel.slicer.core.PresetKind
+import io.github.andredevel.slicer.send.BAMBU_EXTERNAL
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.SendException
@@ -331,6 +332,10 @@ private fun slotName(slot: Slot): String = when {
     slot.cfsBox != null -> stringResource(R.string.cfs_slot, "${slot.cfsBox}${'A' + slot.cfsSlot}")
     slot.qidiSlot == QIDI_EXTERNAL -> stringResource(R.string.external_spool)
     slot.qidiSlot != null -> stringResource(R.string.qidi_box_slot, slot.qidiSlot / 4 + 1, slot.qidiSlot % 4 + 1)
+    slot.bambuAms != null && slot.bambuAms >= BAMBU_EXTERNAL -> stringResource(R.string.external_spool)
+    // Como o Bambu Studio: A1 a A4 no primeiro AMS, HT-A no primeiro AMS HT.
+    slot.bambuAms != null && slot.bambuAms >= 128 -> stringResource(R.string.ams_slot, "HT-${'A' + (slot.bambuAms - 128)}")
+    slot.bambuAms != null -> stringResource(R.string.ams_slot, "${'A' + slot.bambuAms}${slot.bambuSlot + 1}")
     else -> stringResource(R.string.toolhead_n, slot.index + 1)
 }
 

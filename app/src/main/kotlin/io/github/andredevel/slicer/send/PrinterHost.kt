@@ -74,7 +74,9 @@ data class PrinterStatus(val state: State, val progress: Float? = null, val file
  * quando ela sabe. [nozzle]: na impressora de vários bicos com CFS (K3), o bico (a partir de 1)
  * que essa posição alimenta; só o filamento desse bico (T de mesmo número menos 1) pode usá-la.
  * [qidiSlot]: na Box da QIDI, a posição como o firmware a numera (caixa * 4 + posição, 16 = o
- * carretel externo, [QIDI_EXTERNAL]).
+ * carretel externo, [QIDI_EXTERNAL]). [bambuAms] e [bambuSlot]: na Bambu, a unidade (0 a 3 no AMS,
+ * 128+ no AMS HT, [BAMBU_EXTERNAL] ou 255 no carretel externo) e a posição nela, como no
+ * `ams_mapping2` do Orca.
  */
 data class Slot(
     val index: Int,
@@ -85,7 +87,12 @@ data class Slot(
     val cfsSlot: Int = 0,
     val nozzle: Int? = null,
     val qidiSlot: Int? = null,
+    val bambuAms: Int? = null,
+    val bambuSlot: Int = 0,
 )
+
+/** [Slot.bambuAms] do carretel externo da Bambu de um bico (vt_tray); 255 é o principal no H2D. */
+const val BAMBU_EXTERNAL = 254
 
 /** [Slot.qidiSlot] do carretel externo da QIDI (fora da Box). */
 const val QIDI_EXTERNAL = 16

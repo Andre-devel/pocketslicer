@@ -195,8 +195,12 @@ interface Uploader { suspend fun upload(host: PrinterHost, file: File, name: Str
    `scripts/fake-moonraker.py` (e `--state printing`); na impressora real, só com OK do usuário.
 6. Situação em 2026-10-29: Q2, U1, K2 e K3 enviam e imprimem; a A1 só envia (iniciar exige modo
    somente LAN + desenvolvedor). Descoberta na rede feita (`PrinterScanner`). Status ao vivo feito.
-   Mapeamento de filamentos ao iniciar: U1 feito (acima); Bambu (`ams_mapping` no project_file)
-   e K2/K3 (CFS) faltam.
+   Mapeamento de filamentos ao iniciar: U1, K2/K3 (CFS) e Q2 (Box) feitos. Bambu feito em
+   2026-10-30: com AMS, o diálogo lê as posições do pushall (`ams.ams[].tray[]` e `vir_slot` ou
+   `vt_tray`) e o `project_file` leva `ams_mapping`/`ams_mapping2` com um item por filamento do
+   projeto, como `SelectMachineDialog::get_ams_mapping_result()` do Orca (bandeja = unidade * 4 +
+   posição, AMS HT = unidade + posição, -1 no externo ou sem uso). Sem AMS, continua o
+   `tray_now`. Não testado numa impressão real (a A1 na nuvem recusa o início).
 
 ## Riscos
 - K3 sem perfil no Orca 2.4.2: o fatiamento para ela depende de perfil importado.

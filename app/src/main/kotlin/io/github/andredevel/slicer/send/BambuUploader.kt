@@ -31,8 +31,9 @@ import kotlin.coroutines.coroutineContext
 /**
  * Impressoras Bambu Lab na rede local: FTPS implícito na porta 990, usuário `bblp` e o código de
  * acesso da tela da impressora como senha; o arquivo vai para a raiz do cartão. Funciona sem o
- * "modo somente LAN". Para imprimir, o comando `project_file` vai pelo MQTT ([BambuMqtt]), com o
- * filamento que está no bico (`ams.tray_now`: um slot do AMS ou o carretel externo).
+ * "modo somente LAN". Para imprimir, o comando `project_file` vai pelo MQTT ([BambuMqtt]), com a
+ * posição do AMS escolhida para cada filamento ([slots]) ou, sem mapeamento, o filamento que está
+ * no bico (`ams.tray_now`: um slot do AMS ou o carretel externo).
  *
  * O certificado da impressora (CN = número de série, sem IP) é conferido contra as CAs da Bambu
  * em `printer.cer` (resources/cert do Orca); o nome do host não, porque o certificado não o tem.
@@ -72,8 +73,43 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
         }
         if (tray != null) {
             starting()
-            startPrint(host, ftpName(name), tray)
+            val (v0, v2) = if (mapping != null) amsMapping(mapping) else trayMapping(tray)
+            startPrint(host, ftpName(name), v0, v2)
         }
+    }
+
+    /**
+     * Posições do AMS (as de cada unidade, em ordem) e os carretéis externos, como o Bambu Studio
+     * as lê do pushall (`ams.ams[].tray[]`, `vir_slot` ou `vt_tray`); vazia sem AMS, e então o
+     * início usa o `tray_now`. Uma posição sem `tray_type` está vazia; o externo conta sempre
+     * como carregado (o carretel sem etiqueta não informa o filamento).
+     */
+    override suspend fun slots(host: PrinterHost): List<Slot> {
+        val print = report(host)
+        val units = print.optJSONObject("ams")?.optJSONArray("ams")?.takeIf { it.length() > 0 } ?: return emptyList()
+        val slots = mutableListOf<Slot>()
+        for (u in 0 until units.length()) {
+            val unit = units.optJSONObject(u) ?: continue
+            val ams = unit.optString("id").toIntOrNull() ?: continue
+            val trays = unit.optJSONArray("tray") ?: continue
+            for (t in 0 until trays.length()) {
+                val tray = trays.optJSONObject(t) ?: continue
+                val type = tray.optString("tray_type").takeIf { it.isNotEmpty() }
+                slots += Slot(
+                    slots.size, loaded = type != null, type = type, color = bambuColor(tray.optString("tray_color")),
+                    bambuAms = ams, bambuSlot = tray.optString("id").toIntOrNull() ?: t,
+                )
+            }
+        }
+        val external = print.optJSONArray("vir_slot")?.let { list -> (0 until list.length()).mapNotNull { list.optJSONObject(it) } }
+            ?: listOfNotNull(print.optJSONObject("vt_tray"))
+        for (tray in external) {
+            slots += Slot(
+                slots.size, loaded = true, type = tray.optString("tray_type").takeIf { it.isNotEmpty() },
+                color = bambuColor(tray.optString("tray_color")), bambuAms = tray.optString("id").toIntOrNull() ?: BAMBU_EXTERNAL,
+            )
+        }
+        return slots
     }
 
     override suspend fun status(host: PrinterHost): PrinterStatus {
@@ -111,9 +147,12 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
             ?.getJSONObject("print") ?: throw SendException(R.string.send_error_ftp, "MQTT: no status")
     }
 
-    /** `project_file` como o Bambu Studio na rede local (A1/P1: arquivo em file:///sdcard/). */
-    private suspend fun startPrint(host: PrinterHost, name: String, tray: Int) = mqtt(host) { mqtt ->
-        val ams = tray in 0..103
+    /**
+     * `project_file` como o Bambu Studio na rede local (A1/P1: arquivo em file:///sdcard/), com
+     * `ams_mapping` e `ams_mapping2` de [amsMapping] ou [trayMapping].
+     */
+    private suspend fun startPrint(host: PrinterHost, name: String, v0: JSONArray, v2: JSONArray) = mqtt(host) { mqtt ->
+        val ams = (0 until v0.length()).any { v0.getInt(it) >= 0 }
         val command = JSONObject()
             .put("sequence_id", "0")
             .put("command", "project_file")
@@ -129,11 +168,8 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
             .put("layer_inspect", false)
             .put("timelapse", false)
             .put("use_ams", ams)
-            .put("ams_mapping", JSONArray().put(if (ams) tray else -1))
-            .put("ams_mapping2", JSONArray().put(
-                if (ams) JSONObject().put("ams_id", tray / 4).put("slot_id", tray % 4)
-                else JSONObject().put("ams_id", 255).put("slot_id", 255),
-            ))
+            .put("ams_mapping", v0)
+            .put("ams_mapping2", v2)
         mqtt.publish(JSONObject().put("print", command))
         // Resposta ao comando, ou a impressora já preparando.
         val reply = mqtt.awaitReport(REPORT_TIMEOUT_MS) { report ->
@@ -260,7 +296,46 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
         private fun readLine(): String = reader.readLine() ?: throw IOException("connection closed")
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * Um item por filamento do projeto, como SelectMachineDialog::get_ams_mapping_result():
+         * no `ams_mapping`, a bandeja (unidade * 4 + posição no AMS, unidade + posição no AMS HT)
+         * ou -1 (carretel externo ou filamento sem uso); no `ams_mapping2`, unidade e posição
+         * (255/255 sem uso, posição 0 no externo).
+         */
+        fun amsMapping(mapping: List<Slot?>): Pair<JSONArray, JSONArray> {
+            val v0 = JSONArray()
+            val v2 = JSONArray()
+            for (slot in mapping) {
+                val ams = slot?.bambuAms
+                v0.put(
+                    when {
+                        ams == null || ams >= BAMBU_EXTERNAL -> -1
+                        ams >= 128 -> ams + slot.bambuSlot
+                        else -> ams * 4 + slot.bambuSlot
+                    },
+                )
+                v2.put(
+                    if (ams == null) JSONObject().put("ams_id", 255).put("slot_id", 255)
+                    else JSONObject().put("ams_id", ams).put("slot_id", if (ams >= BAMBU_EXTERNAL) 0 else slot.bambuSlot),
+                )
+            }
+            return v0 to v2
+        }
+
+        /** Um filamento só, no [tray] do `tray_now` (0 a 103 no AMS; senão, o carretel externo). */
+        fun trayMapping(tray: Int): Pair<JSONArray, JSONArray> {
+            val ams = tray in 0..103
+            return JSONArray().put(if (ams) tray else -1) to JSONArray().put(
+                if (ams) JSONObject().put("ams_id", tray / 4).put("slot_id", tray % 4)
+                else JSONObject().put("ams_id", 255).put("slot_id", 255),
+            )
+        }
+
+        /** `tray_color` "RRGGBBAA" como `#RRGGBB`; vazio ou transparente: null. */
+        fun bambuColor(color: String): String? =
+            if (color.length == 8 && color.substring(6) != "00") "#" + color.substring(0, 6).uppercase() else null
+
         const val PORT = 990
         const val MQTT_PORT = 8883
         const val TAG = "BambuUploader"
@@ -278,7 +353,7 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
         const val BUFFER = 64 * 1024
 
         /** "227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)": só a porta; o IP é o do controle. */
-        fun passivePort(reply: Reply): Int {
+        private fun passivePort(reply: Reply): Int {
             val numbers = Regex("""(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)""").find(reply.text)?.groupValues
                 ?: throw SendException(R.string.send_error_ftp, "227 ${reply.text}")
             return numbers[5].toInt() * 256 + numbers[6].toInt()
