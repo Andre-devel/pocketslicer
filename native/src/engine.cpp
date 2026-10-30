@@ -573,6 +573,25 @@ void rename_legacy_variables(const fs::path &path)
     out << text;
 }
 
+// O Bambu Studio e os fatiadores derivados dele (QIDI Studio, Creality Print) têm só a torre
+// de limpeza da Bambu, que o Orca chama de type1 e usa sozinho apenas nas impressoras da
+// Bambu (Print::wipe_tower_type). Sem a opção no perfil, o Orca usaria a type2 (da Prusa), que
+// antes de cada troca puxa o filamento ~90 mm e o esfria indo e voltando, como numa MMU sem
+// cortador; na Q2 isso faz o corte falhar ("QDE_004_008 Extruder unloading failure"). Vai na
+// raiz das impressoras (sem inherits), para valer em todas.
+void set_bambu_wipe_tower(const fs::path &path)
+{
+    boost::nowide::ifstream in(path.string());
+    nlohmann::json profile = nlohmann::json::parse(in, nullptr, false);
+    in.close();
+    if (!profile.is_object() || profile.value("type", "") != "machine" || profile.contains("inherits") ||
+        profile.contains("wipe_tower_type"))
+        return;
+    profile["wipe_tower_type"] = "type1";
+    boost::nowide::ofstream out(path.string());
+    out << profile.dump(4);
+}
+
 // Copia os perfis de um fatiador do fabricante (Creality Print...) para dst, ajustando as
 // opções cujo valor o Orca não aceita: com uma só, PresetBundle descartaria o fabricante
 // inteiro ("Invalid value provided for parameter X"). O Creality Print grava "" onde o Orca
@@ -581,6 +600,8 @@ void rename_legacy_variables(const fs::path &path)
 void copy_for_orca(const fs::path &src, const fs::path &dst)
 {
     static const std::regex invalid_option("Invalid value provided for parameter ([A-Za-z0-9_]+)");
+    const std::string app = src.parent_path().filename().string();
+    const bool bambu_wipe_tower = app == "BambuStudio" || app == "QIDIStudio" || app == "CrealityPrint";
     for (fs::recursive_directory_iterator it(src), end; it != end; ++it) {
         const fs::path target = dst / fs::relative(it->path(), src);
         if (fs::is_directory(it->path())) {
@@ -592,6 +613,8 @@ void copy_for_orca(const fs::path &src, const fs::path &dst)
             continue;
         set_filament_id(target);
         rename_legacy_variables(target);
+        if (bambu_wipe_tower)
+            set_bambu_wipe_tower(target);
         for (int dropped = 0; dropped < 100; ++dropped) {
             DynamicPrintConfig                 config;
             std::map<std::string, std::string> key_values;

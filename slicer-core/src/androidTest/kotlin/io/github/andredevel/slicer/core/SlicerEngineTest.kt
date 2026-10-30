@@ -407,6 +407,8 @@ class SlicerEngineTest {
         val gcode = File(work, "q2.gcode")
         engine.slice(gcode) { _, _ -> }
         assertTrue(gcode.useLines { lines -> lines.any { it.startsWith("PRINT_START ") && " CHAMBER=" in it } })
+        // Torre da Bambu, como no QIDI Studio: a da Prusa puxa o filamento antes do corte.
+        assertTrue(gcode.useLines { lines -> lines.any { it == "; wipe_tower_type = type1" } })
     }
 
     @Test
@@ -419,6 +421,7 @@ class SlicerEngineTest {
         val gcode = File(work, "k2.gcode")
         engine.slice(gcode) { _, _ -> }
         assertTrue(gcode.useLines { lines -> lines.any { it.startsWith("START_PRINT ") } })
+        assertTrue(gcode.useLines { lines -> lines.any { it == "; wipe_tower_type = type1" } })
     }
 
     @Test
