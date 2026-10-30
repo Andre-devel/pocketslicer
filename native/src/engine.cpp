@@ -1753,7 +1753,11 @@ void Engine::remove_part(size_t object, size_t part)
 // A pintura do tipo na peça.
 static FacetsAnnotation &paint_facets(ModelVolume &volume, PaintKind kind)
 {
-    return kind == PaintKind::Seam ? volume.seam_facets : volume.supported_facets;
+    switch (kind) {
+    case PaintKind::Seam: return volume.seam_facets;
+    case PaintKind::FuzzySkin: return volume.fuzzy_skin_facets;
+    default: return volume.supported_facets;
+    }
 }
 
 static const FacetsAnnotation &paint_facets(const ModelVolume &volume, PaintKind kind)
@@ -1853,6 +1857,8 @@ static TriangleSelector::ClippingPlane clipping_plane(const std::optional<ClipPl
 bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start,
                    const std::optional<ClipPlane> &clip)
 {
+    if (kind == PaintKind::FuzzySkin && brush.state == PaintState::Block)
+        throw std::invalid_argument("fuzzy skin has no block state");
     ModelObject &o = m->object(object);
     const Vec3d  world_origin(origin[0], origin[1], origin[2]);
     const Vec3d  world_direction(direction[0], direction[1], direction[2]);

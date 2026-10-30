@@ -841,6 +841,33 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun paintedFuzzySkinOnlyRoughensThePaintedWall() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        // "Só pintado": sem pintura, nenhuma parede difusa.
+        engine.setOption(PresetKind.PROCESS, "fuzzy_skin", "none")
+        suspend fun moves(name: String) = File(work, "$name.gcode").also { engine.slice(it) { _, _ -> } }.useLines { lines -> lines.count { it.startsWith("G1 X") } }
+        val plain = moves("fuzzy_plain")
+        // Raio horizontal na face x = +10 do cubo (x = 138 na mesa); o preenchimento pega a face inteira.
+        val side = floatArrayOf(200f, 128f, 10f)
+        val left = floatArrayOf(-1f, 0f, 0f)
+        assertTrue(runCatching { engine.paint(0, PaintKind.FUZZY_SKIN, side, left, Brush(state = PaintState.BLOCK), strokeStart = true) }.isFailure)
+        assertTrue(engine.paint(0, PaintKind.FUZZY_SKIN, side, left, Brush(Brush.Tool.SMART_FILL), strokeStart = true))
+        val face = engine.painted(0, PaintKind.FUZZY_SKIN)
+        assertEquals(2, face.states.size)
+        assertTrue(engine.painted(0, PaintKind.SUPPORT).states.isEmpty())
+        val painted = moves("fuzzy_painted")
+        assertTrue("$plain < $painted", painted > plain + 100)
+
+        val project = File(work, "fuzzy.3mf")
+        engine.saveProject(project, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.openProject(project)
+        assertEquals(2, engine.painted(0, PaintKind.FUZZY_SKIN).states.size)
+    }
+
+    @Test
     fun vendorProfilesDropValuesOutOfOrcaRange() = runBlocking {
         // O Bambu Studio usa -1 (automático) onde o Orca só aceita 0 a 2; o Orca recusaria o 3MF.
         engine.loadVendor("BambuStudio/BBL")

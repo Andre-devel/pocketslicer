@@ -147,12 +147,15 @@ class Part(
 internal class PartData(val name: String, val type: Int, val placement: DoubleArray, val positions: FloatArray, val indices: IntArray)
 
 /**
- * Pintura nas peças do objeto, como os gizmos "Pintura de suporte" e "Pintura de costura" do Orca.
- * Na ordem de slicer::PaintKind.
+ * Pintura nas peças do objeto, como os gizmos "Pintura de suporte", "Pintura de costura" e
+ * "Pintura de pele difusa" do Orca. Na ordem de slicer::PaintKind.
  */
-enum class PaintKind { SUPPORT, SEAM }
+enum class PaintKind { SUPPORT, SEAM, FUZZY_SKIN }
 
-/** Forçar ou bloquear o suporte (ou a costura); [NONE] apaga. Na ordem de slicer::PaintState. */
+/**
+ * Forçar ou bloquear o suporte (ou a costura); [NONE] apaga. A pele difusa só tem [ENFORCE] e
+ * [NONE]. Na ordem de slicer::PaintState.
+ */
 enum class PaintState { NONE, ENFORCE, BLOCK }
 
 /**

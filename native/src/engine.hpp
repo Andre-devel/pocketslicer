@@ -136,10 +136,11 @@ struct SettingsTarget {
     size_t index = 0;
 };
 
-// Pintura nas peças do objeto, como os gizmos "Pintura de suporte" e "Pintura de costura" do
-// Orca (ModelVolume::supported_facets e seam_facets). Enforce/Block: forçar ou bloquear o suporte
-// (ou a costura); None apaga.
-enum class PaintKind { Support = 0, Seam = 1 };
+// Pintura nas peças do objeto, como os gizmos "Pintura de suporte", "Pintura de costura" e
+// "Pintura de pele difusa" do Orca (ModelVolume::supported_facets, seam_facets e
+// fuzzy_skin_facets). Enforce/Block: forçar ou bloquear o suporte (ou a costura); None apaga.
+// A pele difusa só tem Enforce (TriangleStateType::FUZZY_SKIN) e None.
+enum class PaintKind { Support = 0, Seam = 1, FuzzySkin = 2 };
 enum class PaintState { None = 0, Enforce = 1, Block = 2 }; // EnforcerBlockerType
 
 // Ferramenta de um toque ou arraste. Circle pinta o que está dentro do círculo visto da câmera,

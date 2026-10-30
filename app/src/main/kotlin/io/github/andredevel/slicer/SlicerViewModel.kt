@@ -17,6 +17,7 @@ import io.github.andredevel.slicer.core.LayerChange
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
 import io.github.andredevel.slicer.core.PaintKind
+import io.github.andredevel.slicer.core.PaintState
 import io.github.andredevel.slicer.core.PaintMesh
 import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.PresetValues
@@ -774,10 +775,12 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val state = _state.value
         // "Preencher lacunas" não pinta com o toque, como no Orca.
         val painting = state.painting?.takeIf { it.objectIndex == objectIndex && state.editable && (state.gapArea == null || it.kind != PaintKind.SUPPORT) } ?: return
-        // A costura não tem o preenchimento; as saliências só valem no suporte.
-        val tool = state.brush.tool.takeIf { painting.kind == PaintKind.SUPPORT || it != Brush.Tool.SMART_FILL } ?: Brush.Tool.CIRCLE
+        // A costura não tem o preenchimento; a pele difusa não bloqueia; as saliências só valem no suporte.
+        val tool = state.brush.tool.takeIf { painting.kind != PaintKind.SEAM || it != Brush.Tool.SMART_FILL } ?: Brush.Tool.CIRCLE
+        val paintState = state.brush.state.takeIf { painting.kind != PaintKind.FUZZY_SKIN || it != PaintState.BLOCK } ?: PaintState.ENFORCE
         val overhang = if (painting.kind == PaintKind.SUPPORT && state.paintOnOverhangsOnly) painting.highlightAngle.toDouble() else 0.0
-        paintStrokes.trySend(PaintRay(objectIndex, painting.kind, origin, direction, state.brush.copy(tool = tool, overhangAngle = overhang), strokeStart, clip))
+        val brush = state.brush.copy(tool = tool, state = paintState, overhangAngle = overhang)
+        paintStrokes.trySend(PaintRay(objectIndex, painting.kind, origin, direction, brush, strokeStart, clip))
     }
 
     fun clearPaint() {
@@ -828,7 +831,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     @StringRes
-    private fun paintLabel(kind: PaintKind) = if (kind == PaintKind.SEAM) R.string.tool_paint_seam else R.string.tool_paint_support
+    private fun paintLabel(kind: PaintKind) = when (kind) {
+        PaintKind.SUPPORT -> R.string.tool_paint_support
+        PaintKind.SEAM -> R.string.tool_paint_seam
+        PaintKind.FUZZY_SKIN -> R.string.tool_paint_fuzzy_skin
+    }
 
     /**
      * Relê a pintura do objeto selecionado com uma ferramenta de pintura (ou a fecha). Ao abrir

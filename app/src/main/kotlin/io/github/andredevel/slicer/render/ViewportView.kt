@@ -22,7 +22,8 @@ import kotlin.math.hypot
  * [LAY_ON_FACE]). [paintKind]: as de pintura, em que tocar e arrastar no objeto pinta.
  */
 enum class Tool(val paintKind: PaintKind? = null) {
-    MOVE, ROTATE, SCALE, LAY_ON_FACE, PAINT_SUPPORT(PaintKind.SUPPORT), PAINT_SEAM(PaintKind.SEAM)
+    MOVE, ROTATE, SCALE, LAY_ON_FACE, PAINT_SUPPORT(PaintKind.SUPPORT), PAINT_SEAM(PaintKind.SEAM),
+    PAINT_FUZZY_SKIN(PaintKind.FUZZY_SKIN)
 }
 
 /** Resultados dos gestos, entregues na thread principal. */
@@ -367,7 +368,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                 Matrix.scaleM(step, 0, factor, factor, factor)
                 Matrix.translateM(step, 0, -cx, -cy, -cz)
             }
-            Tool.LAY_ON_FACE, Tool.PAINT_SUPPORT, Tool.PAINT_SEAM -> return
+            Tool.LAY_ON_FACE, Tool.PAINT_SUPPORT, Tool.PAINT_SEAM, Tool.PAINT_FUZZY_SKIN -> return
         }
         val result = FloatArray(16)
         Matrix.multiplyMM(result, 0, step, 0, current, 0)

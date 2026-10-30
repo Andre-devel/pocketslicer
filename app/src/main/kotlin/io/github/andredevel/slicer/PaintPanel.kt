@@ -16,6 +16,7 @@ import io.github.andredevel.slicer.core.Brush
 import io.github.andredevel.slicer.core.PaintKind
 import io.github.andredevel.slicer.core.PaintState
 import io.github.andredevel.slicer.core.PresetKind
+import io.github.andredevel.slicer.core.SettingsTarget
 import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
@@ -31,33 +32,53 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Controles da pintura de suporte ou de costura, como a janela do gizmo do Orca: forçar,
- * bloquear ou apagar; círculo, esfera, preenchimento ou lacunas (suporte); tamanho; saliências
- * destacadas (suporte); vista em corte e "Apagar tudo". Os botões do mouse do Orca viram a escolha de [PaintState].
+ * Controles da pintura de suporte, de costura ou de pele difusa, como a janela do gizmo do Orca:
+ * forçar, bloquear ou apagar (adicionar ou remover, na pele difusa); círculo, esfera,
+ * preenchimento (suporte e pele difusa) ou lacunas (suporte); tamanho; saliências destacadas
+ * (suporte); vista em corte e "Apagar tudo". Os botões do mouse do Orca viram a escolha de [PaintState].
  */
 @Composable
 fun PaintPanel(state: SlicerUiState, viewModel: SlicerViewModel, painting: Painting) {
     val brush = state.brush
     val support = painting.kind == PaintKind.SUPPORT
-    SectionLabel(stringResource(if (support) R.string.tool_paint_support else R.string.tool_paint_seam)) {
+    val fuzzy = painting.kind == PaintKind.FUZZY_SKIN
+    val title = when (painting.kind) {
+        PaintKind.SUPPORT -> R.string.tool_paint_support
+        PaintKind.SEAM -> R.string.tool_paint_seam
+        PaintKind.FUZZY_SKIN -> R.string.tool_paint_fuzzy_skin
+    }
+    SectionLabel(stringResource(title)) {
         AppIconButton(R.drawable.ic_close, stringResource(R.string.paint_done), { viewModel.selectTool(Tool.MOVE) })
     }
     Text(stringResource(R.string.paint_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (support && !supportEnabled(state, painting.objectIndex)) {
         Banner(Tone.INFO, stringResource(R.string.paint_support_off))
     }
-    val states = listOf(PaintState.ENFORCE to R.string.paint_enforce, PaintState.BLOCK to R.string.paint_block, PaintState.NONE to R.string.paint_erase)
+    // Como o aviso do GLGizmoFuzzySkin: "Só pintado" liga a pele difusa só nas áreas pintadas.
+    if (fuzzy && fuzzySkinDisabled(state, painting.objectIndex)) {
+        Banner(
+            Tone.WARNING, stringResource(R.string.paint_fuzzy_skin_off),
+            actionLabel = stringResource(R.string.paint_fuzzy_skin_enable),
+            onAction = { viewModel.setSetting(SettingsTarget(painting.objectIndex), "fuzzy_skin", "none") },
+        )
+    }
+    val states = if (fuzzy) listOf(PaintState.ENFORCE to R.string.paint_add, PaintState.NONE to R.string.paint_remove)
+        else listOf(PaintState.ENFORCE to R.string.paint_enforce, PaintState.BLOCK to R.string.paint_block, PaintState.NONE to R.string.paint_erase)
     SegmentedTabs(
         states.map { Segment(stringResource(it.second)) },
-        states.indexOfFirst { it.first == brush.state },
+        states.indexOfFirst { it.first == brush.state }.coerceAtLeast(0),
         { viewModel.setBrush(brush.copy(state = states[it].first)) },
         Modifier.fillMaxWidth(),
         check = false,
         compact = true,
     )
-    // A costura não tem o preenchimento nem as lacunas no Orca; null aqui é "Preencher lacunas".
+    // A costura não tem o preenchimento no Orca, e só o suporte tem as lacunas; null aqui é "Preencher lacunas".
     val tools = listOf(Brush.Tool.CIRCLE to R.string.paint_circle, Brush.Tool.SPHERE to R.string.paint_sphere) +
-        if (support) listOf(Brush.Tool.SMART_FILL to R.string.paint_fill, null to R.string.paint_gap_fill) else emptyList()
+        when (painting.kind) {
+            PaintKind.SUPPORT -> listOf(Brush.Tool.SMART_FILL to R.string.paint_fill, null to R.string.paint_gap_fill)
+            PaintKind.FUZZY_SKIN -> listOf(Brush.Tool.SMART_FILL to R.string.paint_fill)
+            PaintKind.SEAM -> emptyList()
+        }
     val gapArea = state.gapArea?.takeIf { support }
     val tool = brush.tool.takeIf { t -> tools.any { it.first == t } } ?: Brush.Tool.CIRCLE
     SegmentedTabs(
@@ -140,4 +161,11 @@ private fun supportEnabled(state: SlicerUiState, objectIndex: Int): Boolean {
     val value = state.objectSettings.getOrNull(objectIndex)?.values?.get("enable_support")
         ?: state.presets[PresetKind.PROCESS]?.values?.values?.get("enable_support")
     return value != "0"
+}
+
+/** Pele difusa desligada no objeto ou no processo (GLGizmoFuzzySkin::on_render_input_window()). */
+private fun fuzzySkinDisabled(state: SlicerUiState, objectIndex: Int): Boolean {
+    val value = state.objectSettings.getOrNull(objectIndex)?.values?.get("fuzzy_skin")
+        ?: state.presets[PresetKind.PROCESS]?.values?.values?.get("fuzzy_skin")
+    return value == "disabled_fuzzy"
 }

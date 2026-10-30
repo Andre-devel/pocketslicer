@@ -79,6 +79,7 @@ private val TOOLS = listOf(
     Triple(Tool.LAY_ON_FACE, R.drawable.ic_vertical_align_bottom, R.string.tool_lay_on_face),
     Triple(Tool.PAINT_SUPPORT, R.drawable.ic_brush, R.string.tool_paint_support_short),
     Triple(Tool.PAINT_SEAM, R.drawable.ic_timeline, R.string.tool_paint_seam_short),
+    Triple(Tool.PAINT_FUZZY_SKIN, R.drawable.ic_texture, R.string.tool_paint_fuzzy_skin_short),
 )
 
 internal val SlicerUiState.editable get() = busy == null && slice !is SliceState.Running
