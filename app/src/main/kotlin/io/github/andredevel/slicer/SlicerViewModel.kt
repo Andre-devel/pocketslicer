@@ -760,6 +760,22 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.addPart(objectIndex, type, shape)
     }
 
+    /** Peça com a malha do arquivo (STL, OBJ, 3MF), na posição relativa que tinha nele; fica selecionada. */
+    fun addPartFromFile(objectIndex: Int, type: Part.Type, uri: Uri) = editParts(objectIndex, type) { engine ->
+        val dir = File(app.cacheDir, "part").apply { deleteRecursively(); mkdirs() }
+        // libslic3r detecta o formato pela extensão, então o nome original é mantido.
+        val file = File(dir, displayName(uri))
+        copy(uri, file)
+        engine.addPartFromFile(objectIndex, type, file)
+    }
+
+    /** A peça continua selecionada, no índice novo (a ordem segue o tipo). */
+    fun setPartType(objectIndex: Int, part: Int, type: Part.Type) {
+        // A malha do objeto muda se a peça entra nele ou sai dele.
+        val changesObject = type == Part.Type.MODEL || partType(objectIndex, part) == Part.Type.MODEL
+        editParts(objectIndex, if (changesObject) Part.Type.MODEL else type) { engine -> engine.setPartType(objectIndex, part, type) }
+    }
+
     fun setPartTransform(objectIndex: Int, part: Int, transform: FloatArray) = editParts(objectIndex, partType(objectIndex, part)) { engine ->
         engine.setPartTransform(objectIndex, part, transform)
         part

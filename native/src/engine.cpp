@@ -1454,6 +1454,37 @@ Geometry::Transformation compose(const Vec3 &offset, const Vec3 &rotation, const
 
 } // namespace
 
+namespace {
+
+ModelVolume &volume_at(ModelObject &object, size_t part)
+{
+    if (part >= object.volumes.size())
+        throw std::out_of_range("no part " + std::to_string(part));
+    return *object.volumes[part];
+}
+
+size_t model_parts(const ModelObject &object)
+{
+    return size_t(std::count_if(object.volumes.begin(), object.volumes.end(), [](const ModelVolume *v) { return v->is_model_part(); }));
+}
+
+// Fim de load_generic_subobject()/load_modifier(): filamento, ordem do Orca e o índice novo.
+size_t part_added(ModelObject &object, ModelVolume &volume)
+{
+    // Como a GUI: o filamento da peça é o do objeto (0 = o do objeto) só nas peças do objeto.
+    int extruder = 0;
+    if (volume.is_model_part() && object.config.has("extruder"))
+        extruder = object.config.opt_int("extruder");
+    volume.config.set_key_value("extruder", new ConfigOptionInt(extruder));
+    object.sort_volumes(true);
+    object.invalidate_bounding_box();
+    if (volume.is_model_part())
+        object.ensure_on_bed();
+    return size_t(std::distance(object.volumes.begin(), std::find(object.volumes.begin(), object.volumes.end(), &volume)));
+}
+
+} // namespace
+
 std::vector<Part> Engine::parts(size_t object) const
 {
     std::vector<Part> out;
@@ -1508,28 +1539,52 @@ size_t Engine::add_part(size_t object, Part::Type type, Part::Shape shape)
     const Vec3d offset = Vec3d(instance_bb.max.x(), instance_bb.min.y(), instance_bb.min.z()) + 0.5 * mesh_bb.size() - instance.get_offset();
     volume->set_offset(to_object * offset);
     volume->name = format("%1%-%2%", _u8L("Generic"), _u8L(names[int(shape)]));
-    // Como a GUI: o filamento da peça é o do objeto (0 = o do objeto) só nas peças do objeto.
-    int extruder = 0;
-    if (type == Part::Type::Model && o.config.has("extruder"))
-        extruder = o.config.opt_int("extruder");
-    volume->config.set_key_value("extruder", new ConfigOptionInt(extruder));
     volume->source.is_from_builtin_objects = true;
+    return part_added(o, *volume);
+}
 
+size_t Engine::add_part_from_file(size_t object, Part::Type type, const std::string &path)
+{
+    if (int(type) < int(Part::Type::Model) || int(type) > int(Part::Type::SupportEnforcer))
+        throw std::invalid_argument("invalid part type");
+    ModelObject &o = m->object(object);
+    // ObjectList::load_modifier(), sem a galeria.
+    Model model = Model::read_from_file(path, nullptr, nullptr, LoadStrategy::LoadModel);
+    if (model.objects.empty())
+        throw std::runtime_error(format(_u8L("No objects found in %1%."), fs::path(path).filename().string()));
+    for (ModelObject *other : model.objects)
+        if (o.origin_translation != Vec3d::Zero()) {
+            other->center_around_origin();
+            const Vec3d delta = o.origin_translation - other->origin_translation;
+            for (ModelVolume *volume : other->volumes)
+                volume->translate(delta);
+        }
+    model.add_default_instances();
+    ModelVolume *volume = o.add_volume(model.mesh(), ModelVolumeType(int(type)));
+    volume->name = fs::path(path).filename().string();
+    volume->source.input_file = path;
+    if (model.objects.size() == 1 && model.objects.front()->volumes.size() == 1)
+        volume->source.mesh_offset = model.objects.front()->volumes.front()->source.mesh_offset;
+    volume->set_offset(volume->source.mesh_offset - o.volumes.front()->source.mesh_offset);
+    return part_added(o, *volume);
+}
+
+size_t Engine::set_part_type(size_t object, size_t part, Part::Type type)
+{
+    if (int(type) < int(Part::Type::Model) || int(type) > int(Part::Type::SupportEnforcer))
+        throw std::invalid_argument("invalid part type");
+    ModelObject &o = m->object(object);
+    ModelVolume *volume = &volume_at(o, part);
+    if (volume->is_model_part() && type != Part::Type::Model && model_parts(o) == 1)
+        throw std::invalid_argument(_u8L("The type of the last solid object part is not to be changed."));
+    volume->set_type(ModelVolumeType(int(type)));
     o.sort_volumes(true);
     o.invalidate_bounding_box();
-    if (type == Part::Type::Model)
-        o.ensure_on_bed();
+    o.ensure_on_bed();
     return size_t(std::distance(o.volumes.begin(), std::find(o.volumes.begin(), o.volumes.end(), volume)));
 }
 
 namespace {
-
-ModelVolume &volume_at(ModelObject &object, size_t part)
-{
-    if (part >= object.volumes.size())
-        throw std::out_of_range("no part " + std::to_string(part));
-    return *object.volumes[part];
-}
 
 void part_moved(ModelObject &object, const ModelVolume &volume)
 {
@@ -1563,8 +1618,7 @@ void Engine::remove_part(size_t object, size_t part)
     ModelObject &o = m->object(object);
     const ModelVolume &volume = volume_at(o, part);
     // Como ObjectList::del_subobject_from_object().
-    if (volume.is_model_part() &&
-        std::count_if(o.volumes.begin(), o.volumes.end(), [](const ModelVolume *v) { return v->is_model_part(); }) == 1)
+    if (volume.is_model_part() && model_parts(o) == 1)
         throw std::invalid_argument(_u8L("Deleting the last solid part is not allowed."));
     const bool model_part = volume.is_model_part();
     // Com uma peça só, a matriz dela passa para a instância (ModelObject::delete_volume()).

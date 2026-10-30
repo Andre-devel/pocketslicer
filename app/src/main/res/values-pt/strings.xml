@@ -327,7 +327,7 @@
     <string name="parts">Peças</string>
     <string name="part_title">Peça selecionada</string>
     <string name="add_part">Acrescentar peça</string>
-    <string name="add_part_hint">A peça nova aparece ao lado do objeto; leve-a ao lugar com as ferramentas ou os campos.</string>
+    <string name="add_part_hint">Uma forma aparece ao lado do objeto; um arquivo mantém a posição que tinha em relação ao do objeto. Leve a peça ao lugar com as ferramentas ou os campos.</string>
     <string name="part_type">Tipo</string>
     <string name="part_shape">Forma</string>
     <string name="part_type_model">Peça</string>
@@ -349,4 +349,5 @@
     <string name="part_position_hint">Posição em relação ao centro do objeto.</string>
     <string name="delete_part">Excluir peça</string>
     <string name="back_to_object">Voltar ao objeto</string>
+    <string name="part_from_file">De arquivo (STL, OBJ, 3MF)…</string>
 </resources>

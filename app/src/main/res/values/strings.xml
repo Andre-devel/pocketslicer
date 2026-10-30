@@ -331,7 +331,7 @@
     <string name="parts">Parts</string>
     <string name="part_title">Selected part</string>
     <string name="add_part">Add part</string>
-    <string name="add_part_hint">The new part appears next to the object; move it into place with the tools or the fields.</string>
+    <string name="add_part_hint">A shape appears next to the object; a file keeps the position it had relative to the object file. Move it into place with the tools or the fields.</string>
     <string name="part_type">Type</string>
     <string name="part_shape">Shape</string>
     <string name="part_type_model">Part</string>
@@ -353,4 +353,5 @@
     <string name="part_position_hint">Position relative to the object center.</string>
     <string name="delete_part">Delete part</string>
     <string name="back_to_object">Back to the object</string>
+    <string name="part_from_file">From file (STL, OBJ, 3MF)…</string>
 </resources>

@@ -550,6 +550,21 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeAddPart(JNIEnv *env, 
     });
 }
 
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeAddPartFromFile(JNIEnv *env, jclass, jlong handle, jint object, jint type,
+                                                                         jstring path)
+{
+    return guarded(env, [&] {
+        return jint(engine(handle)->add_part_from_file(size_t(object), slicer::Part::Type(type), to_string(env, path)));
+    });
+}
+
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetPartType(JNIEnv *env, jclass, jlong handle, jint object, jint part, jint type)
+{
+    return guarded(env, [&] { return jint(engine(handle)->set_part_type(size_t(object), size_t(part), slicer::Part::Type(type))); });
+}
+
 JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetPartTransform(JNIEnv *env, jclass, jlong handle, jint object, jint part,
                                                                           jdoubleArray transform)

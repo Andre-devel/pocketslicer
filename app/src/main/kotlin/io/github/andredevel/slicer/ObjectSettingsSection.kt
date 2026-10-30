@@ -1,5 +1,8 @@
 package io.github.andredevel.slicer
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -110,7 +113,13 @@ fun ObjectSettingsSection(state: SlicerUiState, viewModel: SlicerViewModel, obje
     AppButton(stringResource(R.string.add_part), { adding = true }, style = ButtonStyle.TEXT, icon = R.drawable.ic_add, enabled = state.editable)
 
     editing?.let { target -> SettingsEditor(state, viewModel, target) { editing = null } }
-    if (adding) AddPartDialog({ adding = false }) { type, shape -> viewModel.addPart(objectIndex, type, shape) }
+    if (adding) {
+        AddPartDialog(
+            { adding = false },
+            onAdd = { type, shape -> viewModel.addPart(objectIndex, type, shape) },
+            onAddFile = { type, uri -> viewModel.addPartFromFile(objectIndex, type, uri) },
+        )
+    }
 }
 
 /** Peça [partIndex] do objeto selecionado: tipo, posição na do objeto, configuração e exclusão. */
@@ -135,6 +144,12 @@ fun SelectedPart(state: SlicerUiState, viewModel: SlicerViewModel, objectIndex: 
         partTypeLabel(part.type) + " · " + stringResource(R.string.object_size, part.placement.size[0], part.placement.size[1], part.placement.size[2]),
         style = MonoStyles.small, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    // Como no Orca, a última peça do objeto não muda de tipo.
+    SelectField(
+        part.type.name, PART_TYPES.map { it.name }, { viewModel.setPartType(objectIndex, partIndex, Part.Type.valueOf(it)) },
+        Modifier.fillMaxWidth().padding(top = 8.dp), label = stringResource(R.string.part_type), labels = PART_TYPES.map { partTypeLabel(it) },
+        enabled = state.editable && removable,
+    )
     partHint(part.type)?.let {
         Text(stringResource(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -150,12 +165,21 @@ fun SelectedPart(state: SlicerUiState, viewModel: SlicerViewModel, objectIndex: 
     if (editing) SettingsEditor(state, viewModel, SettingsTarget(objectIndex, SettingsTarget.Kind.VOLUME, partIndex)) { editing = false }
 }
 
-/** Tipo e forma da peça nova; tocar numa forma acrescenta. Modificador primeiro, como no Orca. */
+/** Tipos na ordem do menu, modificador primeiro, como no Orca. */
+private val PART_TYPES = listOf(Part.Type.MODIFIER, Part.Type.NEGATIVE, Part.Type.SUPPORT_BLOCKER, Part.Type.SUPPORT_ENFORCER, Part.Type.MODEL)
+
+/** Tipo e forma da peça nova; tocar numa forma acrescenta, ou escolher um arquivo com a malha. */
 @Composable
-private fun AddPartDialog(onDismiss: () -> Unit, onAdd: (Part.Type, Part.Shape) -> Unit) {
-    val types = listOf(Part.Type.MODIFIER, Part.Type.NEGATIVE, Part.Type.SUPPORT_BLOCKER, Part.Type.SUPPORT_ENFORCER, Part.Type.MODEL)
+private fun AddPartDialog(onDismiss: () -> Unit, onAdd: (Part.Type, Part.Shape) -> Unit, onAddFile: (Part.Type, Uri) -> Unit) {
+    val types = PART_TYPES
     var type by rememberSaveable { mutableStateOf(Part.Type.MODIFIER) }
     val typeLabels = types.map { partTypeLabel(it) }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            onDismiss()
+            onAddFile(type, uri)
+        }
+    }
     val shapeLabels = mapOf(
         Part.Shape.CUBE to R.string.part_shape_cube, Part.Shape.CYLINDER to R.string.part_shape_cylinder,
         Part.Shape.SPHERE to R.string.part_shape_sphere, Part.Shape.CONE to R.string.part_shape_cone,
@@ -175,12 +199,19 @@ private fun AddPartDialog(onDismiss: () -> Unit, onAdd: (Part.Type, Part.Shape) 
                     stringResource(R.string.part_shape), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
                 )
+                val row = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
                 for (shape in Part.Shape.entries) {
                     Text(
                         stringResource(shapeLabels.getValue(shape)), style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
-                            .clickable { onDismiss(); onAdd(type, shape) }.heightIn(min = 44.dp).padding(horizontal = 8.dp, vertical = 10.dp),
+                        modifier = row.clickable { onDismiss(); onAdd(type, shape) }.heightIn(min = 44.dp).padding(horizontal = 8.dp, vertical = 10.dp),
                     )
+                }
+                Row(
+                    row.clickable { pick.launch(arrayOf("*/*")) }.heightIn(min = 44.dp).padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(painterResource(R.drawable.ic_file_open), null, tint = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.part_from_file), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
                 }
             }
         },

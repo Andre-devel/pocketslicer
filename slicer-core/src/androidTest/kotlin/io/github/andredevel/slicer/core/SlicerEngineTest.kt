@@ -400,9 +400,25 @@ class SlicerEngineTest {
         assertEquals(0.5f, reopened[2].placement.scale[0], 0.001f)
         assertEquals("100%", engine.settings(SettingsTarget(0, SettingsTarget.Kind.VOLUME, 2))["sparse_infill_density"])
 
+        // Como no Orca: a peça vai para o lugar do novo tipo.
+        assertEquals(1, engine.setPartType(0, 2, Part.Type.MODEL))
+        assertEquals(listOf(Part.Type.MODEL, Part.Type.MODEL, Part.Type.NEGATIVE), engine.parts(0).map { it.type })
+
         engine.removePart(0, 1)
         engine.removePart(0, 1)
         assertEquals(listOf(Part.Type.MODEL), engine.parts(0).map { it.type })
+        // A última peça do objeto não muda de tipo.
+        assertThrows(SlicerException::class.java) { runBlocking { engine.setPartType(0, 0, Part.Type.MODIFIER) } }
+
+        // De arquivo: o mesmo STL do objeto fica exatamente sobre ele (mesma posição no arquivo).
+        assertEquals(1, engine.addPartFromFile(0, Part.Type.MODIFIER, testAsset("cube20.stl")))
+        val loaded = engine.parts(0)[1]
+        assertEquals("cube20.stl", loaded.name)
+        for (axis in 0..2) {
+            assertEquals(0f, loaded.placement.offset[axis], 0.001f)
+            assertEquals(20f, loaded.placement.size[axis], 0.01f)
+        }
+        engine.removePart(0, 1)
         // Sem o modificador de 100%; não igual ao base, porque o projeto reaberto não fica na mesma posição.
         assertTrue(volume("removed") < filled)
     }

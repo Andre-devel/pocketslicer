@@ -128,7 +128,8 @@ Creality, Box da QIDI).
      GUI dele; desenhadas translúcidas nas cores do Orca, por cima do objeto selecionado; tocar
      seleciona a peça, e as ferramentas e os campos a movem, giram e escalam; configuração
      própria nos modificadores e nas peças. Salvas no 3MF.
-     Falta: carregar uma peça de arquivo (STL) e trocar o tipo de uma peça existente.
+     Peça de arquivo (STL, OBJ, 3MF) na posição relativa que tinha nele, como o "Carregar..."
+     do Orca, e troca do tipo de uma peça (a última do objeto não muda).
 3. Pintura de suportes/seam (gizmos de pintura do Orca são GUI; reimplementar sobre `TriangleSelector` de libslic3r).
 4. Multi-material (AMS/MMU) com torre de purga.
    - Feito (2026-10-29): 3MF multicolor do Orca/Bambu fatia igual ao Orca desktop; filamentos do

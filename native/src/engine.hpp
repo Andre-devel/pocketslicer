@@ -308,6 +308,13 @@ public:
     // maior lado da mesa, alinhada à mesa e encostada no canto da frente à direita do objeto.
     // Devolve o índice dela. type Model acrescenta uma peça ao objeto.
     size_t add_part(size_t object, Part::Type type, Part::Shape shape);
+    // Peça com a malha do arquivo (STL, OBJ, 3MF; todos os objetos dele numa malha só), como
+    // "Carregar..." da GUI do Orca: na posição relativa que tinha no arquivo em relação ao do
+    // objeto. Devolve o índice dela.
+    size_t add_part_from_file(size_t object, Part::Type type, const std::string &path);
+    // Muda o tipo, como "Trocar tipo" da GUI; lança se for a última peça do objeto. Devolve o
+    // novo índice dela (a ordem segue o tipo).
+    size_t set_part_type(size_t object, size_t part, Part::Type type);
     // Matriz (ordem de coluna) ou decomposição da peça, na do objeto. Mexer numa peça do
     // objeto o reapoia na mesa.
     void set_part_transform(size_t object, size_t part, const std::array<double, 16> &transform);

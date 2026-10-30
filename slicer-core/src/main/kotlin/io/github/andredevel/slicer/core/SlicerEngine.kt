@@ -415,6 +415,17 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     suspend fun addPart(objectIndex: Int, type: Part.Type, shape: Part.Shape): Int =
         call { nativeAddPart(handle, objectIndex, type.ordinal, shape.ordinal) }
 
+    /**
+     * Peça com a malha de [file] (STL, OBJ, 3MF), como "Carregar..." do Orca: na posição relativa
+     * que tinha no arquivo em relação ao do objeto. Devolve o índice dela.
+     */
+    suspend fun addPartFromFile(objectIndex: Int, type: Part.Type, file: File): Int =
+        call { nativeAddPartFromFile(handle, objectIndex, type.ordinal, file.absolutePath) }
+
+    /** Muda o tipo da peça; lança se for a última do objeto. Devolve o novo índice (a ordem segue o tipo). */
+    suspend fun setPartType(objectIndex: Int, part: Int, type: Part.Type): Int =
+        call { nativeSetPartType(handle, objectIndex, part, type.ordinal) }
+
     /** Matriz da peça na do objeto. Mexer numa peça do objeto o reapoia na mesa. */
     suspend fun setPartTransform(objectIndex: Int, part: Int, transform: FloatArray) =
         call { nativeSetPartTransform(handle, objectIndex, part, DoubleArray(16) { transform[it].toDouble() }) }
@@ -644,6 +655,8 @@ private external fun nativeSetHeightRange(handle: Long, objectIndex: Int, index:
 private external fun nativeRemoveHeightRange(handle: Long, objectIndex: Int, index: Int)
 private external fun nativeParts(handle: Long, objectIndex: Int): Array<PartData>
 private external fun nativeAddPart(handle: Long, objectIndex: Int, type: Int, shape: Int): Int
+private external fun nativeAddPartFromFile(handle: Long, objectIndex: Int, type: Int, path: String): Int
+private external fun nativeSetPartType(handle: Long, objectIndex: Int, part: Int, type: Int): Int
 private external fun nativeSetPartTransform(handle: Long, objectIndex: Int, part: Int, transform: DoubleArray)
 private external fun nativeSetPartPlacement(handle: Long, objectIndex: Int, part: Int, values: DoubleArray)
 private external fun nativeRemovePart(handle: Long, objectIndex: Int, part: Int)
