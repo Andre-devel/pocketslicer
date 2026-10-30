@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.andredevel.slicer.core.BedTypes
 import io.github.andredevel.slicer.core.Brush
+import io.github.andredevel.slicer.core.Calibration
 import io.github.andredevel.slicer.core.ClipPlane
 import io.github.andredevel.slicer.core.HeightRange
 import io.github.andredevel.slicer.core.LayerChange
@@ -510,6 +511,18 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.addModel(file)
         _state.update { it.copy(modelName = it.modelName ?: name) }
         markChanged(StaleReason(null))
+        refreshScene(engine, engine.objects())
+    }
+
+    /**
+     * Troca a mesa por um teste do menu Calibração ([SlicerEngine.calibrate]); o projeto fica com
+     * o nome [name] e por salvar, e os perfis com os ajustes do teste.
+     */
+    fun calibrate(calibration: Calibration, name: String) = launchEngine(R.string.busy_opening) { engine ->
+        setup.join()
+        engine.calibrate(calibration)
+        _state.update { it.copy(modelName = name, slice = SliceState.Idle, showPreview = false, dirty = true) }
+        refreshPresets(engine)
         refreshScene(engine, engine.objects())
     }
 

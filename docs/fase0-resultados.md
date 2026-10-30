@@ -87,7 +87,7 @@ desktop integration) e `native/deps/` cross-compila as dependências.
 |---|---|---|
 | Importar STEP | Exige OpenCASCADE (enorme) | Só STL/3MF/OBJ |
 | Importar SVG / texto 3D | Exigem OCCT (fontes e extrusão) | Sem "adicionar texto" / SVG |
-| Draco (`.drc`) | Biblioteca não compilada | Modelos de exemplo do Orca (`handy_models/*.drc`, ex. Benchy) não abrem; compilar Draco é simples se fizer falta |
+| Draco (`.drc`) | Compilada desde 2026-10-30 (modelos de calibração) | — |
 | Cores de OBJ (`ObjColorUtils`) | Exige OpenCV | OBJ multicolorido entra sem mapeamento de cores |
 
 Mantidos: OpenVDB (usado pelo suporte em árvore 3D), CGAL + GMP/MPFR (booleanas de malha),

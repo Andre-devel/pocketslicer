@@ -658,6 +658,38 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeOverhangHighlightAngl
     return guarded(env, [&] { return jdouble(engine(handle)->overhang_highlight_angle(size_t(object))); });
 }
 
+// values: start, end, step, frequências (início e fim de X, início e fim de Y); flags: teste,
+// print_numbers, flow_linear, flow_pass, flow_monotonic, model (Calibration, na ordem).
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeCalibrate(JNIEnv *env, jclass, jlong handle, jintArray flags, jdoubleArray values,
+                                                                    jstring shaper_type, jdoubleArray speeds, jdoubleArray accelerations)
+{
+    guarded(env, [&] {
+        std::array<jint, 6>    f{};
+        std::array<double, 7> v{};
+        env->GetIntArrayRegion(flags, 0, 6, f.data());
+        env->GetDoubleArrayRegion(values, 0, 7, v.data());
+        auto doubles = [env](jdoubleArray array) {
+            std::vector<double> out(size_t(env->GetArrayLength(array)));
+            env->GetDoubleArrayRegion(array, 0, jsize(out.size()), out.data());
+            return out;
+        };
+        slicer::Calibration c;
+        c.test           = slicer::Calibration::Test(f[0]);
+        c.print_numbers  = f[1] != 0;
+        c.flow_linear    = f[2] != 0;
+        c.flow_pass      = f[3];
+        c.flow_monotonic = f[4] != 0;
+        c.model          = f[5];
+        c.start = v[0], c.end = v[1], c.step = v[2];
+        c.freq_start_x = v[3], c.freq_end_x = v[4], c.freq_start_y = v[5], c.freq_end_y = v[6];
+        c.shaper_type   = to_string(env, shaper_type);
+        c.speeds        = doubles(speeds);
+        c.accelerations = doubles(accelerations);
+        engine(handle)->calibrate(c);
+    });
+}
+
 JNIEXPORT jdoubleArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFlushVolumes(JNIEnv *env, jclass, jlong handle)
 {

@@ -930,6 +930,73 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun calibrationTestsSliceLikeOrcaMenu() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        suspend fun gcode(name: String): List<String> = File(work, "$name.gcode").also {
+            try {
+                engine.slice(it) { _, _ -> }
+            } catch (e: SlicerException) {
+                throw AssertionError("$name: ${e.message}", e)
+            }
+        }.readLines()
+        suspend fun height() = engine.placements().maxOf { it.size[2].toDouble() }
+
+        // Temperatura de 230 a 190 °C: 9 blocos de 10 mm, um M104 por bloco descendo de 5 em 5.
+        engine.calibrate(Calibration(Calibration.Test.TEMPERATURE, start = 230.0, end = 190.0))
+        assertEquals(90.0, height(), 0.5)
+        val temps = gcode("temp").mapNotNull { Regex("^M104 S(\\d+)").find(it)?.groupValues?.get(1)?.toInt() }.distinct()
+        assertTrue("$temps", temps.containsAll((190..230 step 5).toList()) && temps.none { it > 230 })
+        assertEquals("230", engine.values(PresetKind.FILAMENT).values["nozzle_temperature"])
+        assertTrue(runCatching { engine.calibrate(Calibration(Calibration.Test.TEMPERATURE, start = 230.0, end = 228.0)) }.isFailure)
+
+        // PA torre de 0 a 0,1 em 0,002: 51 mm, um valor de PA por milímetro.
+        engine.calibrate(Calibration(Calibration.Test.PRESSURE_ADVANCE_TOWER, start = 0.0, end = 0.1, step = 0.002))
+        assertEquals(51.0, height(), 0.5)
+        val pa = gcode("pa").filter { it.startsWith("M900 K") }.distinct()
+        assertTrue("${pa.size}", pa.size > 40)
+        // PA linha: as linhas vêm do gerador, com os números.
+        engine.calibrate(Calibration(Calibration.Test.PRESSURE_ADVANCE_LINE, start = 0.0, end = 0.1, step = 0.002, printNumbers = true))
+        assertTrue(gcode("pa_line").count { it.startsWith("M900 K") } > 40)
+
+        // Retração de 0 a 2 mm: a altura segue a fórmula do Orca.
+        engine.calibrate(Calibration(Calibration.Test.RETRACTION, start = 0.0, end = 2.0, step = 0.1))
+        assertEquals(1.0 + 0.4 + 20, height(), 0.5)
+        assertTrue(gcode("retraction").any { it.startsWith("; Calib_Retraction_tower:") })
+
+        // Velocidade volumétrica e VFA: modo vaso, a velocidade da parede sobe.
+        engine.calibrate(Calibration(Calibration.Test.MAX_VOLUMETRIC_SPEED, start = 5.0, end = 20.0, step = 0.5))
+        assertEquals("1", engine.values(PresetKind.PROCESS).values["spiral_mode"])
+        gcode("volumetric")
+        engine.calibrate(Calibration(Calibration.Test.VFA, start = 40.0, end = 200.0, step = 10.0))
+        assertEquals(85.0, height(), 0.5)
+        gcode("vfa")
+
+        // Fluxo: os pedaços do 3MF, cada um com o próprio fluxo.
+        engine.calibrate(Calibration(Calibration.Test.FLOW_RATE, flowLinear = false, flowPass = 1))
+        assertTrue(engine.objects().size > 5)
+        engine.calibrate(Calibration(Calibration.Test.FLOW_RATE, flowLinear = true, flowPass = 2, flowMonotonic = true))
+        gcode("flow")
+
+        // Input shaping: a A1 (Marlin antigo) recusa, como no Orca; numa Klipper, M593/SET_INPUT_SHAPER por camada.
+        assertTrue(runCatching {
+            engine.calibrate(Calibration(Calibration.Test.INPUT_SHAPING_FREQUENCY, start = 0.15, freqStartX = 15.0, freqEndX = 110.0, freqStartY = 15.0, freqEndY = 110.0))
+            gcode("shaping_a1")
+        }.isFailure)
+        engine.loadVendor("Voron")
+        engine.select(PresetKind.PRINTER, "Voron 2.4 350 0.4 nozzle")
+        engine.calibrate(Calibration(Calibration.Test.INPUT_SHAPING_FREQUENCY, start = 0.15, shaperType = "ZV", freqStartX = 15.0, freqEndX = 110.0, freqStartY = 15.0, freqEndY = 110.0))
+        assertTrue(gcode("shaping").count { it.startsWith("SET_INPUT_SHAPER") } > 50)
+        engine.calibrate(Calibration(Calibration.Test.CORNERING, start = 1.0, end = 15.0, model = 2))
+        assertTrue(gcode("cornering").count { it.startsWith("SET_VELOCITY_LIMIT") && "SQUARE_CORNER_VELOCITY" in it } > 50)
+        assertTrue(runCatching { engine.calibrate(Calibration(Calibration.Test.CORNERING, start = 1.0, end = 150.0)) }.isFailure)
+
+        // Abrir outro modelo sai do teste: sem M104 por bloco.
+        engine.loadModel(testAsset("cube20.stl"))
+        assertTrue(gcode("plain").count { it.startsWith("M900 K") } < 3)
+    }
+
+    @Test
     fun vendorProfilesDropValuesOutOfOrcaRange() = runBlocking {
         // O Bambu Studio usa -1 (automático) onde o Orca só aceita 0 a 2; o Orca recusaria o 3MF.
         engine.loadVendor("BambuStudio/BBL")

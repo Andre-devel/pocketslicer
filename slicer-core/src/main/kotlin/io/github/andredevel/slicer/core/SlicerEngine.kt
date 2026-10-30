@@ -194,6 +194,38 @@ class ClipPlane(val normal: FloatArray, val offset: Float)
  */
 class PaintMesh(override val positions: FloatArray, override val indices: IntArray, val states: ByteArray) : Triangles
 
+/**
+ * Teste do menu Calibração do Orca (slicer::Calibration). Os campos que valem dependem de [test]:
+ * [start]/[end]/[step] (temperatura em °C, de [start] alto a [end] baixo; PA; velocidade
+ * volumétrica em mm³/s; VFA em mm/s; retração em mm; cornering em mm ou mm/s; amortecimento do
+ * input shaping: [start] no de frequência, [start] a [end] no de amortecimento); [printNumbers] (PA
+ * linha); [flowLinear] (YOLO), [flowPass] (1 ou 2) e [flowMonotonic] (padrão do topo) no fluxo;
+ * [model] (0 torre de ringing, 1 torre rápida, 2 SCV-V2, só no cornering); [shaperType] e as
+ * frequências no input shaping (no de amortecimento, só as de início).
+ */
+data class Calibration(
+    val test: Test,
+    val start: Double = 0.0,
+    val end: Double = 0.0,
+    val step: Double = 0.0,
+    val printNumbers: Boolean = false,
+    val flowLinear: Boolean = true,
+    val flowPass: Int = 1,
+    val flowMonotonic: Boolean = false,
+    val model: Int = 0,
+    val shaperType: String = "",
+    val freqStartX: Double = 0.0,
+    val freqEndX: Double = 0.0,
+    val freqStartY: Double = 0.0,
+    val freqEndY: Double = 0.0,
+) {
+    /** Na ordem de slicer::Calibration::Test. */
+    enum class Test {
+        TEMPERATURE, MAX_VOLUMETRIC_SPEED, PRESSURE_ADVANCE_TOWER, PRESSURE_ADVANCE_LINE, PRESSURE_ADVANCE_PATTERN, FLOW_RATE,
+        RETRACTION, CORNERING, INPUT_SHAPING_FREQUENCY, INPUT_SHAPING_DAMPING, VFA,
+    }
+}
+
 /** Faixa de altura de um objeto, em mm desde a base dele. */
 data class HeightRange(val min: Double, val max: Double)
 
@@ -576,6 +608,20 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** "Apagar tudo" do gizmo. */
     suspend fun clearPaint(objectIndex: Int, kind: PaintKind) = call { nativeClearPaint(handle, objectIndex, kind.ordinal) }
 
+    /**
+     * Troca a mesa pelo teste, como o menu Calibração do Orca: o modelo dele, os ajustes nos
+     * presets editados (descartam as alterações não salvas de antes e ficam como alterações não
+     * salvas) e os parâmetros por camada do G-code,
+     * que valem até outro modelo ou projeto ser aberto. Valores fora do que o Orca aceita: erro.
+     */
+    suspend fun calibrate(calibration: Calibration) = call {
+        with(calibration) {
+            val flags = intArrayOf(test.ordinal, if (printNumbers) 1 else 0, if (flowLinear) 1 else 0, flowPass, if (flowMonotonic) 1 else 0, model)
+            val values = doubleArrayOf(start, end, step, freqStartX, freqEndX, freqStartY, freqEndY)
+            nativeCalibrate(handle, flags, values, shaperType, DoubleArray(0), DoubleArray(0))
+        }
+    }
+
     /** Ângulo das saliências que o Orca destaca ao abrir a pintura de suporte (0 com o suporte automático desligado). */
     suspend fun overhangHighlightAngle(objectIndex: Int): Double = call { nativeOverhangHighlightAngle(handle, objectIndex) }
 
@@ -749,6 +795,9 @@ private external fun nativeGaps(handle: Long, objectIndex: Int, kind: Int, area:
 private external fun nativeFillGaps(handle: Long, objectIndex: Int, kind: Int, area: Double): Int
 private external fun nativePainted(handle: Long, objectIndex: Int, kind: Int): PaintMesh
 private external fun nativeClearPaint(handle: Long, objectIndex: Int, kind: Int)
+private external fun nativeCalibrate(
+    handle: Long, flags: IntArray, values: DoubleArray, shaperType: String, speeds: DoubleArray, accelerations: DoubleArray,
+)
 private external fun nativeOverhangHighlightAngle(handle: Long, objectIndex: Int): Double
 private external fun nativeFlushVolumes(handle: Long): DoubleArray
 private external fun nativeSetFlushVolumes(handle: Long, matrix: DoubleArray)

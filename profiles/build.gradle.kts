@@ -14,14 +14,15 @@ android {
 // Os arquivos de resources/ do OrcaSlicer que libslic3r lê em tempo de execução, mais os
 // perfis dos fatiadores dos fabricantes (vendors/, ver Engine::vendors()),
 // num único zip (asset), extraído por OrcaResources na primeira execução.
-// Só os JSON dos perfis por enquanto: imagens e modelos de mesa entram com o viewport 3D.
+// Só os JSON dos perfis, mais os modelos dos testes de calibração (calib/); imagens e modelos de
+// mesa entram com o viewport 3D.
 // Em i18n/<idioma>/ ficam as traduções dos textos do motor (Engine::set_language): o
 // catálogo do Orca e o da fachada, para os idiomas do app.
 val orcaResources = rootProject.file("third_party/OrcaSlicer/resources")
 val appLanguages = listOf("en", "pt_BR")
 val zipOrcaResources = tasks.register<Zip>("zipOrcaResources") {
     from(orcaResources) {
-        include("profiles/**/*.json", "info/**", "flush/**")
+        include("profiles/**/*.json", "info/**", "flush/**", "calib/**")
     }
     // Perfis copiados dos fatiadores dos fabricantes (scripts/import-vendor-profiles.py),
     // sem os presets do usuário.

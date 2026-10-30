@@ -169,6 +169,14 @@ Creality, Box da QIDI).
      "Vertical"/"Horizontal" do arraste do Orca não foram feitas.
 5. Reativar OpenVDB (hollowing, reparo) e OCCT (STEP) se o tamanho do APK permitir.
 6. Ferramentas de calibração reaproveitando os geradores do Orca.
+   - Feito (2026-10-30): Arquivo > Calibração, com os testes do menu Calibração do Orca e os
+     padrões dos diálogos dele: temperatura, vazão máxima, avanço de pressão (torre e linhas),
+     taxa de fluxo (passos 1/2 e YOLO), retração, cantos, input shaping (frequência e
+     amortecimento) e VFA. O motor carrega o modelo do teste (Draco agora é compilado; os modelos
+     de calib/ vão no APK), faz os cortes e os ajustes nos perfis como o Plater do Orca e passa os
+     parâmetros por camada ao gerador de G-code. As alterações não salvas dos perfis são
+     descartadas ao criar um teste (o Orca pergunta). Falta: avanço de pressão em padrão
+     (pa_pattern, com o G-code gerado por placa); conferir uma impressão real.
 7. Play Asset Delivery para perfis sob demanda; ABI x86_64 para emulador.
 
 ## Cadência de atualização do OrcaSlicer

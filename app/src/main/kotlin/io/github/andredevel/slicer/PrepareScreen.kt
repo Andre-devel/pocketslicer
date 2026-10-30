@@ -98,7 +98,9 @@ fun PrepareHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
         modified = state.unsaved,
         busy = state.busy?.let { stringResource(it) },
     ) {
-        FileMenu(state, pickers, viewModel::openRecent)
+        var calibrating by remember { mutableStateOf(false) }
+        FileMenu(state, pickers, viewModel::openRecent) { calibrating = true }
+        if (calibrating) CalibrationDialog(state, { calibrating = false }, viewModel::calibrate)
         AppIconButton(
             R.drawable.ic_save, stringResource(R.string.save_project), pickers.saveProject,
             enabled = state.editable && state.projectObjectCount > 0,
@@ -110,9 +112,9 @@ fun PrepareHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
     }
 }
 
-/** Menu "Arquivo": abrir, adicionar modelo e salvar o projeto. */
+/** Menu "Arquivo": abrir, adicionar modelo, calibração e salvar o projeto. */
 @Composable
-private fun FileMenu(state: SlicerUiState, pickers: FilePickers, openRecent: (RecentFile) -> Unit) {
+private fun FileMenu(state: SlicerUiState, pickers: FilePickers, openRecent: (RecentFile) -> Unit, calibrate: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         AppIconButton(R.drawable.ic_folder_open, stringResource(R.string.file_menu), { open = true }, tonal = open)
@@ -129,6 +131,12 @@ private fun FileMenu(state: SlicerUiState, pickers: FilePickers, openRecent: (Re
                 leadingIcon = { Icon(painterResource(R.drawable.ic_add_box), null) },
                 enabled = state.editable,
                 onClick = { open = false; pickers.addModel() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.calibration_menu)) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_tune), null) },
+                enabled = state.editable && state.vendors.selected != null,
+                onClick = { open = false; calibrate() },
             )
             if (state.recents.isNotEmpty()) {
                 HorizontalDivider()

@@ -8,7 +8,7 @@
 # Uso: scripts/build-deps.sh (não invocar este CMake diretamente).
 #
 # Dependências omitidas de propósito (ver docs/arquitetura.md §2.3):
-#   OCCT, OpenCV, CURL, Draco, GLEW, GLFW, OpenCSG, wxWidgets.
+#   OCCT, OpenCV, CURL, GLEW, GLFW, OpenCSG, wxWidgets.
 #   ZLIB vem do sysroot do NDK.
 
 cmake_minimum_required(VERSION 3.20)
@@ -113,6 +113,8 @@ include(${ORCA_DEPS_DIR}/PNG/PNG.cmake)
 include(${ORCA_DEPS_DIR}/JPEG/JPEG.cmake)
 include(${ORCA_DEPS_DIR}/FREETYPE/FREETYPE.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/OpenSSL-android.cmake)
+# Modelos .drc (os de calibração do Orca são todos Draco).
+include(${ORCA_DEPS_DIR}/Draco/Draco.cmake)
 
 add_custom_target(deps ALL DEPENDS
     dep_Boost
@@ -133,4 +135,5 @@ add_custom_target(deps ALL DEPENDS
     dep_JPEG
     dep_FREETYPE
     dep_OpenSSL
+    dep_Draco
 )

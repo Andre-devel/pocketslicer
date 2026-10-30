@@ -19,7 +19,10 @@
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/CustomGCode.hpp"
+#include "libslic3r/CutUtils.hpp"
+#include "libslic3r/calib.hpp"
 #include "libslic3r/ExtrusionEntity.hpp"
+#include "libslic3r/Flow.hpp"
 #include "libslic3r/FlushVolCalc.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
@@ -130,6 +133,10 @@ struct Engine::Impl {
         Vec3f  point  = Vec3f::Zero();
     };
     std::optional<PaintHit> paint_last;
+
+    // Parâmetros do teste de calibração na mesa (calibrate()), que o gerador de G-code lê a cada
+    // camada; Calib_None fora de um teste.
+    Calib_Params calib;
     PaintVolume &paint_volume(const ModelObject &object, PaintKind kind, const ModelVolume &volume);
 
     // Índice de um fabricante de vendors(): "<app>/<fabricante>" está em vendors_dir, e o
@@ -220,6 +227,7 @@ struct Engine::Impl {
         model.plates_custom_gcodes.clear();
         plates.assign(1, Model());
         plate = 0;
+        calib = Calib_Params();
     }
 
     Model &plate_model(size_t index)
@@ -2070,6 +2078,490 @@ size_t Engine::fill_gaps(size_t object, PaintKind kind, double area)
     return count;
 }
 
+// --- Calibração (Plater::calib_* do Orca) ---
+
+namespace {
+
+// Primeiro valor de uma opção de vetor de números (com ou sem nil).
+double first_float(const DynamicPrintConfig &config, const char *key)
+{
+    if (const auto *opt = config.option<ConfigOptionFloats>(key))
+        return opt->get_at(0);
+    if (const auto *opt = config.option<ConfigOptionFloatsNullable>(key))
+        return opt->get_at(0);
+    throw std::runtime_error(std::string("missing option: ") + key);
+}
+
+// has_junction_deviation() de Plater.cpp: Marlin 2 com machine_max_junction_deviation > 0.
+bool has_junction_deviation(const DynamicPrintConfig &printer)
+{
+    const auto *flavor = printer.option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
+    const auto *jd     = printer.option<ConfigOptionFloats>("machine_max_junction_deviation");
+    return flavor != nullptr && flavor->value == gcfMarlinFirmware && jd != nullptr && !jd->values.empty() && jd->values.front() > 0.0;
+}
+
+// Plater::cut_horizontal() + apply_cut_object_to_model(): troca o objeto pelas partes mantidas,
+// cada uma apoiada na mesa.
+void cut_horizontal(Model &model, size_t index, double z, ModelObjectCutAttribute keep)
+{
+    ModelObject      *object = model.objects[index];
+    const Vec3d       offset = object->instances.front()->get_offset();
+    Cut               cut(object, 0, Geometry::translation_transform(z * Vec3d::UnitZ() - offset), keep);
+    const ModelObjectPtrs &parts = cut.perform_with_plane();
+    std::vector<ModelObject *> added;
+    for (const ModelObject *part : parts)
+        added.push_back(model.add_object(*part));
+    model.delete_object(index);
+    for (ModelObject *part : added)
+        part->ensure_on_bed();
+}
+
+// Padrões de enchimento do topo do teste de fluxo (FlowRateCalibrationDialog).
+void adjust_settings_for_flowrate_calib(PresetBundle &bundle, Model &model, const Vec2d &bed_center, bool linear, int pass, InfillPattern pattern)
+{
+    DynamicPrintConfig &print    = bundle.prints.get_edited_preset().config;
+    DynamicPrintConfig &printer  = bundle.printers.get_edited_preset().config;
+    DynamicPrintConfig &filament = bundle.filaments.get_edited_preset().config;
+
+    // O modelo é para bico de 0,6 mm; z com 10 camadas (2 de baixo, 3 de enchimento, 5 de cima).
+    const float  nozzle_diameter    = float(first_float(printer, "nozzle_diameter"));
+    const float  xy_scale           = nozzle_diameter / 0.6f;
+    const double layer_height       = nozzle_diameter / 2.0;
+    const double first_layer_height = std::max(print.opt_float("initial_layer_print_height"), layer_height);
+    const double z_scale            = (first_layer_height + 9 * layer_height) / 2;
+    // Como Selection::scale() com todos os objetos: posições em volta do centro também.
+    const double xy = xy_scale > 1.2f ? xy_scale : 1.0;
+    for (ModelObject *object : model.objects) {
+        ModelInstance *instance = object->instances.front();
+        instance->set_scaling_factor(instance->get_scaling_factor().cwiseProduct(Vec3d(xy, xy, z_scale)));
+        Vec3d o = instance->get_offset();
+        o.head<2>() = bed_center + (o.head<2>() - bed_center) * xy;
+        instance->set_offset(o);
+    }
+
+    const double cur_flowrate = first_float(filament, "filament_flow_ratio");
+    const Flow   infill_flow(nozzle_diameter * 1.2f, float(layer_height), nozzle_diameter);
+    const double max_volumetric = first_float(filament, "filament_max_volumetric_speed");
+    const double max_infill_speed = linear
+        ? max_volumetric / (infill_flow.mm3_per_mm() * (cur_flowrate + (pass == 2 ? 0.035 : 0.05)) / cur_flowrate)
+        : max_volumetric / (infill_flow.mm3_per_mm() * (pass == 1 ? 1.2 : 1));
+    const double internal_solid_speed = std::floor(std::min(print.opt_float("internal_solid_infill_speed"), max_infill_speed));
+    const double top_surface_speed    = std::floor(std::min(print.opt_float("top_surface_speed"), max_infill_speed));
+
+    for (ModelObject *object : model.objects) {
+        object->ensure_on_bed();
+        ModelConfigObject &c = object->config;
+        c.set_key_value("wall_loops", new ConfigOptionInt(1));
+        c.set_key_value("only_one_wall_top", new ConfigOptionBool(true));
+        c.set_key_value("thick_internal_bridges", new ConfigOptionBool(false));
+        c.set_key_value("enable_extra_bridge_layer", new ConfigOptionEnum<EnableExtraBridgeLayer>(eblDisabled));
+        c.set_key_value("internal_bridge_density", new ConfigOptionPercent(100));
+        c.set_key_value("sparse_infill_density", new ConfigOptionPercent(35));
+        c.set_key_value("min_width_top_surface", new ConfigOptionFloatOrPercent(100, true));
+        c.set_key_value("bottom_shell_layers", new ConfigOptionInt(2));
+        c.set_key_value("top_shell_layers", new ConfigOptionInt(5));
+        c.set_key_value("top_shell_thickness", new ConfigOptionFloat(0));
+        c.set_key_value("bottom_shell_thickness", new ConfigOptionFloat(0));
+        c.set_key_value("detect_thin_wall", new ConfigOptionBool(true));
+        c.set_key_value("filter_out_gap_fill", new ConfigOptionFloat(0));
+        c.set_key_value("sparse_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipRectilinear));
+        c.set_key_value("top_surface_line_width", new ConfigOptionFloatOrPercent(nozzle_diameter * 1.2f, false));
+        c.set_key_value("internal_solid_infill_line_width", new ConfigOptionFloatOrPercent(nozzle_diameter * 1.2f, false));
+        c.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(pattern));
+        c.set_key_value("top_solid_infill_flow_ratio", new ConfigOptionFloat(1.0f));
+        c.set_key_value("infill_direction", new ConfigOptionFloat(45));
+        c.set_key_value("solid_infill_direction", new ConfigOptionFloat(135));
+        c.set_key_value("align_infill_direction_to_model", new ConfigOptionBool(true));
+        c.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
+        c.set_key_value("internal_solid_infill_speed", new ConfigOptionFloat(internal_solid_speed));
+        c.set_key_value("top_surface_speed", new ConfigOptionFloat(top_surface_speed));
+        c.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+        c.set_key_value("gap_fill_target", new ConfigOptionEnum<GapFillTarget>(GapFillTarget::gftNowhere));
+        c.set_key_value("calib_flowrate_topinfill_special_order", new ConfigOptionBool(true));
+
+        // O fluxo de cada peça vem do nome: flowrate_<n>, com "m" no lugar do sinal de menos.
+        std::string name = object->name.size() > 9 ? object->name.substr(9) : std::string();
+        if (!name.empty() && name[0] == 'm')
+            name[0] = '-';
+        double modifier = 1.0;
+        try {
+            modifier = string_to_double_decimal_point(name);
+        } catch (...) {
+        }
+        c.set_key_value("print_flow_ratio", new ConfigOptionFloat(linear ? (cur_flowrate + modifier) / cur_flowrate : 1.0 + modifier / 100.0));
+    }
+
+    print.set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+    print.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+    print.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+    print.set_key_value("initial_layer_print_height", new ConfigOptionFloat(first_layer_height));
+    print.set_key_value("reduce_crossing_wall", new ConfigOptionBool(true));
+    print.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+}
+
+// O que os testes de input shaping e cornering fazem igual.
+void prepare_motion_test(DynamicPrintConfig &print, DynamicPrintConfig &filament, DynamicPrintConfig &printer, ModelObject &object)
+{
+    if (!filament.option<ConfigOptionBools>("enable_pressure_advance")->get_at(0)) {
+        filament.set_key_value("enable_pressure_advance", new ConfigOptionBools{true});
+        filament.set_key_value("pressure_advance", new ConfigOptionFloats{0.0});
+        filament.set_key_value("adaptive_pressure_advance", new ConfigOptionBools{false});
+    }
+    printer.set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+    filament.set_key_value("slow_down_layer_time", new ConfigOptionFloats{0.0});
+    filament.set_key_value("slow_down_min_speed", new ConfigOptionFloats{0.0});
+    filament.set_key_value("slow_down_for_layer_cooling", new ConfigOptionBools{false});
+    print.set_key_value("enable_overhang_speed", new ConfigOptionBool{false});
+    print.set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
+    print.set_key_value("wall_loops", new ConfigOptionInt(1));
+    print.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+    print.set_key_value("bottom_shell_layers", new ConfigOptionInt(1));
+    print.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+    print.set_key_value("detect_thin_wall", new ConfigOptionBool(false));
+    print.set_key_value("spiral_mode", new ConfigOptionBool(true));
+    print.set_key_value("spiral_mode_smooth", new ConfigOptionBool(false));
+    print.set_key_value("bottom_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipRectilinear));
+    print.set_key_value("outer_wall_speed", new ConfigOptionFloat(200));
+    print.set_key_value("precise_z_height", new ConfigOptionBool(false));
+    object.config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
+    object.config.set_key_value("brim_width", new ConfigOptionFloat(3.0));
+    object.config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+}
+
+// Calib_Input_shaping_*: jerk ou junction deviation mínimos para o teste.
+void prepare_input_shaping(DynamicPrintConfig &print, DynamicPrintConfig &printer)
+{
+    if (has_junction_deviation(printer)) {
+        printer.set_key_value("machine_max_junction_deviation",
+                              new ConfigOptionFloats{std::max(printer.option<ConfigOptionFloats>("machine_max_junction_deviation")->values.front(), 0.25)});
+        print.set_key_value("default_junction_deviation", new ConfigOptionFloat(0));
+    } else {
+        const auto  *flavor = printer.option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
+        const double jerk   = flavor != nullptr && flavor->value == gcfKlipper ? 5.0 : 10.0;
+        for (const char *key : {"machine_max_jerk_x", "machine_max_jerk_y"})
+            printer.set_key_value(key, new ConfigOptionFloats{std::max(printer.option<ConfigOptionFloats>(key)->values.front(), jerk)});
+        print.set_key_value("default_jerk", new ConfigOptionFloat(0));
+    }
+    printer.set_key_value("input_shaping_emit", new ConfigOptionBool{false});
+    print.set_key_value("default_acceleration", new ConfigOptionFloat(20000));
+    print.set_key_value("outer_wall_acceleration", new ConfigOptionFloat(20000));
+}
+
+} // namespace
+
+void Engine::calibrate(const Calibration &c)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    using Test = Calibration::Test;
+    const fs::path calib = fs::path(Slic3r::resources_dir()) / "calib";
+    auto finite = [&](std::initializer_list<double> values) {
+        for (double v : values)
+            if (!std::isfinite(v))
+                throw std::invalid_argument("invalid calibration value");
+    };
+    finite({c.start, c.end, c.step, c.freq_start_x, c.freq_end_x, c.freq_start_y, c.freq_end_y});
+    // As validações dos diálogos de calib_dlg.cpp.
+    auto require = [](bool ok, const std::string &message) {
+        if (!ok)
+            throw std::invalid_argument(message);
+    };
+    const bool junction_deviation = has_junction_deviation(m->printer());
+    switch (c.test) {
+    case Test::Temperature:
+        require(c.start <= 500 && c.end >= 155 && c.end <= c.start - 5,
+                _u8L("Please input valid values:\nStart temp: <= 500\nEnd temp: >= 155\nStart temp >= End temp + 5"));
+        break;
+    case Test::MaxVolumetricSpeed:
+        require(c.start > 0 && c.step > 0 && c.end >= c.start + c.step, _u8L("Please input valid values:\nstart > 0\nstep >= 0\nend > start + step"));
+        break;
+    case Test::Vfa:
+        require(c.start > 10 && c.step > 0 && c.end >= c.start + c.step, _u8L("Please input valid values:\nstart > 10\nstep >= 0\nend > start + step"));
+        break;
+    case Test::Retraction:
+        require(c.start >= 0 && c.step > 0 && c.end >= c.start + c.step, _u8L("Please input valid values:\nstart > 0\nstep >= 0\nend > start + step"));
+        break;
+    case Test::PressureAdvanceTower:
+    case Test::PressureAdvanceLine:
+    case Test::PressureAdvancePattern:
+        require(c.start >= 0 && c.step >= 10 * EPSILON && c.end >= c.start + c.step,
+                _u8L("Please input valid values:\nStart PA: >= 0.0\nEnd PA: > Start PA\nPA step: >= 0.001"));
+        break;
+    case Test::FlowRate:
+        require(c.flow_pass == 1 || c.flow_pass == 2, "invalid flow rate pass");
+        break;
+    case Test::InputShapingFrequency:
+        require(c.freq_start_x >= 0 && c.freq_end_x <= 500 && c.freq_start_x < c.freq_end_x && c.freq_start_y >= 0 && c.freq_end_y <= 500 &&
+                    c.freq_start_y < c.freq_end_y,
+                _u8L("Please input valid values:\n(0 < FreqStart < FreqEnd < 500)"));
+        require(c.start >= 0 && c.start < 1, _u8L("Please input a valid damping factor (0 < Damping/zeta factor <= 1)"));
+        break;
+    case Test::InputShapingDamping:
+        require(c.freq_start_x >= 0 && c.freq_start_x <= 500 && c.freq_start_y >= 0 && c.freq_start_y <= 500,
+                _u8L("Please input valid values:\n(0 < Freq < 500)"));
+        require(c.start >= 0 && c.end <= 1 && c.start < c.end, _u8L("Please input a valid damping factor (0 <= DampingStart < DampingEnd <= 1)"));
+        break;
+    case Test::Cornering: {
+        const double max_end = junction_deviation ? 0.3 : 100.0;
+        require(c.start >= 0 && c.end <= max_end && c.start < c.end,
+                format(_u8L("Please input valid values:\n(0 <= Cornering <= %s)"), format("%.3f", max_end)));
+        break;
+    }
+    }
+    if ((c.test == Test::InputShapingFrequency || c.test == Test::InputShapingDamping) && (c.model < 0 || c.model > 1))
+        throw std::invalid_argument("invalid test model");
+    if (c.test == Test::Cornering && (c.model < 0 || c.model > 2))
+        throw std::invalid_argument("invalid test model");
+    if (c.test == Test::PressureAdvancePattern)
+        throw std::invalid_argument("not implemented");
+
+    const char *file = nullptr;
+    switch (c.test) {
+    case Test::Temperature: file = "temperature_tower/temperature_tower.drc"; break;
+    case Test::MaxVolumetricSpeed: file = "volumetric_speed/SpeedTestStructure.drc"; break;
+    case Test::PressureAdvanceTower: file = "pressure_advance/tower_with_seam.drc"; break;
+    case Test::PressureAdvanceLine: file = "pressure_advance/pressure_advance_test.drc"; break;
+    case Test::PressureAdvancePattern: break;
+    case Test::FlowRate:
+        file = c.flow_linear ? (c.flow_pass == 1 ? "filament_flow/Orca-LinearFlow.3mf" : "filament_flow/Orca-LinearFlow_fine.3mf")
+                             : (c.flow_pass == 1 ? "filament_flow/flowrate-test-pass1.3mf" : "filament_flow/flowrate-test-pass2.3mf");
+        break;
+    case Test::Retraction: file = "retraction/retraction_tower.drc"; break;
+    case Test::Vfa: file = "vfa/vfa.drc"; break;
+    case Test::InputShapingFrequency:
+    case Test::InputShapingDamping: file = c.model == 0 ? "input_shaping/ringing_tower.drc" : "input_shaping/fast_tower_test.drc"; break;
+    case Test::Cornering:
+        file = c.model == 0 ? "input_shaping/ringing_tower.drc" : c.model == 1 ? "input_shaping/fast_tower_test.drc" : "cornering/SCV-V2.drc";
+        break;
+    }
+    load_model((calib / file).string());
+    // Plater::new_project() pergunta o que fazer com as alterações dos perfis; aqui elas são
+    // descartadas, senão os ajustes de um teste (ex.: modo vaso) passariam ao seguinte.
+    for (PresetKind kind : {PresetKind::Process, PresetKind::Filament, PresetKind::Printer})
+        discard_changes(kind);
+
+    PresetBundle       &bundle   = *m->bundle;
+    DynamicPrintConfig &print    = bundle.prints.get_edited_preset().config;
+    DynamicPrintConfig &printer  = bundle.printers.get_edited_preset().config;
+    DynamicPrintConfig &filament = bundle.filaments.get_edited_preset().config;
+    Model              &model    = m->model;
+    ModelObject        &object   = *model.objects.front();
+    ModelConfigObject  &obj_cfg  = object.config;
+    const double        nozzle_diameter = first_float(printer, "nozzle_diameter");
+
+    Calib_Params params;
+    params.start = c.start;
+    params.end   = c.end;
+    params.step  = c.step;
+    params.print_numbers = c.print_numbers;
+    params.freqStartX = c.freq_start_x;
+    params.freqEndX   = c.freq_end_x;
+    params.freqStartY = c.freq_start_y;
+    params.freqEndY   = c.freq_end_y;
+    params.test_model = c.model;
+    params.shaper_type = c.shaper_type;
+    params.speeds = c.speeds;
+    params.accelerations = c.accelerations;
+
+    switch (c.test) {
+    case Test::Temperature: {
+        // Plater::calib_temp(): blocos de 10 mm, um a cada 5 °C desde 500 no topo do modelo.
+        params.mode = CalibMode::Calib_Temp_Tower;
+        const double nozzle = nozzle_diameter > 0.0 ? nozzle_diameter : 0.4;
+        const double scale  = nozzle / 0.4;
+        long blocks = lround((500 - c.end) / 5 + 1);
+        if (blocks > 0 && blocks * 10.0 - EPSILON < object.bounding_box_exact().size().z())
+            cut_horizontal(model, 0, blocks * 10.0 - EPSILON, ModelObjectCutAttribute::KeepLower);
+        blocks = lround((500 - c.start) / 5);
+        if (blocks > 0 && blocks * 10.0 + EPSILON < model.objects.front()->bounding_box_exact().size().z())
+            cut_horizontal(model, 0, blocks * 10.0 + EPSILON, ModelObjectCutAttribute::KeepUpper);
+        ModelObject &tower = *model.objects.front();
+        if (std::abs(scale - 1.0) > EPSILON)
+            tower.scale(scale, scale, scale);
+        tower.ensure_on_bed();
+        const int start_temp = int(lround(c.start));
+        printer.set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+        filament.set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts(1, start_temp));
+        filament.set_key_value("nozzle_temperature", new ConfigOptionInts(1, start_temp));
+        ModelConfigObject &cfg = tower.config;
+        cfg.set_key_value("layer_height", new ConfigOptionFloat(nozzle / 2));
+        cfg.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
+        cfg.set_key_value("brim_width", new ConfigOptionFloat(5.0));
+        cfg.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+        cfg.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+        cfg.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+        cfg.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+        cfg.set_key_value("precise_z_height", new ConfigOptionBool(false));
+        print.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+        print.set_key_value("initial_layer_print_height", new ConfigOptionFloat(nozzle / 2));
+        break;
+    }
+    case Test::MaxVolumetricSpeed: {
+        // Plater::calib_max_vol_speed().
+        params.mode = CalibMode::Calib_Vol_speed_Tower;
+        const BoundingBoxf bed = get_extents(printer.option<ConfigOptionPoints>("printable_area")->values);
+        const double       scale_obj = (bed.size().x() - 10) / object.bounding_box_exact().size().x();
+        if (scale_obj < 1.0)
+            object.scale(scale_obj, 1, 1);
+        const double line_width   = nozzle_diameter * 1.75;
+        const double layer_height = nozzle_diameter * 0.8;
+        auto        *max_lh       = printer.option<ConfigOptionFloats>("max_layer_height");
+        if (max_lh->values[0] < layer_height)
+            max_lh->values[0] = layer_height;
+        filament.set_key_value("filament_max_volumetric_speed", new ConfigOptionFloats{200});
+        filament.set_key_value("slow_down_layer_time", new ConfigOptionFloats{0.0});
+        printer.set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+        obj_cfg.set_key_value("enable_overhang_speed", new ConfigOptionBool{false});
+        obj_cfg.set_key_value("wall_loops", new ConfigOptionInt(1));
+        obj_cfg.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+        obj_cfg.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+        obj_cfg.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
+        obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+        obj_cfg.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(line_width, false));
+        obj_cfg.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+        obj_cfg.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterAndInner));
+        obj_cfg.set_key_value("brim_width", new ConfigOptionFloat(5.0));
+        obj_cfg.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+        obj_cfg.set_key_value("precise_z_height", new ConfigOptionBool(false));
+        print.set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
+        print.set_key_value("spiral_mode", new ConfigOptionBool(true));
+        print.set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+        print.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+        const double height = (c.end - c.start + 1) / c.step;
+        if (height < object.bounding_box_exact().size().z())
+            cut_horizontal(model, 0, height, ModelObjectCutAttribute::KeepLower);
+        // A velocidade da parede, em mm/s, sobe com a altura (GCode: start + z * step).
+        const double mm3_per_mm = Flow(float(line_width), float(layer_height), float(nozzle_diameter)).mm3_per_mm() * first_float(filament, "filament_flow_ratio");
+        params.end   = c.end / mm3_per_mm;
+        params.start = c.start / mm3_per_mm;
+        params.step  = c.step / mm3_per_mm;
+        break;
+    }
+    case Test::PressureAdvanceTower:
+    case Test::PressureAdvanceLine: {
+        // Plater::calib_pa() e _calib_pa_tower().
+        print.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+        print.set_key_value("precise_z_height", new ConfigOptionBool(false));
+        printer.set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+        if (c.test == Test::PressureAdvanceLine) {
+            params.mode = CalibMode::Calib_PA_Line;
+            break;
+        }
+        params.mode = CalibMode::Calib_PA_Tower;
+        print.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+        filament.set_key_value("slow_down_layer_time", new ConfigOptionFloats{1.0f});
+        obj_cfg.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+        const DynamicPrintConfig full = bundle.full_config();
+        const double wall_speed = CalibPressureAdvance::find_optimal_PA_speed(full, full.get_abs_value("line_width", nozzle_diameter),
+                                                                              full.get_abs_value("layer_height"), 0, 0);
+        obj_cfg.set_key_value("outer_wall_speed", new ConfigOptionFloat(wall_speed));
+        obj_cfg.set_key_value("inner_wall_speed", new ConfigOptionFloat(wall_speed));
+        obj_cfg.set_key_value("seam_position", new ConfigOptionEnum<SeamPosition>(spRear));
+        obj_cfg.set_key_value("wall_loops", new ConfigOptionInt(2));
+        obj_cfg.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+        obj_cfg.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
+        obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+        obj_cfg.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btEar));
+        obj_cfg.set_key_value("brim_object_gap", new ConfigOptionFloat(.0f));
+        obj_cfg.set_key_value("brim_ears_max_angle", new ConfigOptionFloat(135.f));
+        obj_cfg.set_key_value("brim_width", new ConfigOptionFloat(6.f));
+        obj_cfg.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+        print.set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+        const double height = std::ceil((c.end - c.start) / c.step) + 1;
+        if (height < object.bounding_box_exact().size().z())
+            cut_horizontal(model, 0, height, ModelObjectCutAttribute::KeepLower);
+        break;
+    }
+    case Test::PressureAdvancePattern: break;
+    case Test::FlowRate:
+        // Plater::calib_flowrate(); não usa os parâmetros do gerador.
+        adjust_settings_for_flowrate_calib(bundle, model, m->build_volume().bounding_volume2d().center(), c.flow_linear, c.flow_pass,
+                                           c.flow_monotonic ? ipMonotonic : ipArchimedeanChords);
+        printer.set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+        break;
+    case Test::Retraction: {
+        // Plater::calib_retraction().
+        params.mode = CalibMode::Calib_Retraction_tower;
+        print.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+        const double layer_height = nozzle_diameter <= 0.1 ? 0.05 : nozzle_diameter <= 0.2 ? 0.1 : 0.2;
+        auto        *max_lh       = printer.option<ConfigOptionFloats>("max_layer_height");
+        if (max_lh->values[0] < layer_height)
+            max_lh->values[0] = layer_height;
+        printer.set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+        printer.set_key_value("use_firmware_retraction", new ConfigOptionBool(false));
+        obj_cfg.set_key_value("wall_loops", new ConfigOptionInt(2));
+        obj_cfg.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+        obj_cfg.set_key_value("bottom_shell_layers", new ConfigOptionInt(3));
+        obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+        print.set_key_value("initial_layer_print_height", new ConfigOptionFloat(layer_height));
+        obj_cfg.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+        obj_cfg.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+        obj_cfg.set_key_value("seam_position", new ConfigOptionEnum<SeamPosition>(spAligned));
+        obj_cfg.set_key_value("wall_sequence", new ConfigOptionEnum<WallSequence>(WallSequence::InnerOuter));
+        obj_cfg.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+        obj_cfg.set_key_value("precise_z_height", new ConfigOptionBool(false));
+        const double height = 1.0 + 0.4 + (c.end - c.start) / c.step - EPSILON;
+        if (height < object.bounding_box_exact().size().z())
+            cut_horizontal(model, 0, height, ModelObjectCutAttribute::KeepLower);
+        break;
+    }
+    case Test::Vfa: {
+        // Plater::calib_VFA().
+        params.mode = CalibMode::Calib_VFA_Tower;
+        printer.set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+        filament.set_key_value("slow_down_layer_time", new ConfigOptionFloats{0.0});
+        print.set_key_value("enable_overhang_speed", new ConfigOptionBool{false});
+        print.set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
+        print.set_key_value("wall_loops", new ConfigOptionInt(1));
+        print.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+        print.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+        print.set_key_value("bottom_shell_layers", new ConfigOptionInt(1));
+        print.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+        print.set_key_value("detect_thin_wall", new ConfigOptionBool(false));
+        print.set_key_value("spiral_mode", new ConfigOptionBool(true));
+        print.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+        print.set_key_value("precise_z_height", new ConfigOptionBool(false));
+        obj_cfg.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
+        obj_cfg.set_key_value("brim_width", new ConfigOptionFloat(3.0));
+        obj_cfg.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+        const double height = 5 * ((c.end - c.start) / c.step + 1);
+        if (height < object.bounding_box_exact().size().z())
+            cut_horizontal(model, 0, height, ModelObjectCutAttribute::KeepLower);
+        break;
+    }
+    case Test::InputShapingFrequency:
+    case Test::InputShapingDamping:
+        // Plater::calib_input_shaping_freq() e _damp().
+        params.mode = c.test == Test::InputShapingFrequency ? CalibMode::Calib_Input_shaping_freq : CalibMode::Calib_Input_shaping_damp;
+        prepare_input_shaping(print, printer);
+        prepare_motion_test(print, filament, printer, object);
+        if (c.test == Test::InputShapingFrequency)
+            print.set_key_value("layer_height", new ConfigOptionFloat(0.2));
+        break;
+    case Test::Cornering:
+        // Plater::Calib_Cornering().
+        params.mode = CalibMode::Calib_Cornering;
+        if (junction_deviation) {
+            printer.set_key_value("machine_max_junction_deviation", new ConfigOptionFloats{c.end});
+            print.set_key_value("default_junction_deviation", new ConfigOptionFloat(0.0));
+        } else {
+            printer.set_key_value("machine_max_jerk_x", new ConfigOptionFloats{c.end});
+            printer.set_key_value("machine_max_jerk_y", new ConfigOptionFloats{c.end});
+            print.set_key_value("default_jerk", new ConfigOptionFloat(0));
+        }
+        prepare_motion_test(print, filament, printer, object);
+        printer.set_key_value("input_shaping_emit", new ConfigOptionBool{true});
+        printer.set_key_value("input_shaping_type", new ConfigOptionEnum<InputShaperType>(InputShaperType::Disable));
+        filament.set_key_value("filament_max_volumetric_speed", new ConfigOptionFloats{200});
+        print.set_key_value("default_acceleration", new ConfigOptionFloat(2000));
+        print.set_key_value("outer_wall_acceleration", new ConfigOptionFloat(2000));
+        break;
+    }
+    // A torre (ou o conjunto) no centro da mesa, como depois de add_model() no Orca.
+    m->place_on_bed();
+    m->calib = params;
+}
+
 void Engine::clear_paint(size_t object, PaintKind kind)
 {
     for (ModelVolume *volume : m->object(object).volumes)
@@ -2700,6 +3192,7 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
         if (progress)
             progress(s.percent, i18n::translate(s.text));
     });
+    print.set_calib_params(m->calib);
     print.apply(m->model, config);
     print.restart();
 

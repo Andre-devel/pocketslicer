@@ -1,7 +1,7 @@
-// Stubs for libslic3r entry points whose implementations need OpenCASCADE,
-// Draco or OpenCV. Those libraries are not built for Android (see
+// Stubs for libslic3r entry points whose implementations need OpenCASCADE
+// or OpenCV. Those libraries are not built for Android (see
 // docs/arquitetura.md §2.3); the formats they back (STEP, SVG extrusion,
-// Draco, 3D text) are out of scope for the app. Each stub fails cleanly.
+// 3D text) are out of scope for the app. Each stub fails cleanly.
 // At the end, one GUI-side helper that libslic3r calls.
 
 #include <string>
@@ -10,7 +10,6 @@
 
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
-#include "libslic3r/Format/DRC.hpp"
 #include "libslic3r/Format/svg.hpp"
 #include "libslic3r/Shape/TextShape.hpp"
 
@@ -21,12 +20,6 @@ bool load_svg(const char * /*path*/, Model * /*model*/, std::string &message)
     message = "SVG import is not supported in this build.";
     return false;
 }
-
-bool load_drc(const char * /*path*/, TriangleMesh * /*meshptr*/) { return false; }
-bool load_drc(const char * /*path*/, Model * /*model*/, const char * /*object_name*/) { return false; }
-bool store_drc(const char * /*path*/, TriangleMesh * /*mesh*/, int /*bits*/, int /*speed*/) { return false; }
-bool store_drc(const char * /*path*/, ModelObject * /*model_object*/, int /*bits*/, int /*speed*/) { return false; }
-bool store_drc(const char * /*path*/, Model * /*model*/, int /*bits*/, int /*speed*/) { return false; }
 
 std::vector<std::string> init_occt_fonts() { return {}; }
 std::map<std::string, std::string> get_occt_fonts_maps() { return {}; }

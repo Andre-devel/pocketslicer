@@ -181,6 +181,31 @@ struct HeightRange {
     double min = 0.0, max = 0.0;
 };
 
+// Teste do menu Calibração do Orca (Plater::calib_*, diálogos de calib_dlg.cpp). Os campos que
+// valem dependem do teste: start/end/step (temperatura em °C, do maior para o menor; PA;
+// velocidade volumétrica em mm³/s; VFA em mm/s; retração em mm; cornering em mm ou mm/s;
+// amortecimento do input shaping), print_numbers (PA linha), flow_linear e flow_pass (fluxo:
+// YOLO ou passo 1/2) com flow_monotonic (padrão do topo), model (input shaping e cornering:
+// 0 torre de ringing, 1 torre rápida, 2 SCV-V2), shaper_type e as frequências (input shaping;
+// no de amortecimento só as de início), speeds e accelerations (PA padrão).
+struct Calibration {
+    enum class Test {
+        Temperature = 0, MaxVolumetricSpeed = 1, PressureAdvanceTower = 2, PressureAdvanceLine = 3,
+        PressureAdvancePattern = 4, FlowRate = 5, Retraction = 6, Cornering = 7,
+        InputShapingFrequency = 8, InputShapingDamping = 9, Vfa = 10,
+    };
+    Test                test = Test::Temperature;
+    double              start = 0.0, end = 0.0, step = 0.0;
+    bool                print_numbers = false;
+    bool                flow_linear = true;
+    int                 flow_pass = 1;
+    bool                flow_monotonic = false;
+    int                 model = 0;
+    std::string         shaper_type;
+    double              freq_start_x = 0.0, freq_end_x = 0.0, freq_start_y = 0.0, freq_end_y = 0.0;
+    std::vector<double> speeds, accelerations;
+};
+
 struct Canceled : std::runtime_error {
     Canceled() : std::runtime_error("slicing canceled") {}
 };
@@ -361,6 +386,14 @@ public:
     void set_part_placement(size_t object, size_t part, const Vec3 &offset, const Vec3 &rotation, const Vec3 &scale);
     // Lança se for a última peça do objeto (tipo Model). Os índices seguintes descem um.
     void remove_part(size_t object, size_t part);
+
+    // --- Calibração ---
+
+    // Troca a mesa pelo teste, como o menu Calibração do Orca: o modelo dele, os ajustes que ele
+    // faz nos presets editados (as alterações não salvas de antes são descartadas; as do teste
+    // ficam como alterações não salvas) e os parâmetros que o gerador de G-code usa a cada camada
+    // (valem até outro modelo ou projeto ser aberto).
+    void calibrate(const Calibration &calibration);
 
     // --- Pintura de suporte, costura, pele difusa e cor ---
 

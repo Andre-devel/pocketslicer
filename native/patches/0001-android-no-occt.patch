@@ -1,5 +1,5 @@
 diff --git a/src/libslic3r/CMakeLists.txt b/src/libslic3r/CMakeLists.txt
-index 9b67d7ab..fb0b383e 100644
+index 9b67d7ab..8b7314fe 100644
 --- a/src/libslic3r/CMakeLists.txt
 +++ b/src/libslic3r/CMakeLists.txt
 @@ -497,7 +497,9 @@ set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE ON CACHE BOOL "" FORCE)
@@ -13,24 +13,25 @@ index 9b67d7ab..fb0b383e 100644
  cmake_policy(POP)
  
  add_library(libslic3r_cgal STATIC
-@@ -537,13 +539,29 @@ target_compile_definitions(libslic3r PUBLIC -DUSE_TBB -DTBB_USE_CAPTURED_EXCEPTI
+@@ -537,13 +539,30 @@ target_compile_definitions(libslic3r PUBLIC -DUSE_TBB -DTBB_USE_CAPTURED_EXCEPTI
  target_include_directories(libslic3r PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
  target_include_directories(libslic3r SYSTEM PUBLIC ${EXPAT_INCLUDE_DIRS})
  
 +find_package(JPEG REQUIRED)
 +
 +if (SLIC3R_NO_OCCT)
-+    # Android build: no OpenCASCADE, OpenCV or Draco. The sources that need
-+    # them are dropped and their entry points are provided by stubs
-+    # (SLIC3R_NO_OCCT_STUBS, set by the parent project).
++    # Android build: no OpenCASCADE or OpenCV. The sources that need them
++    # are dropped and their entry points are provided by stubs
++    # (SLIC3R_NO_OCCT_STUBS, set by the parent project). Draco is built.
 +    target_compile_definitions(libslic3r PUBLIC SLIC3R_NO_OCCT)
 +    get_target_property(_slic3r_srcs libslic3r SOURCES)
-+    list(FILTER _slic3r_srcs EXCLUDE REGEX "(Format/STEP|Format/svg|Format/DRC|Shape/TextShape|ObjColorUtils)\\.(cpp|hpp)$")
++    list(FILTER _slic3r_srcs EXCLUDE REGEX "(Format/STEP|Format/svg|Shape/TextShape|ObjColorUtils)\\.(cpp|hpp)$")
 +    set_target_properties(libslic3r PROPERTIES SOURCES "${_slic3r_srcs}")
 +    target_sources(libslic3r PRIVATE ${SLIC3R_NO_OCCT_STUBS})
++    find_package(draco REQUIRED)
 +    set(OCCT_LIBS "")
 +    set(_slic3r_opencv_lib "")
-+    set(_slic3r_draco_lib "")
++    set(_slic3r_draco_lib draco::draco)
 +else ()
  # Find the OCCT and related libraries
  set(OpenCASCADE_DIR "${CMAKE_PREFIX_PATH}/lib/cmake/occt")
@@ -44,7 +45,7 @@ index 9b67d7ab..fb0b383e 100644
  
  set(OCCT_LIBS
      TKXDESTEP
-@@ -573,6 +591,7 @@ set(OCCT_LIBS
+@@ -573,6 +592,7 @@ set(OCCT_LIBS
      TKMath
      TKernel
  )
@@ -52,7 +53,7 @@ index 9b67d7ab..fb0b383e 100644
  
  target_link_libraries(libslic3r
      PUBLIC
-@@ -581,7 +600,7 @@ target_link_libraries(libslic3r
+@@ -581,7 +601,7 @@ target_link_libraries(libslic3r
          libigl
          libnest2d
          miniz
@@ -61,7 +62,7 @@ index 9b67d7ab..fb0b383e 100644
      PRIVATE
          ${CMAKE_DL_LIBS}
          ${EXPAT_LIBRARIES}
-@@ -590,7 +609,7 @@ target_link_libraries(libslic3r
+@@ -590,7 +610,7 @@ target_link_libraries(libslic3r
          cereal::cereal
          clipper
          Clipper2
@@ -70,7 +71,7 @@ index 9b67d7ab..fb0b383e 100644
          glu-libtess
          JPEG::JPEG
          libslic3r_cgal
-@@ -609,7 +628,7 @@ target_link_libraries(libslic3r
+@@ -609,7 +629,7 @@ target_link_libraries(libslic3r
  if(NOT WIN32)
      # Link freetype for OCCT dependency (CAD operations need font rendering)
      target_link_libraries(libslic3r PRIVATE ${FREETYPE_LIBRARIES})
