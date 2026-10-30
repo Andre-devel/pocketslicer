@@ -16,6 +16,14 @@ trap 'rm -rf "$WORK"' EXIT
 grep -v '^#' "$ROOT/testdata/cases.tsv" | while IFS=$'\t' read -r name model vendor machine process filament; do
     if [ $# -gt 0 ] && [[ " $* " != *" $name "* ]]; then continue; fi
     mkdir -p "$WORK/$name"
+    # Projeto 3MF: o Orca usa os perfis gravados nele.
+    if [[ "$model" == *.3mf ]]; then
+        "$ORCA" --slice 0 --outputdir "$WORK/$name" "$ROOT/testdata/$model" > "$WORK/$name.log" 2>&1 || {
+            echo "$name: falhou, ver log abaixo" >&2; tail -20 "$WORK/$name.log" >&2; exit 1; }
+        gzip -9c "$WORK/$name/plate_1.gcode" > "$ROOT/testdata/reference/$name.gcode.gz"
+        echo "$name: ok"
+        continue
+    fi
     # O CLI não resolve "inherits"; recebe os perfis já achatados (como a GUI exporta).
     python3 "$ROOT/scripts/flatten-profile.py" "$PROFILES" "$vendor" machine "$machine" "$WORK/$name/machine.json"
     python3 "$ROOT/scripts/flatten-profile.py" "$PROFILES" "$vendor" process "$process" "$WORK/$name/process.json"

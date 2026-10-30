@@ -44,8 +44,13 @@ while IFS=$'\t' read -r name model vendor machine process filament; do
     fi
     "$ADB" push "$ROOT/testdata/$model" "$DEV/models/" >/dev/null </dev/null
 
-    if ! "$ADB" shell "cd $DEV && time ./slice_cli resources '$vendor' \
-            '$machine' '$process' '$filament' 'models/$model' '$name.gcode' \
+    # Projeto 3MF: os perfis vêm do próprio arquivo.
+    if [[ "$model" == *.3mf ]]; then
+        args="--project 'models/$model' '$name.gcode'"
+    else
+        args="'$vendor' '$machine' '$process' '$filament' 'models/$model' '$name.gcode'"
+    fi
+    if ! "$ADB" shell "cd $DEV && time ./slice_cli resources $args \
             2>&1 | grep -v '^\[ *[0-9]*%\]'" </dev/null; then
         failed=1
         continue

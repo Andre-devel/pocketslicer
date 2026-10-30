@@ -5,8 +5,13 @@
 # Referência: testdata/reference/<nome>.gcode.gz, gerada por scripts/make-reference.sh.
 # Modelos: voron_cube_v7 e calicat exportados para STL de resources/handy_models/*.drc do OrcaSlicer
 # (mesma origem e licença do submódulo).
+# Modelo .3mf: projeto com os perfis dentro; as colunas de perfil ficam com "-" (o fabricante, para
+# test-device.sh copiar os perfis dele). modifier_cube.3mf: cube20 do Orca CLI (--export-3mf, A1)
+# com um cubo de 8 mm no centro como modificador (sparse_infill_density 100%, wall_loops 4) e a
+# faixa de 14 a 20 mm com layer_height 0.1 e wall_loops 3 (Metadata/layer_config_ranges.xml).
 cube20	cube20.stl	BBL	Bambu Lab A1 0.4 nozzle	0.20mm Standard @BBL A1	Bambu PLA Basic @BBL A1
 voron_cube	voron_cube_v7.stl	BBL	Bambu Lab A1 0.4 nozzle	0.20mm Standard @BBL A1	Bambu PLA Basic @BBL A1
 calicat	calicat.stl	Creality	Creality Ender-3 V3 0.4 nozzle	0.20mm Standard @Creality Ender-3 V3	Creality Generic PLA @Ender-3V3-all
 mk4_calicat	calicat.stl	Prusa	Prusa MK4 0.4 nozzle	0.20mm Standard @MK4	Prusa Generic PLA @MK4
 voron24_voron_cube	voron_cube_v7.stl	Voron	Voron 2.4 350 0.4 nozzle	0.20mm Standard @Voron	Generic PLA @System
+modifier_cube	modifier_cube.3mf	BBL	-	-	-
