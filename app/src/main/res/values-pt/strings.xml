@@ -37,6 +37,12 @@
     <string name="paint_highlight">Destacar saliências</string>
     <string name="paint_overhangs_only">Só nas saliências destacadas</string>
     <string name="paint_erase_all">Apagar tudo</string>
+    <string name="paint_gap_fill">Lacunas</string>
+    <string name="paint_gap_area">Área da lacuna</string>
+    <string name="paint_perform">Preencher lacunas</string>
+    <string name="paint_gap_fill_hint">Trechos pintados ou não, menores que a área da lacuna, passam ao estado em volta deles. Eles aparecem nesse estado.</string>
+    <string name="paint_section_view">Vista em corte</string>
+    <string name="paint_reset_direction">Redefinir direção</string>
     <string name="object_title">Objeto selecionado</string>
     <string name="object_hint">Toque em um objeto na mesa para editar posição, rotação e escala. Arraste sobre ele para usar a ferramenta; em \"Apoiar face\", toque na face que deve ficar na mesa.</string>
     <string name="more_options">Mais opções</string>

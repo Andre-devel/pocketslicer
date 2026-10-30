@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.andredevel.slicer.core.BedTypes
 import io.github.andredevel.slicer.core.Brush
+import io.github.andredevel.slicer.core.ClipPlane
 import io.github.andredevel.slicer.core.HeightRange
 import io.github.andredevel.slicer.core.LayerChange
 import io.github.andredevel.slicer.core.ObjectMesh
@@ -169,8 +170,19 @@ data class RangeSettings(val range: HeightRange, val values: Map<String, String>
 /**
  * Pintura aberta (uma ferramenta de pintura com o objeto [objectIndex] selecionado): o que está
  * pintado dele e o ângulo das saliências destacadas (0 = nenhuma), como no gizmo do Orca.
+ * [gaps]: com "Preencher lacunas" escolhido, os trechos que ele vai mudar (no estado novo).
+ * [clipRatio]: "Vista em corte", de 0 (nada escondido) a 1; [clipDirection] muda a cada
+ * "Redefinir direção", que põe o corte de frente para a câmera.
  */
-data class Painting(val objectIndex: Int, val kind: PaintKind, val mesh: PaintMesh, val highlightAngle: Float)
+data class Painting(
+    val objectIndex: Int,
+    val kind: PaintKind,
+    val mesh: PaintMesh,
+    val highlightAngle: Float,
+    val gaps: PaintMesh? = null,
+    val clipRatio: Float = 0f,
+    val clipDirection: Int = 0,
+)
 
 data class SlicerUiState(
     /** Operação em andamento que bloqueia os controles (carregar perfis, modelo...). */
@@ -212,6 +224,8 @@ data class SlicerUiState(
     val brush: Brush = Brush(),
     /** Pintar só nas saliências destacadas (suporte). */
     val paintOnOverhangsOnly: Boolean = false,
+    /** Com "Preencher lacunas" (suporte) escolhido no lugar de [brush]: a área máxima (mm²) dos trechos. */
+    val gapArea: Float? = null,
     /** Viewport na pré-visualização do G-code (só com fatiamento concluído). */
     val showPreview: Boolean = false,
     val slice: SliceState = SliceState.Idle,
@@ -736,14 +750,34 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setHighlightAngle(angle: Float) = _state.update { state -> state.copy(painting = state.painting?.copy(highlightAngle = angle)) }
 
+    /** "Preencher lacunas" com a área (mm²), ou de volta ao pincel (null). */
+    fun setGapArea(area: Float?) {
+        _state.update { it.copy(gapArea = area) }
+        launchEngine(null) { refreshPainting(it) }
+    }
+
+    fun fillGaps() {
+        val painting = _state.value.painting ?: return
+        val area = _state.value.gapArea ?: return
+        launchEngine(null) { engine ->
+            if (engine.fillGaps(painting.objectIndex, painting.kind, area.toDouble()) > 0) markChanged(StaleReason(app.getString(paintLabel(painting.kind))))
+            refreshPainting(engine)
+        }
+    }
+
+    fun setClipRatio(ratio: Float) = _state.update { state -> state.copy(painting = state.painting?.copy(clipRatio = ratio)) }
+
+    fun resetClipDirection() = _state.update { state -> state.copy(painting = state.painting?.let { it.copy(clipDirection = it.clipDirection + 1) }) }
+
     /** Raio pelo dedo sobre o objeto pintado (ver ViewportListener.onPaint); vai para a fila de [paintStrokes]. */
-    fun paint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean) {
+    fun paint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean, clip: ClipPlane?) {
         val state = _state.value
-        val painting = state.painting?.takeIf { it.objectIndex == objectIndex && state.editable } ?: return
+        // "Preencher lacunas" não pinta com o toque, como no Orca.
+        val painting = state.painting?.takeIf { it.objectIndex == objectIndex && state.editable && (state.gapArea == null || it.kind != PaintKind.SUPPORT) } ?: return
         // A costura não tem o preenchimento; as saliências só valem no suporte.
         val tool = state.brush.tool.takeIf { painting.kind == PaintKind.SUPPORT || it != Brush.Tool.SMART_FILL } ?: Brush.Tool.CIRCLE
         val overhang = if (painting.kind == PaintKind.SUPPORT && state.paintOnOverhangsOnly) painting.highlightAngle.toDouble() else 0.0
-        paintStrokes.trySend(PaintRay(objectIndex, painting.kind, origin, direction, state.brush.copy(tool = tool, overhangAngle = overhang), strokeStart))
+        paintStrokes.trySend(PaintRay(objectIndex, painting.kind, origin, direction, state.brush.copy(tool = tool, overhangAngle = overhang), strokeStart, clip))
     }
 
     fun clearPaint() {
@@ -755,7 +789,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private class PaintRay(val objectIndex: Int, val kind: PaintKind, val origin: FloatArray, val direction: FloatArray, val brush: Brush, val strokeStart: Boolean)
+    private class PaintRay(
+        val objectIndex: Int, val kind: PaintKind, val origin: FloatArray, val direction: FloatArray, val brush: Brush, val strokeStart: Boolean,
+        val clip: ClipPlane?,
+    )
 
     /** Toques da pintura, aplicados em ordem na thread do motor sem esperar o desenho de cada um. */
     private val paintStrokes = Channel<PaintRay>(Channel.UNLIMITED)
@@ -783,7 +820,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun paintRay(engine: SlicerEngine, ray: PaintRay): Boolean = try {
-        engine.paint(ray.objectIndex, ray.kind, ray.origin, ray.direction, ray.brush, ray.strokeStart)
+        engine.paint(ray.objectIndex, ray.kind, ray.origin, ray.direction, ray.brush, ray.strokeStart, ray.clip)
     } catch (e: SlicerException) {
         // Ex.: o objeto saiu da mesa entre o toque e a aplicação.
         Log.w(TAG, e)
@@ -806,9 +843,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         val mesh = engine.painted(selected, kind)
+        val gaps = state.gapArea?.takeIf { kind == PaintKind.SUPPORT }?.let { engine.gaps(selected, kind, it.toDouble()) }
         val previous = state.painting?.takeIf { it.objectIndex == selected && it.kind == kind }
         val angle = previous?.highlightAngle ?: if (kind == PaintKind.SUPPORT) engine.overhangHighlightAngle(selected).toFloat() else 0f
-        _state.update { it.copy(painting = Painting(selected, kind, mesh, angle)) }
+        _state.update {
+            // O que mudou na tela enquanto o motor lia (corte, ângulo) fica.
+            val current = it.painting?.takeIf { p -> p.objectIndex == selected && p.kind == kind }
+            it.copy(painting = current?.copy(mesh = mesh, gaps = gaps) ?: Painting(selected, kind, mesh, angle, gaps))
+        }
     }
 
     fun showPreview(show: Boolean) = _state.update { it.copy(showPreview = show) }

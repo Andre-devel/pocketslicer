@@ -138,7 +138,11 @@ Creality, Box da QIDI).
      mouse no Orca. No suporte, as saliências ficam destacadas pelo ângulo do suporte automático
      (ajustável) e dá para pintar só nelas. "Apagar tudo". A pintura fica nas peças do objeto
      (supported_facets e seam_facets), vai no 3MF e muda o fatiamento.
-     Falta: preenchimento de lacunas e faixa de altura (ferramentas da BBS) e plano de corte.
+     Também (2026-10-30): "Lacunas" (preencher lacunas, com os trechos que vão mudar à vista) e
+     "Vista em corte", que esconde o lado do objeto virado para a câmera e deixa pintar por
+     dentro. O pincel de faixa de altura do Orca é só da pintura multicolor; a tampa do corte
+     (superfície cortada preenchida) não é desenhada. Conferido com o Orca 2.4.2 desktop: o 3MF
+     pintado no app fatia lá com o mesmo suporte (552 contra 557 mm de filamento, interface igual).
 4. Multi-material (AMS/MMU) com torre de purga.
    - Feito (2026-10-29): 3MF multicolor do Orca/Bambu fatia igual ao Orca desktop; filamentos do
      projeto (acrescentar, excluir, preset e cor), filamento do objeto, volumes de purga com o

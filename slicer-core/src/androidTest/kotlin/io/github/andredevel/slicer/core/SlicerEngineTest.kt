@@ -810,6 +810,44 @@ class SlicerEngineTest {
         assertEquals(none, blockedVolume, none * 0.01)
     }
 
+    @Test
+    fun gapFillAndSectionViewWorkLikeOrcaGizmo() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val down = floatArrayOf(0f, 0f, -1f)
+        val above = floatArrayOf(128f, 128f, 100f)
+        // Topo forçado inteiro com um ponto bloqueado pequeno no meio.
+        engine.paint(0, PaintKind.SUPPORT, above, down, Brush(Brush.Tool.SMART_FILL), strokeStart = true)
+        engine.paint(0, PaintKind.SUPPORT, above, down, Brush(state = PaintState.BLOCK, radius = 0.4), strokeStart = true)
+        assertTrue(engine.painted(0, PaintKind.SUPPORT).states.any { it.toInt() == PaintState.BLOCK.ordinal })
+        // Com área menor que a do ponto, nada; com 2 mm², o ponto vira forçado.
+        assertTrue(engine.gaps(0, PaintKind.SUPPORT, 0.01).states.isEmpty())
+        val gaps = engine.gaps(0, PaintKind.SUPPORT, 2.0)
+        assertTrue(gaps.states.isNotEmpty() && gaps.states.all { it.toInt() == PaintState.ENFORCE.ordinal })
+        assertEquals(1, engine.fillGaps(0, PaintKind.SUPPORT, 2.0))
+        assertTrue(engine.painted(0, PaintKind.SUPPORT).states.all { it.toInt() == PaintState.ENFORCE.ordinal })
+        assertEquals(0, engine.fillGaps(0, PaintKind.SUPPORT, 2.0))
+
+        // Corte que esconde o topo (z > 15 na mesa): o raio passa por ele e pinta a base, por dentro.
+        val clip = ClipPlane(floatArrayOf(0f, 0f, 1f), 15f)
+        engine.clearPaint(0, PaintKind.SEAM)
+        assertTrue(engine.paint(0, PaintKind.SEAM, above, down, Brush(radius = 2.0), strokeStart = true, clip = clip))
+        val seam = engine.painted(0, PaintKind.SEAM)
+        assertTrue(seam.states.isNotEmpty())
+        for (v in 0 until seam.positions.size / 3) assertEquals(-10f, seam.positions[v * 3 + 2], 0.001f)
+        // Tudo escondido: não atinge.
+        assertTrue(!engine.paint(0, PaintKind.SEAM, above, down, Brush(), strokeStart = true, clip = ClipPlane(floatArrayOf(0f, 0f, 1f), -1f)))
+    }
+
+    @Test
+    fun vendorProfilesDropValuesOutOfOrcaRange() = runBlocking {
+        // O Bambu Studio usa -1 (automático) onde o Orca só aceita 0 a 2; o Orca recusaria o 3MF.
+        engine.loadVendor("BambuStudio/BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        assertEquals("0", engine.values(PresetKind.PROCESS).values["tree_support_wall_count"])
+    }
+
     private fun hypotOf(x: Float, y: Float) = kotlin.math.hypot(x, y)
 
     private fun worldVertices(mesh: ObjectMesh, placement: Placement): List<FloatArray> {

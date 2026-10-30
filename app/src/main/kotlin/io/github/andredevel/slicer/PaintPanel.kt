@@ -32,8 +32,8 @@ import kotlin.math.roundToInt
 
 /**
  * Controles da pintura de suporte ou de costura, como a janela do gizmo do Orca: forçar,
- * bloquear ou apagar; círculo, esfera ou preenchimento; tamanho; saliências destacadas (suporte)
- * e "Apagar tudo". Os botões do mouse do Orca viram a escolha de [PaintState].
+ * bloquear ou apagar; círculo, esfera, preenchimento ou lacunas (suporte); tamanho; saliências
+ * destacadas (suporte); vista em corte e "Apagar tudo". Os botões do mouse do Orca viram a escolha de [PaintState].
  */
 @Composable
 fun PaintPanel(state: SlicerUiState, viewModel: SlicerViewModel, painting: Painting) {
@@ -55,19 +55,38 @@ fun PaintPanel(state: SlicerUiState, viewModel: SlicerViewModel, painting: Paint
         check = false,
         compact = true,
     )
-    // A costura não tem o preenchimento no Orca.
+    // A costura não tem o preenchimento nem as lacunas no Orca; null aqui é "Preencher lacunas".
     val tools = listOf(Brush.Tool.CIRCLE to R.string.paint_circle, Brush.Tool.SPHERE to R.string.paint_sphere) +
-        if (support) listOf(Brush.Tool.SMART_FILL to R.string.paint_fill) else emptyList()
+        if (support) listOf(Brush.Tool.SMART_FILL to R.string.paint_fill, null to R.string.paint_gap_fill) else emptyList()
+    val gapArea = state.gapArea?.takeIf { support }
     val tool = brush.tool.takeIf { t -> tools.any { it.first == t } } ?: Brush.Tool.CIRCLE
     SegmentedTabs(
         tools.map { Segment(stringResource(it.second)) },
-        tools.indexOfFirst { it.first == tool },
-        { viewModel.setBrush(brush.copy(tool = tools[it].first)) },
+        if (gapArea != null) tools.size - 1 else tools.indexOfFirst { it.first == tool },
+        { i ->
+            val chosen = tools[i].first
+            if (chosen == null) viewModel.setGapArea(lastGapArea)
+            else {
+                if (gapArea != null) viewModel.setGapArea(null)
+                viewModel.setBrush(brush.copy(tool = chosen))
+            }
+        },
         Modifier.fillMaxWidth(),
         check = false,
         compact = true,
     )
-    if (tool == Brush.Tool.SMART_FILL) {
+    if (gapArea != null) {
+        Text(stringResource(R.string.paint_gap_fill_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // TriangleSelectorPatch::GapAreaMin/Max.
+        ValueSlider(stringResource(R.string.paint_gap_area), String.format(Locale.ROOT, "%.2f mm²", gapArea), gapArea, 0f..5f) {
+            lastGapArea = (it * 100).roundToInt() / 100f
+            viewModel.setGapArea(lastGapArea)
+        }
+        AppButton(
+            stringResource(R.string.paint_perform), viewModel::fillGaps,
+            style = ButtonStyle.TONAL, enabled = state.editable && painting.gaps?.states?.isNotEmpty() == true,
+        )
+    } else if (tool == Brush.Tool.SMART_FILL) {
         ValueSlider(stringResource(R.string.paint_fill_angle), "${brush.smartFillAngle.roundToInt()}°", brush.smartFillAngle.toFloat(), 0f..90f) {
             viewModel.setBrush(brush.copy(smartFillAngle = it.roundToInt().toDouble()))
         }
@@ -78,16 +97,25 @@ fun PaintPanel(state: SlicerUiState, viewModel: SlicerViewModel, painting: Paint
         }
     }
     if (support) {
+        if (gapArea == null) {
+            LabeledRow(stringResource(R.string.paint_overhangs_only)) {
+                Switch(
+                    checked = state.paintOnOverhangsOnly,
+                    onCheckedChange = viewModel::setPaintOnOverhangsOnly,
+                    enabled = painting.highlightAngle > 0f,
+                )
+            }
+        }
         ValueSlider(stringResource(R.string.paint_highlight), "${painting.highlightAngle.roundToInt()}°", painting.highlightAngle, 0f..90f) {
             viewModel.setHighlightAngle(it.roundToInt().toFloat())
         }
-        LabeledRow(stringResource(R.string.paint_overhangs_only)) {
-            Switch(
-                checked = state.paintOnOverhangsOnly,
-                onCheckedChange = viewModel::setPaintOnOverhangsOnly,
-                enabled = painting.highlightAngle > 0f,
-            )
-        }
+    }
+    // "Vista em corte": esconde o lado do objeto voltado para a câmera, para pintar por dentro.
+    ValueSlider(stringResource(R.string.paint_section_view), String.format(Locale.ROOT, "%.2f", painting.clipRatio), painting.clipRatio, 0f..1f) {
+        viewModel.setClipRatio((it * 100).roundToInt() / 100f)
+    }
+    if (painting.clipRatio > 0f) {
+        AppButton(stringResource(R.string.paint_reset_direction), viewModel::resetClipDirection, style = ButtonStyle.TEXT, icon = R.drawable.ic_refresh)
     }
     AppButton(
         stringResource(R.string.paint_erase_all), viewModel::clearPaint,
@@ -95,6 +123,9 @@ fun PaintPanel(state: SlicerUiState, viewModel: SlicerViewModel, painting: Paint
         enabled = state.editable && painting.mesh.states.isNotEmpty(),
     )
 }
+
+/** Área do "Preencher lacunas" da última vez, para voltar a ela ao escolhê-lo de novo (como o valor estático do Orca). */
+private var lastGapArea = 0f
 
 @Composable
 private fun ValueSlider(label: String, value: String, current: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {

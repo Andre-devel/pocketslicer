@@ -154,6 +154,12 @@ struct Brush {
     double     overhang_angle = 0.0;    // graus; > 0: só nas faces pendentes ("Só nas saliências destacadas")
 };
 
+// "Vista em corte" do gizmo, na mesa: o lado com normal·p > offset fica escondido e não é pintado.
+struct ClipPlane {
+    Vec3   normal{};
+    double offset = 0.0;
+};
+
 // Triângulos pintados (estado diferente de None) das peças de um objeto, em coordenadas dele.
 struct PaintMesh {
     std::vector<float>    positions;
@@ -351,9 +357,15 @@ public:
 
     // Pinta onde o raio (na mesa; origin na câmera ou no plano próximo dela) atinge as peças do
     // objeto. Num arraste (stroke_start false) liga o ponto ao do toque anterior, como o Orca
-    // faz entre dois eventos do mouse. Devolve se atingiu o objeto.
-    bool paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start);
+    // faz entre dois eventos do mouse. Com clip, só fora do lado escondido. Devolve se atingiu o objeto.
+    bool paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start,
+               const std::optional<ClipPlane> &clip = std::nullopt);
     PaintMesh painted(size_t object, PaintKind kind) const;
+    // "Preencher lacunas" do gizmo de suporte: cada trecho pintado ou não, de área menor que
+    // area (mm², na malha da peça; o Orca permite até 5), passa ao estado vizinho. gaps() mostra
+    // esses trechos já no estado que vão receber; fill_gaps() os aplica e devolve quantos mudaram.
+    PaintMesh gaps(size_t object, PaintKind kind, double area);
+    size_t fill_gaps(size_t object, PaintKind kind, double area);
     // "Apagar tudo" do gizmo.
     void clear_paint(size_t object, PaintKind kind);
     // Ângulo das saliências que o gizmo de suporte destaca ao abrir: o support_threshold_angle do

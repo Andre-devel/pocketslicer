@@ -67,6 +67,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.andredevel.slicer.core.ClipPlane
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.Thumbnail
 import io.github.andredevel.slicer.render.CameraView
@@ -419,8 +420,8 @@ private fun Viewport(
                         override fun onPartTransform(objectIndex: Int, part: Int, transform: FloatArray) {
                             viewModel.setPartTransform(objectIndex, part, transform)
                         }
-                        override fun onPaint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean) {
-                            viewModel.paint(objectIndex, origin, direction, strokeStart)
+                        override fun onPaint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean, clip: ClipPlane?) {
+                            viewModel.paint(objectIndex, origin, direction, strokeStart, clip)
                         }
                         override fun onLayOnFace(objectIndex: Int, triangle: Int) { viewModel.layOnFace(objectIndex, triangle) }
                         override fun onWipeTowerMoved(x: Float, y: Float) { viewModel.setWipeTowerPosition(x, y) }
@@ -439,7 +440,7 @@ private fun Viewport(
                 it.dark = dark
                 it.setScene(state.scene)
                 it.tool = state.tool
-                it.setPaint(state.painting?.let { p -> PaintOverlay(p.objectIndex, p.mesh, p.highlightAngle) })
+                it.setPaint(state.painting?.let { p -> PaintOverlay(p.objectIndex, p.mesh, p.highlightAngle, p.gaps, p.clipRatio, p.clipDirection) })
                 it.setPreview(state.preview, state.previewVisible, previewSettings)
             },
         )

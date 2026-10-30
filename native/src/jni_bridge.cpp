@@ -595,25 +595,28 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemovePart(JNIEnv *en
 }
 
 // ray: origem e direção (6 valores); brush: ferramenta, estado, raio, ângulo do preenchimento e
-// das saliências (Brush, na ordem).
+// das saliências (Brush, na ordem); clip: normal e offset (4 valores) ou null.
 JNIEXPORT jboolean JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePaint(JNIEnv *env, jclass, jlong handle, jint object, jint kind, jdoubleArray ray,
                                                                 jint tool, jint state, jdouble radius, jdouble smart_fill_angle,
-                                                                jdouble overhang_angle, jboolean stroke_start)
+                                                                jdouble overhang_angle, jboolean stroke_start, jdoubleArray clip)
 {
     return guarded(env, [&] {
         std::array<double, 6> r{};
         env->GetDoubleArrayRegion(ray, 0, 6, r.data());
         const slicer::Brush brush{slicer::Brush::Tool(tool), slicer::PaintState(state), radius, smart_fill_angle, overhang_angle};
-        return jboolean(engine(handle)->paint(size_t(object), slicer::PaintKind(kind), {r[0], r[1], r[2]}, {r[3], r[4], r[5]}, brush, stroke_start));
+        std::optional<slicer::ClipPlane> plane;
+        if (clip != nullptr) {
+            std::array<double, 4> c{};
+            env->GetDoubleArrayRegion(clip, 0, 4, c.data());
+            plane = slicer::ClipPlane{{c[0], c[1], c[2]}, c[3]};
+        }
+        return jboolean(engine(handle)->paint(size_t(object), slicer::PaintKind(kind), {r[0], r[1], r[2]}, {r[3], r[4], r[5]}, brush, stroke_start, plane));
     });
 }
 
-JNIEXPORT jobject JNICALL
-Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePainted(JNIEnv *env, jclass, jlong handle, jint object, jint kind)
+static jobject to_paint_mesh(JNIEnv *env, const slicer::PaintMesh &mesh)
 {
-    return guarded(env, [&]() -> jobject {
-        const slicer::PaintMesh mesh = engine(handle)->painted(size_t(object), slicer::PaintKind(kind));
         jclass cls = env->FindClass("io/github/andredevel/slicer/core/PaintMesh");
         jmethodID init = env->GetMethodID(cls, "<init>", "([F[I[B)V");
         jfloatArray positions = to_float_array(env, mesh.positions);
@@ -622,7 +625,24 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePainted(JNIEnv *env, 
         jbyteArray states = env->NewByteArray(jsize(mesh.states.size()));
         env->SetByteArrayRegion(states, 0, jsize(mesh.states.size()), reinterpret_cast<const jbyte *>(mesh.states.data()));
         return env->NewObject(cls, init, positions, indices, states);
-    });
+}
+
+JNIEXPORT jobject JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePainted(JNIEnv *env, jclass, jlong handle, jint object, jint kind)
+{
+    return guarded(env, [&] { return to_paint_mesh(env, engine(handle)->painted(size_t(object), slicer::PaintKind(kind))); });
+}
+
+JNIEXPORT jobject JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeGaps(JNIEnv *env, jclass, jlong handle, jint object, jint kind, jdouble area)
+{
+    return guarded(env, [&] { return to_paint_mesh(env, engine(handle)->gaps(size_t(object), slicer::PaintKind(kind), area)); });
+}
+
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFillGaps(JNIEnv *env, jclass, jlong handle, jint object, jint kind, jdouble area)
+{
+    return guarded(env, [&] { return jint(engine(handle)->fill_gaps(size_t(object), slicer::PaintKind(kind), area)); });
 }
 
 JNIEXPORT void JNICALL

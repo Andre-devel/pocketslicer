@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <iterator>
+#include <queue>
 #include <regex>
 #include <set>
 
@@ -69,11 +70,54 @@ struct Engine::Impl {
 
     // Pintura em andamento (paint()), como os TriangleSelectorGUI do gizmo: seletor e raycaster de
     // cada peça do objeto, válidos enquanto a pintura guardada na peça tiver o timestamp deles.
+    // TriangleSelector com o "Preencher lacunas" de TriangleSelectorPatch (GLGizmoPainterBase.cpp,
+    // que é da GUI): trechos de triângulos vizinhos no mesmo estado.
+    class Selector : public TriangleSelector {
+    public:
+        using TriangleSelector::TriangleSelector;
+        struct Patch {
+            std::vector<int>              facets;
+            EnforcerBlockerType           state = EnforcerBlockerType::NONE;
+            std::set<EnforcerBlockerType> neighbor_states;
+            double                        area = 0.0; // até max_area
+        };
+        // TriangleSelectorPatch::update_triangles_per_patch().
+        std::vector<Patch> patches(double max_area) const;
+        // Os trechos menores que area (TrianglePatch::is_fragment()) com o estado que vão receber.
+        std::vector<std::pair<const Patch *, EnforcerBlockerType>> fragments(const std::vector<Patch> &all, double area) const
+        {
+            std::vector<std::pair<const Patch *, EnforcerBlockerType>> out;
+            for (const Patch &patch : all)
+                if (patch.area < area && !patch.neighbor_states.empty())
+                    out.emplace_back(&patch, *patch.neighbor_states.begin());
+            return out;
+        }
+        // TriangleSelectorPatch::update_selector_triangles().
+        size_t fill_gaps(double area)
+        {
+            const std::vector<Patch> all = patches(area);
+            const auto               gaps = fragments(all, area);
+            for (const auto &[patch, state] : gaps)
+                for (int facet : patch->facets)
+                    m_triangles[facet].set_state(state);
+            return gaps.size();
+        }
+        // Triângulos (na malha da peça) de facets.
+        void append_facets(const std::vector<int> &facets, indexed_triangle_set &out) const
+        {
+            for (int facet : facets) {
+                const int first = int(out.vertices.size());
+                for (int i = 0; i < 3; ++i)
+                    out.vertices.push_back(m_vertices[m_triangles[facet].verts_idxs[i]].v);
+                out.indices.emplace_back(first, first + 1, first + 2);
+            }
+        }
+    };
     struct PaintVolume {
         ObjectID                            volume;
         ObjectWithTimestamp::Timestamp      timestamp = 0;
         std::shared_ptr<const TriangleMesh> mesh; // o seletor guarda uma referência a ela
-        std::unique_ptr<TriangleSelector>   selector;
+        std::unique_ptr<Selector>           selector;
         std::unique_ptr<AABBMesh>           raycaster;
     };
     ObjectID                 paint_object;
@@ -619,6 +663,61 @@ void set_bambu_wipe_tower(const fs::path &path)
     out << profile.dump(4);
 }
 
+// Opções numéricas fora da faixa do Orca, que o Bambu Studio aceita (tree_support_wall_count -1,
+// "automático" nele, onde o Orca usa 0): o fatiamento passa, mas o Orca recusa o 3MF salvo com
+// elas ("not in range", validate() de PrintConfig.cpp, o mesmo teste aqui). Saem do perfil, que
+// fica com o valor do pai ou o padrão do Orca.
+void drop_out_of_range(const fs::path &path)
+{
+    DynamicPrintConfig                 config;
+    std::map<std::string, std::string> key_values;
+    std::string                        reason;
+    config.load_from_json(path.string(), ForwardCompatibilitySubstitutionRule::EnableSilent, key_values, reason);
+    std::vector<std::string> keys;
+    for (const std::string &key : config.keys()) {
+        const ConfigOption    *opt = config.option(key);
+        const ConfigOptionDef *def = print_config_def.get(key);
+        if (opt == nullptr || def == nullptr)
+            continue;
+        bool out_of_range = false;
+        switch (opt->type()) {
+        case coFloat:
+        case coPercent:
+        case coFloatOrPercent: out_of_range = !def->is_value_valid(static_cast<const ConfigOptionFloat *>(opt)->value); break;
+        case coInt: out_of_range = !def->is_value_valid(static_cast<const ConfigOptionInt *>(opt)->value); break;
+        case coFloats:
+        case coPercents: {
+            const auto *values = static_cast<const ConfigOptionVector<double> *>(opt);
+            for (size_t i = 0; i < values->values.size(); ++i)
+                out_of_range |= !values->is_nil(i) && !def->is_value_valid(values->values[i]);
+            break;
+        }
+        case coInts: {
+            const auto *values = static_cast<const ConfigOptionVector<int> *>(opt);
+            for (size_t i = 0; i < values->values.size(); ++i)
+                out_of_range |= !values->is_nil(i) && !def->is_value_valid(values->values[i]);
+            break;
+        }
+        default:;
+        }
+        if (out_of_range)
+            keys.push_back(key);
+    }
+    if (keys.empty())
+        return;
+    boost::nowide::ifstream in(path.string());
+    nlohmann::json profile = nlohmann::json::parse(in, nullptr, false);
+    in.close();
+    if (!profile.is_object())
+        return;
+    for (const std::string &key : keys) {
+        profile.erase(key);
+        BOOST_LOG_TRIVIAL(warning) << "vendor profile " << path << ": dropped out of range " << key;
+    }
+    boost::nowide::ofstream out(path.string());
+    out << profile.dump(4);
+}
+
 // Copia os perfis de um fatiador do fabricante (Creality Print...) para dst, ajustando as
 // opções cujo valor o Orca não aceita: com uma só, PresetBundle descartaria o fabricante
 // inteiro ("Invalid value provided for parameter X"). O Creality Print grava "" onde o Orca
@@ -670,6 +769,7 @@ void copy_for_orca(const fs::path &src, const fs::path &dst)
             boost::nowide::ofstream out(target.string());
             out << profile.dump(4);
         }
+        drop_out_of_range(target);
     }
 }
 
@@ -1661,6 +1761,61 @@ static const FacetsAnnotation &paint_facets(const ModelVolume &volume, PaintKind
     return paint_facets(const_cast<ModelVolume &>(volume), kind);
 }
 
+std::vector<Engine::Impl::Selector::Patch> Engine::Impl::Selector::patches(double max_area) const
+{
+    auto [neighbors, neighbors_propagated] = precompute_all_neighbors();
+    std::vector<bool> visited(m_triangles.size(), false);
+    auto touching = [&](int facet) {
+        const Vec3i32   &n = neighbors[facet];
+        const auto      &v = m_triangles[facet].verts_idxs;
+        std::vector<int> out;
+        append_touching_subtriangles(n(0), v[1], v[0], out);
+        append_touching_subtriangles(n(1), v[2], v[1], out);
+        append_touching_subtriangles(n(2), v[0], v[2], out);
+        for (int neighbor : neighbors_propagated[facet])
+            if (neighbor != -1 && !m_triangles[neighbor].is_split())
+                out.push_back(neighbor);
+        return out;
+    };
+    std::vector<Patch> out;
+    for (size_t start = 0; start < m_triangles.size(); ++start) {
+        if (visited[start] || !m_triangles[start].valid() || m_triangles[start].is_split())
+            continue;
+        Patch patch;
+        patch.state = m_triangles[start].get_state();
+        std::queue<int> queue;
+        queue.push(int(start));
+        while (!queue.empty()) {
+            const int facet = queue.front();
+            queue.pop();
+            if (!visited[facet]) {
+                patch.facets.push_back(facet);
+                for (int other : touching(facet)) {
+                    if (other < 0)
+                        continue;
+                    if (m_triangles[other].get_state() != patch.state) {
+                        patch.neighbor_states.insert(m_triangles[other].get_state());
+                        continue;
+                    }
+                    if (!visited[other])
+                        queue.push(other);
+                }
+            }
+            visited[facet] = true;
+        }
+        // calc_fragment_area(): para de somar ao passar do limite.
+        for (int facet : patch.facets) {
+            const auto  &v  = m_triangles[facet].verts_idxs;
+            const Vec3f &a  = m_vertices[v[0]].v;
+            patch.area += 0.5 * double((a - m_vertices[v[1]].v).cross(a - m_vertices[v[2]].v).norm());
+            if (patch.area >= max_area)
+                break;
+        }
+        out.push_back(std::move(patch));
+    }
+    return out;
+}
+
 Engine::Impl::PaintVolume &Engine::Impl::paint_volume(const ModelObject &object, PaintKind kind, const ModelVolume &volume)
 {
     if (object.id() != paint_object || kind != paint_kind) {
@@ -1678,13 +1833,25 @@ Engine::Impl::PaintVolume &Engine::Impl::paint_volume(const ModelObject &object,
     it->volume    = volume.id();
     it->timestamp = facets.timestamp();
     it->mesh      = volume.mesh_ptr();
-    it->selector  = std::make_unique<TriangleSelector>(*it->mesh);
+    it->selector  = std::make_unique<Selector>(*it->mesh);
     it->selector->deserialize(facets.get_data(), false);
     it->raycaster = std::make_unique<AABBMesh>(*it->mesh);
     return *it;
 }
 
-bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start)
+// O plano na malha de uma peça (GLGizmoPainterBase::get_clipping_plane_in_volume_coordinates()).
+static TriangleSelector::ClippingPlane clipping_plane(const std::optional<ClipPlane> &clip, const Transform3d &trafo)
+{
+    if (!clip)
+        return {};
+    const Vec3d normal(clip->normal[0], clip->normal[1], clip->normal[2]);
+    const Vec3d local = trafo.linear().transpose() * normal;
+    const Vec3d point = trafo.inverse() * (normal * clip->offset);
+    return TriangleSelector::ClippingPlane({float(local.x()), float(local.y()), float(local.z()), float(point.dot(local))});
+}
+
+bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start,
+                   const std::optional<ClipPlane> &clip)
 {
     ModelObject &o = m->object(object);
     const Vec3d  world_origin(origin[0], origin[1], origin[2]);
@@ -1708,9 +1875,17 @@ bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3
         const Vec3d        dir    = (inv.linear() * world_direction).normalized();
         if (!dir.allFinite())
             continue;
-        const AABBMesh::hit_result result = pv.raycaster->query_ray_hit(source, dir);
-        if (!result.is_hit())
+        // O primeiro ponto fora do lado escondido, como o MeshRaycaster com o plano de corte.
+        const TriangleSelector::ClippingPlane clp = clipping_plane(clip, trafo);
+        std::optional<AABBMesh::hit_result>   found;
+        for (const AABBMesh::hit_result &h : pv.raycaster->query_ray_hits(source, dir))
+            if (h.is_hit() && !(clp.is_active() && clp.is_mesh_point_clipped(h.position().cast<float>()))) {
+                found = h;
+                break;
+            }
+        if (!found)
             continue;
+        const AABBMesh::hit_result &result = *found;
         const double distance = (trafo * result.position() - world_origin).norm();
         if (distance < best) {
             best       = distance;
@@ -1732,7 +1907,7 @@ bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3
     Transform3d        trafo_no_translate = hit_trafo;
     trafo_no_translate.translation() = Vec3d::Zero();
     const Vec3f camera = (hit_trafo.inverse() * world_origin).cast<float>();
-    const TriangleSelector::ClippingPlane no_clipping;
+    const TriangleSelector::ClippingPlane no_clipping = clipping_plane(clip, hit_trafo);
     const float overhang = float(std::max(brush.overhang_angle, 0.0));
     if (brush.tool == Brush::Tool::SmartFill) {
         selector.seed_fill_select_triangles(hit.point, hit.facet, trafo_no_translate, no_clipping, float(brush.smart_fill_angle), overhang, true);
@@ -1785,6 +1960,51 @@ PaintMesh Engine::painted(size_t object, PaintKind kind) const
         }
     }
     return out;
+}
+
+PaintMesh Engine::gaps(size_t object, PaintKind kind, double area)
+{
+    ModelObject &o = m->object(object);
+    PaintMesh    out;
+    for (ModelVolume *volume : o.volumes) {
+        if (!volume->is_model_part())
+            continue;
+        const Impl::Selector &selector = *m->paint_volume(o, kind, *volume).selector;
+        const auto            all      = selector.patches(area);
+        const Transform3d     matrix   = volume->get_matrix();
+        for (const auto &[patch, state] : selector.fragments(all, area)) {
+            indexed_triangle_set its;
+            selector.append_facets(patch->facets, its);
+            const uint32_t first = uint32_t(out.positions.size() / 3);
+            for (const stl_vertex &v : its.vertices) {
+                const Vec3f p = (matrix * v.cast<double>()).cast<float>();
+                out.positions.insert(out.positions.end(), {p.x(), p.y(), p.z()});
+            }
+            for (const stl_triangle_vertex_indices &t : its.indices)
+                out.indices.insert(out.indices.end(), {first + uint32_t(t[0]), first + uint32_t(t[1]), first + uint32_t(t[2])});
+            out.states.insert(out.states.end(), its.indices.size(), uint8_t(state));
+        }
+    }
+    return out;
+}
+
+size_t Engine::fill_gaps(size_t object, PaintKind kind, double area)
+{
+    ModelObject &o     = m->object(object);
+    size_t       count = 0;
+    for (ModelVolume *volume : o.volumes) {
+        if (!volume->is_model_part())
+            continue;
+        Impl::PaintVolume &pv      = m->paint_volume(o, kind, *volume);
+        const size_t       changed = pv.selector->fill_gaps(area);
+        if (changed == 0)
+            continue;
+        count += changed;
+        FacetsAnnotation &facets = paint_facets(*volume, kind);
+        facets.set(*pv.selector);
+        pv.timestamp = facets.timestamp();
+    }
+    return count;
 }
 
 void Engine::clear_paint(size_t object, PaintKind kind)

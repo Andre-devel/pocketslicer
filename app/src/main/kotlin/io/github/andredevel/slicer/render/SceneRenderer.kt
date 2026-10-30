@@ -4,6 +4,7 @@ import android.opengl.GLES30.*
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import io.github.andredevel.slicer.core.Bed
+import io.github.andredevel.slicer.core.ClipPlane
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.PaintMesh
 import io.github.andredevel.slicer.core.PaintState
@@ -43,8 +44,17 @@ data class Scene(
 /**
  * Pintura de suporte ou de costura do objeto [objectIndex], como o gizmo do Orca a mostra.
  * [highlightAngle] > 0: destaca as faces pendentes além desse ângulo ("Destacar saliências").
+ * [gaps]: trechos que o "Preencher lacunas" vai mudar, no estado novo. [clipRatio] > 0: vista em
+ * corte; a direção é a da câmera quando ela é ligada ou quando [clipDirection] muda.
  */
-data class PaintOverlay(val objectIndex: Int, val mesh: PaintMesh, val highlightAngle: Float)
+data class PaintOverlay(
+    val objectIndex: Int,
+    val mesh: PaintMesh,
+    val highlightAngle: Float,
+    val gaps: PaintMesh? = null,
+    val clipRatio: Float = 0f,
+    val clipDirection: Int = 0,
+)
 
 /**
  * Desenha a cena com OpenGL ES 3. Roda na thread GL do [GLSurfaceView]; [scene] e
@@ -127,10 +137,34 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
                 paintGpu?.geometry?.release()
                 paintGpu = null
             }
+            if (value?.gaps !== field?.gaps) {
+                gapsGpu?.geometry?.release()
+                gapsGpu = null
+            }
+            if (value?.objectIndex != field?.objectIndex || (value?.clipRatio ?: 0f) <= 0f || value?.clipDirection != field?.clipDirection) clipNormal = null
             field = value
         }
-    /** Malha de [paint], com um trecho por estado (os triângulos vêm agrupados). */
+    /** Malhas de [paint] e das lacunas, com um trecho por estado (os triângulos vêm agrupados). */
     private var paintGpu: ObjectGeometry? = null
+    private var gapsGpu: ObjectGeometry? = null
+    /** Normal da vista em corte, fixada ao ligá-la (ObjectClipper::set_position_by_ratio com keep_normal). */
+    private var clipNormal: FloatArray? = null
+
+    /**
+     * Plano da vista em corte do objeto pintado, como o ObjectClipper do Orca: normal virada para
+     * a câmera e offset pela posição de 0 a 1 na esfera da caixa do objeto, em volta da origem dele.
+     */
+    fun clipPlane(): ClipPlane? {
+        val paint = paint?.takeIf { it.clipRatio > 0f } ?: return null
+        val placement = scene?.placements?.getOrNull(paint.objectIndex) ?: return null
+        camera.update()
+        // -dir_forward da câmera: a terceira linha da rotação da vista.
+        val normal = clipNormal ?: floatArrayOf(camera.view[2], camera.view[6], camera.view[10]).also { clipNormal = it }
+        val center = transforms().getOrNull(paint.objectIndex)?.let { floatArrayOf(it[12], it[13], it[14]) } ?: placement.offset
+        val radius = sqrt(placement.size.sumOf { (it * it).toDouble() }).toFloat() / 2
+        val dist = normal[0] * center[0] + normal[1] * center[1] + normal[2] * center[2]
+        return ClipPlane(normal, dist + radius - paint.clipRatio * 2 * radius)
+    }
 
     /** Caminhos do G-code; com [showPreview], substituem os objetos no desenho. */
     var preview: Preview? = null
@@ -159,6 +193,7 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         gpu = null
         partsGpu = null
         paintGpu = null
+        gapsGpu = null
         toolpathRenderer = null
         flatProgram = program(FLAT_VERTEX, FLAT_FRAGMENT_SOURCE)
         meshProgram = program(MESH_VERTEX, MESH_FRAGMENT)
@@ -276,6 +311,8 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         val modelViewLocation = glGetUniformLocation(meshProgram, "uModelView")
         val colorLocation = glGetUniformLocation(meshProgram, "uColor")
         val slopeLocation = glGetUniformLocation(meshProgram, "uSlopeNormalZ")
+        val clipLocation = glGetUniformLocation(meshProgram, "uClip")
+        val modelLocation = glGetUniformLocation(meshProgram, "uModel")
         // Rotação da vista: leva a normal da face, calculada na vista, de volta à mesa.
         val viewRotation = FloatArray(9) { camera.view[it / 3 * 4 + it % 3] }
         glUniformMatrix3fv(glGetUniformLocation(meshProgram, "uViewRotation"), 1, false, viewRotation, 0)
@@ -285,12 +322,15 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             Matrix.multiplyMM(mvp, 0, camera.projection, 0, modelView, 0)
             glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
+            glUniformMatrix4fv(modelLocation, 1, false, transform, 0)
             val outside = highlight && scene.placements[i].outside
             // Com uma peça selecionada, só ela fica destacada.
             // Pintando, o objeto fica com a cor dele (como no gizmo) e com as saliências destacadas.
             val painting = paint?.objectIndex == i
             val selected = highlight && i == scene.selected && scene.selectedPart == null && !painting
             // GLGizmoPainterBase: normal_z = -cos(ângulo); sem ângulo, nada fica abaixo de -2.
+            val clip = if (painting) clipPlane() else null
+            glUniform4f(clipLocation, clip?.normal?.get(0) ?: 0f, clip?.normal?.get(1) ?: 0f, clip?.normal?.get(2) ?: 0f, clip?.offset ?: NO_CLIP)
             glUniform1f(slopeLocation, if (painting && paint!!.highlightAngle > 0f) -cos(Math.toRadians(paint.highlightAngle.toDouble())).toFloat() else -2f)
             val colors = scene.filamentColors.takeIf { it.size > 1 }
             for ((filament, first, count) in gpu.objects[i].parts) {
@@ -307,6 +347,7 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             if (painting) drawPaint(paint!!, colorLocation, slopeLocation)
         }
         glUniform1f(slopeLocation, -2f)
+        glUniform4f(clipLocation, 0f, 0f, 0f, NO_CLIP)
         // As peças e a torre não entram na miniatura (como no Orca).
         if (highlight) drawParts(scene, camera, mvpLocation, modelViewLocation, colorLocation)
         val tower = towerTransform()
@@ -330,6 +371,19 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         glPolygonOffset(-1f, -1f)
         for ((state, first, count) in geometry.parts) {
             geometry.geometry.draw(colorLocation, if (state == PaintState.BLOCK.ordinal) BLOCKER else ENFORCER, first, count)
+        }
+        // As lacunas por cima, translúcidas na cor que vão receber (TriangleSelectorPatch::render).
+        val gaps = paint.gaps?.takeIf { it.states.isNotEmpty() }
+        if (gaps != null) {
+            val gapsGeometry = gapsGpu ?: ObjectGeometry(Geometry(GL_TRIANGLES, gaps.positions, gaps.indices), rangesBy(gaps.indices, gaps.states)).also { gapsGpu = it }
+            glPolygonOffset(-2f, -2f)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            for ((state, first, count) in gapsGeometry.parts) {
+                val color = (if (state == PaintState.BLOCK.ordinal) BLOCKER else if (state == PaintState.ENFORCE.ordinal) ENFORCER else OBJECT).copyOf().also { it[3] = 0.85f }
+                gapsGeometry.geometry.draw(colorLocation, color, first, count)
+            }
+            glDisable(GL_BLEND)
         }
         glDisable(GL_POLYGON_OFFSET_FILL)
     }
@@ -514,6 +568,8 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         // TriangleSelectorGUI::enforcers_color e blockers_color.
         private val ENFORCER = floatArrayOf(0.5f, 1.0f, 0.5f, 1f)
         private val BLOCKER = floatArrayOf(1.0f, 0.5f, 0.5f, 1f)
+        /** Offset que não esconde nada (o ClipsNothing do Orca). */
+        private const val NO_CLIP = 1e30f
         private val OUTSIDE = floatArrayOf(1.00f, 0.42f, 0.37f, 1f)
         private val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
 
@@ -584,9 +640,12 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             layout(location = 0) in vec3 aPosition;
             uniform mat4 uMvp;
             uniform mat4 uModelView;
+            uniform mat4 uModel;
             out vec3 vViewPosition;
+            out vec3 vWorldPosition;
             void main() {
                 vViewPosition = (uModelView * vec4(aPosition, 1.0)).xyz;
+                vWorldPosition = (uModel * vec4(aPosition, 1.0)).xyz;
                 gl_Position = uMvp * vec4(aPosition, 1.0);
             }
         """
@@ -595,13 +654,17 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         private const val MESH_FRAGMENT = """#version 300 es
             precision highp float;
             in vec3 vViewPosition;
+            in vec3 vWorldPosition;
             uniform vec4 uColor;
             uniform mat3 uViewRotation;
+            // Vista em corte: some o lado com normal·p > offset.
+            uniform vec4 uClip;
             // Faces com a normal (na mesa) abaixo disto ficam avermelhadas, como as saliências no
             // gizmo de pintura de suporte do Orca (shader gouraud, slope).
             uniform float uSlopeNormalZ;
             out vec4 fragColor;
             void main() {
+                if (dot(uClip.xyz, vWorldPosition) > uClip.w) discard;
                 vec3 normal = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
                 // Luz na direção da câmera, mais uma vinda de cima para dar volume.
                 float light = 0.35 + 0.5 * abs(normal.z) + 0.25 * max(normal.y, 0.0);

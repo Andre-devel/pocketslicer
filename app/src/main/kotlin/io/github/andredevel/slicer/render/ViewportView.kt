@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.view.MotionEvent
+import io.github.andredevel.slicer.core.ClipPlane
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.PaintKind
 import io.github.andredevel.slicer.core.Part
@@ -34,9 +35,10 @@ interface ViewportListener {
     fun onPartTransform(objectIndex: Int, part: Int, transform: FloatArray)
     /**
      * Toque ou ponto de um arraste no objeto selecionado com uma ferramenta de pintura: o raio
-     * ([origin], [direction], na mesa) pelo dedo; [strokeStart] no primeiro do arraste.
+     * ([origin], [direction], na mesa) pelo dedo; [strokeStart] no primeiro do arraste; [clip], a
+     * vista em corte em uso.
      */
-    fun onPaint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean)
+    fun onPaint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean, clip: ClipPlane?)
     /** Toque numa face do objeto selecionado com [Tool.LAY_ON_FACE]. */
     fun onLayOnFace(objectIndex: Int, triangle: Int)
     /** Fim de um arraste da torre de purga: canto da frente à esquerda na mesa. */
@@ -376,7 +378,8 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         val index = paintObject ?: return
         paintStarted = true
         val ray = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight)
-        post { listener?.onPaint(index, ray.origin, ray.direction, strokeStart) }
+        val clip = renderer.clipPlane()
+        post { listener?.onPaint(index, ray.origin, ray.direction, strokeStart, clip) }
     }
 
     private fun endDrag() {

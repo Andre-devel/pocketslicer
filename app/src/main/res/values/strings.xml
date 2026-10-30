@@ -38,6 +38,12 @@
     <string name="paint_highlight">Highlight overhang areas</string>
     <string name="paint_overhangs_only">On highlighted overhangs only</string>
     <string name="paint_erase_all">Erase all</string>
+    <string name="paint_gap_fill">Gaps</string>
+    <string name="paint_gap_area">Gap area</string>
+    <string name="paint_perform">Fill gaps</string>
+    <string name="paint_gap_fill_hint">Painted or unpainted patches smaller than the gap area take the state around them. They are shown in that state.</string>
+    <string name="paint_section_view">Section view</string>
+    <string name="paint_reset_direction">Reset direction</string>
     <string name="object_title">Selected object</string>
     <string name="object_hint">Tap an object on the bed to edit its position, rotation and scale. Drag over it to use the tool; with \"Lay on face\", tap the face that should rest on the bed.</string>
     <string name="more_options">More options</string>

@@ -172,6 +172,12 @@ data class Brush(
     enum class Tool { CIRCLE, SPHERE, SMART_FILL }
 }
 
+/**
+ * "Vista em corte" do gizmo de pintura, na mesa: o lado com [normal]·p > [offset] fica escondido
+ * e não é pintado.
+ */
+class ClipPlane(val normal: FloatArray, val offset: Float)
+
 /** Triângulos pintados das peças de um objeto, em coordenadas dele; [states]: [PaintState] (ordinal) de cada um. */
 class PaintMesh(override val positions: FloatArray, override val indices: IntArray, val states: ByteArray) : Triangles
 
@@ -529,15 +535,28 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
 
     /**
      * Pinta onde o raio ([origin] e [direction], na mesa) atinge as peças do objeto. Fora do
-     * início do arraste ([strokeStart] false) liga o ponto ao do toque anterior. Devolve se atingiu.
+     * início do arraste ([strokeStart] false) liga o ponto ao do toque anterior. Com [clip], só
+     * fora do lado escondido. Devolve se atingiu.
      */
-    suspend fun paint(objectIndex: Int, kind: PaintKind, origin: FloatArray, direction: FloatArray, brush: Brush, strokeStart: Boolean): Boolean = call {
+    suspend fun paint(
+        objectIndex: Int, kind: PaintKind, origin: FloatArray, direction: FloatArray, brush: Brush, strokeStart: Boolean, clip: ClipPlane? = null,
+    ): Boolean = call {
         val ray = DoubleArray(6) { (if (it < 3) origin[it] else direction[it - 3]).toDouble() }
+        val plane = clip?.let { c -> DoubleArray(4) { if (it < 3) c.normal[it].toDouble() else c.offset.toDouble() } }
         nativePaint(
             handle, objectIndex, kind.ordinal, ray, brush.tool.ordinal, brush.state.ordinal,
-            brush.radius, brush.smartFillAngle, brush.overhangAngle, strokeStart,
+            brush.radius, brush.smartFillAngle, brush.overhangAngle, strokeStart, plane,
         )
     }
+
+    /**
+     * "Preencher lacunas": os trechos (pintados ou não) com menos de [area] mm² que passam ao
+     * estado vizinho, já nesse estado, para mostrar antes de [fillGaps].
+     */
+    suspend fun gaps(objectIndex: Int, kind: PaintKind, area: Double): PaintMesh = call { nativeGaps(handle, objectIndex, kind.ordinal, area) }
+
+    /** Aplica o "Preencher lacunas"; devolve quantos trechos mudaram. */
+    suspend fun fillGaps(objectIndex: Int, kind: PaintKind, area: Double): Int = call { nativeFillGaps(handle, objectIndex, kind.ordinal, area) }
 
     suspend fun painted(objectIndex: Int, kind: PaintKind): PaintMesh = call { nativePainted(handle, objectIndex, kind.ordinal) }
 
@@ -711,8 +730,10 @@ private external fun nativeSetPartPlacement(handle: Long, objectIndex: Int, part
 private external fun nativeRemovePart(handle: Long, objectIndex: Int, part: Int)
 private external fun nativePaint(
     handle: Long, objectIndex: Int, kind: Int, ray: DoubleArray, tool: Int, state: Int,
-    radius: Double, smartFillAngle: Double, overhangAngle: Double, strokeStart: Boolean,
+    radius: Double, smartFillAngle: Double, overhangAngle: Double, strokeStart: Boolean, clip: DoubleArray?,
 ): Boolean
+private external fun nativeGaps(handle: Long, objectIndex: Int, kind: Int, area: Double): PaintMesh
+private external fun nativeFillGaps(handle: Long, objectIndex: Int, kind: Int, area: Double): Int
 private external fun nativePainted(handle: Long, objectIndex: Int, kind: Int): PaintMesh
 private external fun nativeClearPaint(handle: Long, objectIndex: Int, kind: Int)
 private external fun nativeOverhangHighlightAngle(handle: Long, objectIndex: Int): Double
