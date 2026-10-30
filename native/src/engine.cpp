@@ -628,7 +628,8 @@ void set_filament_id(const fs::path &path)
 // calculada no G-code de troca em vez da torre; o padrão false é o que o Orca faz),
 // flush_into_skeleton (purga dentro da peça) e flush_length_5 (o Orca divide a purga em
 // flush_length_1..4).
-void rename_legacy_variables(const fs::path &path)
+// O (?!") poupa as chaves do JSON dos perfis ("multicolor_method": "0").
+std::string renamed_legacy_variables(std::string text)
 {
     static const std::vector<std::pair<std::regex, std::string>> replacements = {
         {std::regex("\\bchamber_temperatures\\b"), "chamber_temperature"},
@@ -637,19 +638,22 @@ void rename_legacy_variables(const fs::path &path)
         {std::regex("\\bflush_into_skeleton\\b(?!\")"), "false"},
         {std::regex("\\bflush_length_5\\b(?!\")"), "0"},
     };
-    boost::nowide::ifstream in(path.string());
-    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    in.close();
-    bool changed = false;
     for (const auto &[variable, value] : replacements)
-        if (std::regex_search(text, variable)) {
+        if (std::regex_search(text, variable))
             text = std::regex_replace(text, variable, value);
-            changed = true;
-        }
-    if (!changed)
+    return text;
+}
+
+void rename_legacy_variables(const fs::path &path)
+{
+    boost::nowide::ifstream in(path.string());
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const std::string renamed = renamed_legacy_variables(text);
+    if (renamed == text)
         return;
     boost::nowide::ofstream out(path.string());
-    out << text;
+    out << renamed;
 }
 
 // O Bambu Studio e os fatiadores derivados dele (QIDI Studio, Creality Print) têm só a torre
@@ -983,6 +987,15 @@ std::string Engine::open_project(const std::string &path)
         if (const ConfigOption *opt = config.option(key);
             opt != nullptr && !opt->is_scalar() && static_cast<const ConfigOptionVectorBase *>(opt)->size() == 0)
             config.erase(key);
+    // O G-code personalizado de um projeto do Creality Print ou do QIDI Studio usa as mesmas
+    // variáveis que rename_legacy_variables() troca nos perfis desses fatiadores.
+    for (const std::string &key : config.keys())
+        if (ConfigOption *opt = config.optptr(key); opt->type() == coString) {
+            std::string &value = static_cast<ConfigOptionString *>(opt)->value;
+            value              = renamed_legacy_variables(value);
+        } else if (opt->type() == coStrings)
+            for (std::string &value : static_cast<ConfigOptionStrings *>(opt)->values)
+                value = renamed_legacy_variables(value);
     // Como Plater::load_files(): presets embutidos, depois a configuração do projeto.
     if (!project_presets.empty())
         m->bundle->load_project_embedded_presets(project_presets, ForwardCompatibilitySubstitutionRule::EnableSilent);

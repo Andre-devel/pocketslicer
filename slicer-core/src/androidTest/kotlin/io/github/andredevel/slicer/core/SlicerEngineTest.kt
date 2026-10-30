@@ -589,6 +589,42 @@ class SlicerEngineTest {
         assertTrue(gcode.useLines { lines -> lines.any { it == "; wipe_tower_type = type1" } })
     }
 
+    // Projeto salvo pelo Creality Print com o G-code da impressora alterado: o do projeto vale,
+    // e ele testa multicolor_method como o dos perfis.
+    @Test
+    fun opensCrealityPrintProjectWithItsOwnGcodeVariables() = runBlocking {
+        engine.loadVendor("CrealityPrint/Creality")
+        engine.select(PresetKind.PRINTER, "Creality K2 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val saved = File(work, "saved.3mf")
+        engine.saveProject(saved, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+
+        val project = File(work, "creality-print.3mf")
+        java.util.zip.ZipFile(saved).use { zip ->
+            java.util.zip.ZipOutputStream(project.outputStream()).use { out ->
+                for (entry in zip.entries()) {
+                    out.putNextEntry(java.util.zip.ZipEntry(entry.name))
+                    var bytes = zip.getInputStream(entry).use { it.readBytes() }
+                    if (entry.name == "Metadata/project_settings.config") {
+                        val config = org.json.JSONObject(bytes.decodeToString())
+                        config.put("machine_start_gcode", "{if multicolor_method}M117 multicolor\n{endif}M117 project start")
+                        // Processo, o filamento e a impressora.
+                        config.put("different_settings_to_system", org.json.JSONArray(listOf("", "", "machine_start_gcode")))
+                        bytes = config.toString().encodeToByteArray()
+                    }
+                    out.write(bytes)
+                    out.closeEntry()
+                }
+            }
+        }
+        assertEquals("CrealityPrint/Creality", engine.openProject(project))
+        val gcode = File(work, "project.gcode")
+        engine.slice(gcode) { _, _ -> }
+        val lines = gcode.readLines()
+        assertTrue("M117 project start" in lines)
+        assertTrue("M117 multicolor" !in lines)
+    }
+
     @Test
     fun otherVendorKeepsProjectFilaments() = runBlocking {
         engine.loadVendor("BBL")
