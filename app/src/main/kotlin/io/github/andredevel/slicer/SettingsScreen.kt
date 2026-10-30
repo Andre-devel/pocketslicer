@@ -10,6 +10,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -38,6 +40,10 @@ class SettingsStore(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(KEY_AUTO_UPDATE, true)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_UPDATE, value).apply()
 
+    var theme: ThemeMode
+        get() = prefs.getString(KEY_THEME, null)?.let { name -> ThemeMode.entries.firstOrNull { it.name == name } } ?: ThemeMode.SYSTEM
+        set(value) = prefs.edit().putString(KEY_THEME, value.name).apply()
+
     /** Última procura automática por versão nova (System.currentTimeMillis). */
     var lastUpdateCheck: Long
         get() = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0)
@@ -46,9 +52,13 @@ class SettingsStore(private val prefs: SharedPreferences) {
     private companion object {
         const val KEY_CURRENCY = "currency"
         const val KEY_AUTO_UPDATE = "auto_update"
+        const val KEY_THEME = "theme"
         const val KEY_LAST_UPDATE_CHECK = "last_update_check"
     }
 }
+
+/** Tema claro ou escuro, ou o do sistema. */
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 /** Moedas oferecidas na tela de Configurações. */
 val CURRENCIES = listOf("BRL", "USD", "EUR", "GBP", "CAD", "AUD", "CHF", "JPY", "CNY", "INR", "MXN", "ARS", "CLP", "COP", "PEN", "UYU", "PLN", "SEK", "NOK", "DKK", "CZK")
@@ -71,14 +81,24 @@ fun rememberCostFormat(currency: String?): (Double) -> String {
     }
 }
 
-/** Configurações do app: a moeda do custo do filamento e as atualizações. */
+/** Configurações do app: o tema, a moeda do custo do filamento e as atualizações. */
 @Composable
 fun SettingsScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier) {
     val locale = LocalConfiguration.current.locales[0]
+    val theme by viewModel.theme.collectAsState()
     Column(modifier) {
         ScreenHeader(stringResource(R.string.settings))
         PanelColumn(Modifier.verticalScroll(rememberScrollState()).widthIn(max = 560.dp)) {
-            SectionLabel(stringResource(R.string.cost))
+            SectionLabel(stringResource(R.string.appearance))
+            SelectField(
+                theme.name,
+                ThemeMode.entries.map { it.name },
+                { viewModel.setTheme(ThemeMode.valueOf(it)) },
+                Modifier.fillMaxWidth(),
+                label = stringResource(R.string.theme),
+                labels = listOf(stringResource(R.string.theme_system), stringResource(R.string.theme_light), stringResource(R.string.theme_dark)),
+            )
+            SectionLabel(stringResource(R.string.cost), Modifier.padding(top = 16.dp))
             val options = listOf<String?>(null) + CURRENCIES
             val default = defaultCurrency(locale)
             val labels = options.map { code ->

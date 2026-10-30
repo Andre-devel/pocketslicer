@@ -37,8 +37,8 @@ data class Scene(
  * [camera] só devem ser alterados nela (GLSurfaceView.queueEvent).
  */
 /** [dark]: fundo e mesa no tema escuro; senão, no claro. */
-class SceneRenderer(dark: Boolean) : GLSurfaceView.Renderer {
-    private val palette = if (dark) DARK else LIGHT
+class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
+    private val palette get() = if (dark) DARK else LIGHT
     val camera = OrbitCamera()
     var viewportWidth = 1
         private set

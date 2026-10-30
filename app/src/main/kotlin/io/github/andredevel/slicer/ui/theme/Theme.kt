@@ -31,6 +31,8 @@ data class ExtendedColors(
     val axes: List<Color>,
     /** Fundo da navegação lateral e da barra inferior, um tom abaixo do conteúdo. */
     val navigation: Color,
+    /** Tema escuro: o viewport 3D (OpenGL) escolhe a paleta por isto. */
+    val dark: Boolean,
 )
 
 // Grafite quente com um único laranja de sinal; vermelho só para erro.
@@ -116,6 +118,7 @@ private val DarkExtended = ExtendedColors(
     onInfoContainer = Color(0xFFC9CDD2),
     axes = listOf(Color(0xFFFF5C5C), Color(0xFF5FD38D), Color(0xFF6EA8FF)),
     navigation = Color(0xFF131518),
+    dark = true,
 )
 
 private val LightExtended = ExtendedColors(
@@ -128,6 +131,7 @@ private val LightExtended = ExtendedColors(
     onInfoContainer = Color(0xFF3D4046),
     axes = listOf(Color(0xFFC9302A), Color(0xFF1F8A4C), Color(0xFF2F6FD0)),
     navigation = Color(0xFFF3F2EF),
+    dark = false,
 )
 
 private val LocalExtendedColors = staticCompositionLocalOf { DarkExtended }

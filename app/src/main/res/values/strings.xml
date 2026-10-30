@@ -207,6 +207,11 @@
     <string name="yes">Yes</string>
     <string name="no">No</string>
     <string name="currency">Currency</string>
+    <string name="appearance">Appearance</string>
+    <string name="theme">Theme</string>
+    <string name="theme_system">System default</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="currency_from_language">Same as the language (%1$s)</string>
     <string name="currency_hint">Filament profiles store only the price per kg (filament_cost), with no currency. The cost in the slicing summary is shown in this currency.</string>
     <string name="updates">Updates</string>

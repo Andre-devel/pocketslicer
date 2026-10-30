@@ -43,10 +43,17 @@ interface ViewportListener {
  */
 @SuppressLint("ViewConstructor")
 class ViewportView(context: Context) : GLSurfaceView(context) {
-    // A Activity é recriada ao trocar o tema, e o viewport junto.
     private val renderer = SceneRenderer(
         dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES,
     )
+
+    /** Tema do app, que pode diferir do sistema (Ajustes). */
+    var dark: Boolean = renderer.dark
+        set(value) {
+            if (value == field) return
+            field = value
+            onGlThread { renderer.dark = value }
+        }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
     var listener: ViewportListener? = null

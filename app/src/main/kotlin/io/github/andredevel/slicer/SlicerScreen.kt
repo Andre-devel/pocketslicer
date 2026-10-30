@@ -83,6 +83,7 @@ import io.github.andredevel.slicer.ui.components.PillTabs
 import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.blockTouches
 import io.github.andredevel.slicer.ui.theme.MonoStyles
+import io.github.andredevel.slicer.ui.theme.PocketTheme
 import kotlin.math.roundToInt
 
 /** Destinos da navegação principal. [shortLabel]: na barra inferior do celular, mais estreita. */
@@ -406,6 +407,7 @@ private fun Viewport(
             if (viewModel.thumbnails === thumbnails) viewModel.thumbnails = null
         }
     }
+    val dark = PocketTheme.colors.dark
     Box(modifier) {
         AndroidView(
             factory = { context ->
@@ -427,6 +429,7 @@ private fun Viewport(
             },
             modifier = Modifier.fillMaxSize(),
             update = {
+                it.dark = dark
                 it.setScene(state.scene)
                 it.tool = state.tool
                 it.setPreview(state.preview, state.previewVisible, previewSettings)

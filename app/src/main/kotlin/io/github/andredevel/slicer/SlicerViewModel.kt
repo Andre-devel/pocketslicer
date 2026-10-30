@@ -241,6 +241,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private val printerStore = PrinterStore(File(app.filesDir, "printers.json"))
     private val recentStore = RecentFilesStore(File(app.filesDir, "recent.json"))
     private val settings = SettingsStore(app.getSharedPreferences("settings", Context.MODE_PRIVATE))
+    // Lido já na criação: a primeira tela sai com o tema certo, sem piscar.
+    private val _theme = MutableStateFlow(settings.theme)
+    val theme: StateFlow<ThemeMode> = _theme.asStateFlow()
     private val updater = AppUpdater(app)
     val installedVersion get() = updater.installedVersion
     private var updateJob: Job? = null
@@ -290,6 +293,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun setCurrency(currency: String?) {
         settings.currency = currency
         _state.update { it.copy(currency = currency) }
+    }
+
+    fun setTheme(mode: ThemeMode) {
+        settings.theme = mode
+        _theme.value = mode
     }
 
     fun setAutoUpdate(enabled: Boolean) {
