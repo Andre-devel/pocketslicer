@@ -57,7 +57,11 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
   PocketSlicer" e a linha `printer_model` (patch 0003), e cai no parser da Creality.
 - Impressão real na K3 em 2026-10-29: cubo de 2 cores, 5 camadas, filamento 1 na posição 1A e 2
   na 1B, saiu como fatiado. A confirmação pelo `print_stats` ainda não passou por uma impressão
-  real. K2 não testada.
+  real.
+- K2 (192.168.1.21, modelo F021): os perfis do Creality Print testam no G-code `multicolor_method`,
+  `flush_into_skeleton` e `flush_length_5`, que o Orca não tem; a cópia dos perfis troca por
+  `false`, `false` e `0` (o padrão do Creality Print e o que o Orca faz). Fatia e lê o CFS
+  (mapa por cor mais próxima); impressão real ainda não feita.
 - A confirmação oferece trocar as cores do projeto pelas das posições escolhidas e fatiar de novo,
   para a vista prévia e a purga baterem com a peça.
 
@@ -71,10 +75,28 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
   macros T0..T15 lê esse mapa. Só com o carretel externo vai `enable_box` 0.
 - O perfil Q2 do QIDI Studio usa `[chamber_temperatures]` no G-code inicial; a cópia dos perfis
   troca para `chamber_temperature`, nome da opção no Orca.
-- Impressão real na Q2 em 2026-10-29: a impressora gravou o mapa (filamento 1 na posição 3, 2 na
-  4), carregou a posição 3 e começou; na primeira troca o firmware parou com `QDE_004_008`
-  (falha ao descarregar o extrusor, sensor ainda com filamento depois do corte) e a impressão foi
-  cancelada. Falta repetir depois de conferir o cortador/extrusor da Q2.
+- Impressões reais na Q2 em 2026-10-29 e 2026-10-30: a impressora gravou o mapa (filamento 1 na
+  posição 3, 2 na 4), carregou a posição 3 e começou; nas duas, logo no início, o firmware parou
+  com `QDE_004_008` (falha ao descarregar o extrusor) e o extrusor entupiu (foi preciso
+  desmontar a cabeça). A causa era o G-code, não a impressora:
+  - Sem `wipe_tower_type` no perfil, o Orca usava a torre da Prusa (type2), que antes de cada
+    troca puxa o filamento ~94 mm e o esfria indo e voltando (ramming de MMU sem cortador). O
+    QIDI Studio, o Bambu Studio e o Creality Print só têm a torre da Bambu (type1); a cópia dos
+    perfis desses fatiadores grava `wipe_tower_type = type1` na raiz das impressoras.
+  - O Orca só considera carregado o filamento inicial depois do G-code inicial nas impressoras
+    da Bambu (`init_extruder`); nas outras, a primeira troca era do filamento inicial para ele
+    mesmo, logo depois do `PRINT_START`: `CUT_FILAMENT T=0`, `UNLOAD_T0`, `T0`. O QIDI Studio faz
+    a sequência da Bambu em qualquer impressora; o patch 0005 a liga para os perfis do QIDI
+    Studio.
+- Conferência: o mesmo projeto (2 cubos de 1 mm, 2 cores, Q2 0.4, 0.20mm Standard) fatiado no
+  QIDI Studio 02.07.02.73 pelo CLI (`--slice 0 projeto.3mf`; o CLI não resolve a herança dos
+  perfis carregados com `--load-settings`, então os perfis resolvidos foram gravados no
+  `project_settings.config` do 3MF). As trocas saem iguais: mesma sequência de retrações,
+  `CUT_FILAMENT`, `UNLOAD`, `T`, purgas e temperaturas; só mudam retrações curtas de
+  deslocamento e trajetos na torre. Teste `qidiStudioQ2ChangesFilamentLikeQidiStudio`.
+- O QIDI Studio decide o formato do envio por `is_support_3mf` (Q2 0.4: `.gcode.3mf`), o
+  `use_3mf` do Orca; a cópia dos perfis troca o nome. O Moonraker da Q2 só tira a miniatura do
+  `.gcode.3mf`. Ainda não testado com o mapa da Box numa impressão real.
 
 ### Creality K2 (e K3)
 - Envio: `POST http://<ip>/upload/<nome url-encoded>`, multipart com `file`
