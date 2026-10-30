@@ -94,6 +94,8 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
   `project_settings.config` do 3MF). As trocas saem iguais: mesma sequência de retrações,
   `CUT_FILAMENT`, `UNLOAD`, `T`, purgas e temperaturas; só mudam retrações curtas de
   deslocamento e trajetos na torre. Teste `qidiStudioQ2ChangesFilamentLikeQidiStudio`.
+- Impressão real com as correções em 2026-10-30 (mc2k2.gcode, 5 camadas, 5 trocas): completa,
+  sem `QDE_`.
 - O QIDI Studio decide o formato do envio por `is_support_3mf` (Q2 0.4: `.gcode.3mf`), o
   `use_3mf` do Orca; a cópia dos perfis troca o nome. O Moonraker da Q2 só tira a miniatura do
   `.gcode.3mf`. Ainda não testado com o mapa da Box numa impressão real.

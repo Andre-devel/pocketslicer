@@ -127,8 +127,9 @@ nova e pergunta se instala (Configurações → Atualizações); `versionCode` s
      filamento só) e G-code personalizado, guardadas por placa no 3MF. O M600 do "Color change"
      não entra: no Orca 2.4 ele está desligado no gerador de G-code (BBS).
    - Mapeamento de filamento para cabeça ou posição ao imprimir: feito na Snapmaker U1 e no CFS
-     da Creality K3 (plano-envio.md); K2 não testada. Box da QIDI (Q2) feita, impressão real
-     interrompida por falha de descarga do extrusor na primeira troca.
+     da Creality K3 (plano-envio.md); K2 lê o CFS e fatia, impressão real não feita. Box da
+     QIDI (Q2) feita e testada (2026-10-30: 2 cores, 5 trocas, sem falha), depois de corrigir a
+     torre de limpeza e a troca no início que entupiam o extrusor.
    - Falta: mapear filamentos para os slots do AMS ao imprimir numa Bambu (o início de impressão
      pela LAN ainda não funciona, ver plano-envio.md); pintura com o dedo (adiada).
 5. Reativar OpenVDB (hollowing, reparo) e OCCT (STEP) se o tamanho do APK permitir.
