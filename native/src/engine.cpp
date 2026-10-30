@@ -546,14 +546,17 @@ void set_filament_id(const fs::path &path)
 // Variáveis do G-code personalizado que o Orca não conhece; sem a troca, o fatiamento falha
 // ("Not a variable name"). O QIDI Studio chama de chamber_temperatures a opção
 // chamber_temperature do Orca: o Orca renomeia a opção ao ler (PrintConfigDef::handle_legacy),
-// mas não a variável ("CHAMBER=[chamber_temperatures]" no Q2). O Creality Print tem opções
-// próprias que o G-code da K2 testa: multicolor_method (purga calculada no G-code de troca em
-// vez da torre; o padrão false é o que o Orca faz), flush_into_skeleton (purga dentro da peça)
-// e flush_length_5 (o Orca divide a purga em flush_length_1..4).
+// mas não a variável ("CHAMBER=[chamber_temperatures]" no Q2). E chama de is_support_3mf o
+// use_3mf do Orca: com ele, a Q2 recebe o .gcode.3mf, de onde o Moonraker tira a miniatura.
+// O Creality Print tem opções próprias que o G-code da K2 testa: multicolor_method (purga
+// calculada no G-code de troca em vez da torre; o padrão false é o que o Orca faz),
+// flush_into_skeleton (purga dentro da peça) e flush_length_5 (o Orca divide a purga em
+// flush_length_1..4).
 void rename_legacy_variables(const fs::path &path)
 {
     static const std::vector<std::pair<std::regex, std::string>> replacements = {
         {std::regex("\\bchamber_temperatures\\b"), "chamber_temperature"},
+        {std::regex("\\bis_support_3mf\\b"), "use_3mf"},
         {std::regex("\\bmulticolor_method\\b(?!\")"), "false"},
         {std::regex("\\bflush_into_skeleton\\b(?!\")"), "false"},
         {std::regex("\\bflush_length_5\\b(?!\")"), "0"},

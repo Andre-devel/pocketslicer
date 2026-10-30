@@ -409,6 +409,8 @@ class SlicerEngineTest {
         assertTrue(gcode.useLines { lines -> lines.any { it.startsWith("PRINT_START ") && " CHAMBER=" in it } })
         // Torre da Bambu, como no QIDI Studio: a da Prusa puxa o filamento antes do corte.
         assertTrue(gcode.useLines { lines -> lines.any { it == "; wipe_tower_type = type1" } })
+        // Como o QIDI Studio (is_support_3mf): a Q2 recebe o .gcode.3mf, com a miniatura.
+        assertTrue(engine.gcode3mf())
     }
 
     @Test
