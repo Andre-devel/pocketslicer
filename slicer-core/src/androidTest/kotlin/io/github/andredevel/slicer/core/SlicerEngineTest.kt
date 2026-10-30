@@ -388,6 +388,31 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun qidiStudioQ2Slices() = runBlocking {
+        // O G-code inicial do Q2 no QIDI Studio usa [chamber_temperatures], que no Orca é chamber_temperature.
+        engine.loadVendor("QIDIStudio/Q Series")
+        engine.select(PresetKind.PRINTER, "Q2 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val gcode = File(work, "q2.gcode")
+        engine.slice(gcode) { _, _ -> }
+        assertTrue(gcode.useLines { lines -> lines.any { it.startsWith("PRINT_START ") && " CHAMBER=" in it } })
+    }
+
+    @Test
+    fun otherVendorKeepsProjectFilaments() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.addFilament()
+        engine.setFilamentColor(1, "#000000")
+        // Como trocar de impressora no Orca: os filamentos do projeto continuam, com as cores.
+        engine.loadVendor("QIDIStudio/Q Series")
+        engine.select(PresetKind.PRINTER, "Q2 0.4 nozzle")
+        assertEquals(2, engine.filamentPresets().size)
+        assertEquals("#000000", engine.filamentColors()[1])
+        assertEquals(2 * 2, engine.flushVolumes().size)
+    }
+
+    @Test
     fun printerWithMoreExtrudersGetsAColorPerFilament() = runBlocking {
         engine.loadVendor("Prusa")
         engine.select(PresetKind.PRINTER, "Prusa XL 0.4 nozzle")

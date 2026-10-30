@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <iterator>
 #include <regex>
 #include <set>
 
@@ -42,6 +43,11 @@ using namespace Slic3r;
 namespace slicer {
 
 namespace {
+
+// Paleta de Plater::get_next_color_for_filament() do Orca.
+const char *const FILAMENT_PALETTE[] = {"#00C1AE", "#F4E2C1", "#ED1C24", "#00FF7F", "#F26722", "#FFEB31", "#7841CE", "#115877",
+                                        "#ED1E79", "#2EBDEF", "#345B2F", "#800080", "#FA8173", "#800000", "#F7B763", "#A4C41E"};
+
 void copy_for_orca(const fs::path &src, const fs::path &dst);
 } // namespace
 
@@ -335,6 +341,10 @@ std::vector<std::string> Engine::vendors() const
 void Engine::load_vendor(const std::string &vendor)
 {
     const fs::path index = m->vendor_index(vendor);
+    // Cores dos filamentos do projeto: o bundle novo começa com os do perfil da impressora.
+    std::vector<std::string> colors;
+    if (m->bundle)
+        colors = m->bundle->project_config.option<ConfigOptionStrings>("filament_colour")->values;
 
     // PresetBundle carrega todo fabricante presente em <data_dir>/system. Como na
     // GUI do Orca, só entram os "instalados": aqui, o escolhido e a biblioteca de
@@ -373,6 +383,22 @@ void Engine::load_vendor(const std::string &vendor)
     if (printers.empty())
         throw std::runtime_error("vendor has no printers: " + vendor);
     select(PresetKind::Printer, printers.front());
+
+    // Como a troca de impressora na GUI do Orca, o projeto continua com os mesmos filamentos
+    // (quantos a impressora aceitar), com as cores deles e o filamento padrão da impressora.
+    if (!colors.empty()) {
+        const std::array<size_t, 2> limits = filament_limits();
+        const size_t                count  = std::clamp(colors.size(), limits[0], limits[1]);
+        m->bundle->set_num_filaments(unsigned(count), FILAMENT_PALETTE[0]);
+        for (size_t i = colors.size(); i < count; ++i)
+            colors.push_back(FILAMENT_PALETTE[i % std::size(FILAMENT_PALETTE)]);
+        colors.resize(count);
+        DynamicPrintConfig &project = m->bundle->project_config;
+        project.option<ConfigOptionStrings>("filament_colour")->values = colors;
+        if (auto *multi = project.option<ConfigOptionStrings>("filament_multi_colour"))
+            multi->values = colors;
+        m->calc_flush_volumes(std::nullopt);
+    }
 }
 
 std::vector<std::string> Engine::presets(PresetKind kind) const
@@ -491,6 +517,21 @@ void set_filament_id(const fs::path &path)
     out << profile.dump(4);
 }
 
+// O QIDI Studio chama de chamber_temperatures a opção chamber_temperature do Orca. O Orca já
+// renomeia a opção ao ler (PrintConfigDef::handle_legacy), mas não a variável no G-code
+// personalizado ("CHAMBER=[chamber_temperatures]" no Q2), que falharia ao fatiar.
+void rename_legacy_variables(const fs::path &path)
+{
+    static const std::regex legacy("\\bchamber_temperatures\\b");
+    boost::nowide::ifstream in(path.string());
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    if (!std::regex_search(text, legacy))
+        return;
+    boost::nowide::ofstream out(path.string());
+    out << std::regex_replace(text, legacy, "chamber_temperature");
+}
+
 // Copia os perfis de um fatiador do fabricante (Creality Print...) para dst, ajustando as
 // opções cujo valor o Orca não aceita: com uma só, PresetBundle descartaria o fabricante
 // inteiro ("Invalid value provided for parameter X"). O Creality Print grava "" onde o Orca
@@ -509,6 +550,7 @@ void copy_for_orca(const fs::path &src, const fs::path &dst)
         if (target.extension() != ".json")
             continue;
         set_filament_id(target);
+        rename_legacy_variables(target);
         for (int dropped = 0; dropped < 100; ++dropped) {
             DynamicPrintConfig                 config;
             std::map<std::string, std::string> key_values;
@@ -975,10 +1017,6 @@ bool valid_color(const std::string &color)
     static const std::regex hex("#[0-9A-Fa-f]{6}");
     return std::regex_match(color, hex);
 }
-
-// Paleta de Plater::get_next_color_for_filament() do Orca.
-const char *const FILAMENT_PALETTE[] = {"#00C1AE", "#F4E2C1", "#ED1C24", "#00FF7F", "#F26722", "#FFEB31", "#7841CE", "#115877",
-                                        "#ED1E79", "#2EBDEF", "#345B2F", "#800080", "#FA8173", "#800000", "#F7B763", "#A4C41E"};
 
 } // namespace
 
