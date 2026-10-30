@@ -358,9 +358,10 @@ internal fun OptionRow(
     var showTooltip by remember { mutableStateOf(false) }
     // Vetores com mais de um valor (vários extrusores) são editados como texto.
     val single = value != null && !(def.vector && ',' in value)
-    val multiline = def.multiline || (def.type == OptionType.STRING && def.vector)
+    // Listas de texto com um só valor curto (o tipo do filamento) cabem numa linha.
+    val multiline = def.multiline || (def.type == OptionType.STRING && def.vector && value != null && (';' in value || '\n' in value))
     val label = @Composable { modifier: Modifier ->
-        Column(modifier.clickable(enabled = def.tooltip.isNotEmpty()) { showTooltip = !showTooltip }.padding(vertical = 10.dp)) {
+        Column(modifier.clickable(enabled = def.tooltip.isNotEmpty()) { showTooltip = !showTooltip }.padding(vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (dirty) DirtyDot()
                 Text(def.label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = MaterialTheme.typography.labelLarge.fontWeight))
@@ -393,7 +394,7 @@ internal fun OptionRow(
         }
         return
     }
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         label(Modifier.weight(1f))
         reset()
         val editor = Modifier.width(EDITOR_WIDTH)

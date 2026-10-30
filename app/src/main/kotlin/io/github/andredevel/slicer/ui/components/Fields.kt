@@ -90,7 +90,7 @@ fun CommitField(
         decorationBox = { inner ->
             Row(
                 Modifier
-                    .heightIn(min = 48.dp)
+                    .heightIn(min = FIELD_HEIGHT)
                     .background(scheme.surfaceContainerHigh, MaterialTheme.shapes.small)
                     .border(BorderStroke(1.dp, if (focused) scheme.primary else scheme.outlineVariant), MaterialTheme.shapes.small)
                     .padding(horizontal = 12.dp, vertical = if (multiline) 12.dp else 0.dp),
@@ -173,12 +173,12 @@ fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modif
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier
-            .heightIn(min = 48.dp)
+            .heightIn(min = FIELD_HEIGHT)
             .background(scheme.surfaceContainerHigh, MaterialTheme.shapes.small)
             .border(1.dp, scheme.outlineVariant, MaterialTheme.shapes.small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { onCommit(value - 1) }, enabled = enabled && (min == null || value > min)) {
+        IconButton(onClick = { onCommit(value - 1) }, Modifier.size(FIELD_HEIGHT), enabled = enabled && (min == null || value > min)) {
             Icon(painterResource(R.drawable.ic_remove), stringResource(R.string.decrease))
         }
         CommitField(
@@ -188,7 +188,7 @@ fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modif
             enabled = enabled,
             keyboardType = KeyboardType.Number,
         )
-        IconButton(onClick = { onCommit(value + 1) }, enabled = enabled) {
+        IconButton(onClick = { onCommit(value + 1) }, Modifier.size(FIELD_HEIGHT), enabled = enabled) {
             Icon(painterResource(R.drawable.ic_add), stringResource(R.string.increase))
         }
     }
@@ -282,7 +282,7 @@ fun SelectField(
             val scheme = MaterialTheme.colorScheme
             Row(
                 anchor
-                    .heightIn(min = 48.dp)
+                    .heightIn(min = FIELD_HEIGHT)
                     .background(scheme.surfaceContainerHigh, MaterialTheme.shapes.small)
                     .border(1.dp, if (expanded) scheme.primary else scheme.outlineVariant, MaterialTheme.shapes.small)
                     .padding(start = 12.dp, end = 6.dp),
@@ -319,3 +319,6 @@ fun SelectField(
         }
     }
 }
+
+/** Altura dos campos compactos (valor, número, lista sem rótulo). */
+private val FIELD_HEIGHT = 44.dp

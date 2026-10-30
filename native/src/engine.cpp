@@ -1,8 +1,10 @@
 #include "engine.hpp"
 
+#include <map>
 #include <algorithm>
 #include <atomic>
 #include <iterator>
+#include <map>
 #include <queue>
 #include <regex>
 #include <set>
@@ -3215,14 +3217,31 @@ void Engine::lay_on_face(size_t object, size_t triangle)
 
 std::string Engine::options_json(PresetKind kind) const
 {
+    // Rótulos curtos repetidos ("Other layers" em temperatura do bico, da mesa...) só fazem
+    // sentido dentro dos grupos da GUI do Orca; fora deles vale o full_label, como na busca do Orca.
+    std::map<std::string, int> label_count;
+    for (const std::string &key : option_keys(kind))
+        if (const ConfigOptionDef *def = editable_def(key))
+            ++label_count[def->label];
     nlohmann::json out = nlohmann::json::array();
     for (const std::string &key : option_keys(kind)) {
         const ConfigOptionDef *def = editable_def(key);
         if (def == nullptr)
             continue;
+        std::string label = i18n::translate(label_count[def->label] > 1 && !def->full_label.empty() ? def->full_label : def->label);
+        // As temperaturas da mesa repetem até o full_label; no Orca cada placa é uma linha.
+        static const std::map<std::string, std::string> plate_lines = {
+            {"supertack_plate_temp", "Cool Plate (SuperTack)"}, {"cool_plate_temp", "Cool Plate"},
+            {"textured_cool_plate_temp", "Textured Cool Plate"}, {"eng_plate_temp", "Engineering Plate"},
+            {"hot_plate_temp", "Smooth PEI Plate / High Temp Plate"}, {"textured_plate_temp", "Textured PEI Plate"},
+        };
+        const std::string suffix = "_initial_layer";
+        const std::string base = key.size() > suffix.size() && key.compare(key.size() - suffix.size(), suffix.size(), suffix) == 0 ? key.substr(0, key.size() - suffix.size()) : key;
+        if (auto plate = plate_lines.find(base); plate != plate_lines.end())
+            label = i18n::translate(plate->second) + " · " + i18n::translate(def->label);
         nlohmann::json o = {
             {"key", key},
-            {"label", i18n::translate(def->label)},
+            {"label", label},
             {"category", i18n::translate(def->category)},
             {"tooltip", i18n::translate(def->tooltip)},
             {"sidetext", i18n::translate(def->sidetext)},
