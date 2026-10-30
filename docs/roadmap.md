@@ -143,6 +143,9 @@ Creality, Box da QIDI).
      dentro. O pincel de faixa de altura do Orca é só da pintura multicolor; a tampa do corte
      (superfície cortada preenchida) não é desenhada. Conferido com o Orca 2.4.2 desktop: o 3MF
      pintado no app fatia lá com o mesmo suporte (552 contra 557 mm de filamento, interface igual).
+     Também (2026-10-30): "Difusa", pintura de textura difusa como o GLGizmoFuzzySkin
+     (fuzzy_skin_facets; adicionar ou remover, círculo, esfera e preenchimento), com o aviso e o
+     botão "Ligar neste objeto" (fuzzy_skin "Só pintado") quando ela está desligada.
 4. Multi-material (AMS/MMU) com torre de purga.
    - Feito (2026-10-29): 3MF multicolor do Orca/Bambu fatia igual ao Orca desktop; filamentos do
      projeto (acrescentar, excluir, preset e cor), filamento do objeto, volumes de purga com o
@@ -155,8 +158,9 @@ Creality, Box da QIDI).
      da Creality K3 (plano-envio.md); K2 lê o CFS e fatia, impressão real não feita. Box da
      QIDI (Q2) feita e testada (2026-10-30: 2 cores, 5 trocas, sem falha), depois de corrigir a
      torre de limpeza e a troca no início que entupiam o extrusor.
-   - Falta: mapear filamentos para os slots do AMS ao imprimir numa Bambu (o início de impressão
-     pela LAN ainda não funciona, ver plano-envio.md); pintura com o dedo (adiada).
+   - Mapeamento para os slots do AMS da Bambu feito (2026-10-30), sem teste real: o início de
+     impressão pela LAN só funciona com modo somente LAN + desenvolvedor (plano-envio.md).
+   - Falta: pintura multicolor com o dedo (adiada).
 5. Reativar OpenVDB (hollowing, reparo) e OCCT (STEP) se o tamanho do APK permitir.
 6. Ferramentas de calibração reaproveitando os geradores do Orca.
 7. Play Asset Delivery para perfis sob demanda; ABI x86_64 para emulador.
