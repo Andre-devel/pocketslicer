@@ -66,6 +66,7 @@ struct Engine::Impl {
     Model                         model;
     Print                         print;
     GCodeProcessorResult          result; // do último slice()
+    std::map<size_t, double>      firmware_flush; // do último slice(), ver firmware_flush()
     // Objetos de cada placa, em coordenadas da mesa. A placa da mesa (plate) fica em model,
     // e a entrada dela aqui, vazia, até outra ser escolhida. Sempre há ao menos uma.
     std::vector<Model> plates = std::vector<Model>(1);
@@ -785,7 +786,32 @@ void copy_for_orca(const fs::path &src, const fs::path &dst)
     }
 }
 
-SliceStats stats_of(const GCodeProcessorResult &result)
+// Purga que o firmware faz sozinho a cada troca, fora do G-code, em mm³ por filamento (o que
+// entra). Na K2 com CFS (bico único) o G-code de troca só tem o T, e a impressora purga pela
+// matriz de purga; o Creality Print soma essa purga ao filamento usado
+// (GCodeProcessor::calculateVolume, com multicolor_method 0). Na K3 cada filamento tem o seu
+// bico (single_extruder_multi_material 0) e não há purga. Vazio quando o G-code já conta a
+// purga (FLUSH_START da Bambu) ou ela vai para a torre.
+std::map<size_t, double> firmware_flush(const GCodeProcessorResult &result, const PrintConfig &config)
+{
+    std::map<size_t, double> flush;
+    if (!config.single_extruder_multi_material || config.purge_in_prime_tower || !result.print_statistics.flush_per_filament.empty())
+        return flush;
+    const size_t              count      = config.filament_colour.size();
+    const std::vector<double> matrix     = get_flush_volumes_matrix(config.flush_volumes_matrix.values, 0, config.nozzle_diameter.size());
+    const double              multiplier = config.flush_multiplier.get_at(0);
+    int                       current    = -1;
+    for (const GCodeProcessorResult::MoveVertex &move : result.moves)
+        if (move.type == EMoveType::Tool_change) {
+            const int next = move.extruder_id;
+            if (current >= 0 && next != current && size_t(current) * count + next < matrix.size())
+                flush[next] += matrix[size_t(current) * count + next] * multiplier;
+            current = next;
+        }
+    return flush;
+}
+
+SliceStats stats_of(const GCodeProcessorResult &result, const std::map<size_t, double> &firmware_flush = {})
 {
     SliceStats stats;
     stats.print_time_s = result.print_statistics.modes.front().time;
@@ -794,7 +820,10 @@ SliceStats stats_of(const GCodeProcessorResult &result)
     auto at = [](const std::vector<float> &values, size_t i, double fallback) {
         return i < values.size() ? double(values[i]) : fallback;
     };
-    for (const auto &[index, mm3] : result.print_statistics.total_volumes_per_extruder) {
+    std::map<size_t, double> volumes = result.print_statistics.total_volumes_per_extruder;
+    for (const auto &[index, mm3] : firmware_flush)
+        volumes[index] += mm3;
+    for (const auto &[index, mm3] : volumes) {
         stats.filament_mm3 += mm3;
         FilamentUse use;
         use.index = index;
@@ -1121,6 +1150,7 @@ SliceStats Engine::load_gcode(const std::string &path)
     GCodeProcessor::s_IsBBLPrinter = m->bundle && m->bundle->is_bbl_vendor();
     processor.process_file(path);
     m->result = processor.extract_result();
+    m->firmware_flush.clear();
     return stats_of(m->result);
 }
 
@@ -3217,10 +3247,11 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     // Sem mudança desde o último slice, GCode::do_export() não refaz o arquivo e deixaria o
     // resultado vazio ("Fatiar de novo" fechava o app na pré-visualização): vale o anterior.
     if (print.is_step_done(psGCodeExport) && fs::exists(gcode_path) && !m->result.moves.empty())
-        return stats_of(m->result);
+        return stats_of(m->result, m->firmware_flush);
 
     GCodeProcessorResult result;
     m->result = GCodeProcessorResult();
+    m->firmware_flush.clear();
     try {
         print.process();
         // GCode::do_export cria o diretório pai; com caminho relativo ele seria vazio.
@@ -3245,8 +3276,9 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     if (print.canceled())
         throw Canceled();
 
-    m->result = std::move(result);
-    return stats_of(m->result);
+    m->result         = std::move(result);
+    m->firmware_flush = creality ? firmware_flush(m->result, print.config()) : std::map<size_t, double>();
+    return stats_of(m->result, m->firmware_flush);
 }
 
 void Engine::cancel()

@@ -484,6 +484,37 @@ class SlicerEngineTest {
         assertEquals(1, engine.flushVolumes().size)
     }
 
+    // A K2 (bico único com CFS) purga pela matriz a cada troca, fora do G-code; como no Creality
+    // Print, essa purga entra no filamento usado. A K3 tem um bico por filamento e não purga.
+    @Test
+    fun crealityK2CountsTheFirmwarePurgeOfEachChange() = runBlocking {
+        suspend fun twoColors(printer: String, name: String): Pair<SliceStats, File> {
+            engine.loadVendor("CrealityPrint/Creality")
+            engine.select(PresetKind.PRINTER, printer)
+            engine.loadModel(testAsset("cube20.stl"))
+            engine.addModel(testAsset("voron_cube_v7.stl"))
+            if (engine.filamentColors().size < 2) engine.addFilament()
+            engine.setObjectFilament(1, 1)
+            val gcode = File(work, "$name.gcode")
+            return engine.slice(gcode) { _, _ -> } to gcode
+        }
+        // Volume extrudado no G-code, do rodapé "; filament used [cm3] = a, b".
+        fun extruded(gcode: File) = gcode.useLines { lines ->
+            lines.first { it.startsWith("; filament used [cm3] =") }.substringAfter("=").split(",").sumOf { it.trim().toDouble() } * 1000
+        }
+
+        val (k2, k2Gcode) = twoColors("Creality K2 0.4 nozzle", "k2")
+        val flush = engine.flushVolumes()
+        val tools = k2Gcode.useLines { lines -> lines.filter { Regex("T\\d+").matches(it) }.map { it.drop(1).toInt() }.toList() }
+        // O firmware purga a matriz vezes o multiplicador (flush_para no metadata.py da K2).
+        val purge = tools.zipWithNext().filter { (a, b) -> a != b }.sumOf { (a, b) -> flush[a * 2 + b] } * engine.flushMultipliers()[0]
+        assertTrue("trocas: $tools", purge > 0)
+        assertEquals("extruded ${extruded(k2Gcode)} purge $purge tools ${tools.size} flush ${flush.toList()}", extruded(k2Gcode) + purge, k2.filamentMm3, 10.0)
+
+        val (k3, k3Gcode) = twoColors("Creality K3", "k3")
+        assertEquals(extruded(k3Gcode), k3.filamentMm3, 10.0)
+    }
+
     @Test
     fun crealityGcodeHasTheColorOfEachUsedFilament() = runBlocking {
         engine.loadVendor("CrealityPrint/Creality")
