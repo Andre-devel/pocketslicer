@@ -42,6 +42,8 @@ object MoonrakerUploader : Uploader {
 
     private const val CREALITY_CONNECT_MS = 3_000
     private const val CREALITY_READ_MS = 5_000
+    /** Espera pelo `printFileName` que a Creality manda ao aceitar o início (veio em ~3 s na K2). */
+    private const val CREALITY_ACCEPT_MS = 15_000
     /**
      * Espera pelo estado de impressão depois de `multiColorPrint`: a K3 aquece e carrega o CFS
      * antes (2,5 min no teste de 2026-10-29).
@@ -258,7 +260,10 @@ object MoonrakerUploader : Uploader {
                 CrealitySocket.open(api.host, CREALITY_CONNECT_MS).use { socket ->
                     socket.send(set("colorMatch", JSONObject().put("path", gcode).put("list", list)))
                     socket.send(set("multiColorPrint", JSONObject().put("gcode", gcode).put("enableSelfTest", 0)))
-                    Log.i(TAG, "colorMatch + multiColorPrint sent for $gcode: $list")
+                    // A K2 descarta o pedido se a conexão fecha logo depois do envio (2026-10-30):
+                    // fica aberta até ela anunciar o arquivo em impressão.
+                    val accepted = socket.awaitMessage(CREALITY_ACCEPT_MS) { it.optString("printFileName") == gcode }
+                    Log.i(TAG, "colorMatch + multiColorPrint sent for $gcode (accepted=${accepted != null}): $list")
                 }
             } catch (e: IOException) {
                 throw SendException(R.string.send_error_io, e.message ?: e.toString(), cause = e)
