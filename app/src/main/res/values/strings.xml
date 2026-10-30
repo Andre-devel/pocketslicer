@@ -194,6 +194,8 @@
     <string name="toolhead_n">Toolhead %1$d</string>
     <string name="slot_empty">no filament</string>
     <string name="cfs_slot">Slot %1$s</string>
+    <string name="external_spool">External spool</string>
+    <string name="qidi_box_slot">Box %1$d, slot %2$d</string>
     <string name="print_heats_note">The printer starts heating as soon as the file arrives.</string>
     <string name="printer_from">Printer · %1$s</string>
     <string name="printers">Printers</string>

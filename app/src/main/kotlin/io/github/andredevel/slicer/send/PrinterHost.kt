@@ -73,6 +73,8 @@ data class PrinterStatus(val state: State, val progress: Float? = null, val file
  * quando há filamento detectado; [type] como a impressora informa ("PLA") e [color] `#RRGGBB`,
  * quando ela sabe. [nozzle]: na impressora de vários bicos com CFS (K3), o bico (a partir de 1)
  * que essa posição alimenta; só o filamento desse bico (T de mesmo número menos 1) pode usá-la.
+ * [qidiSlot]: na Box da QIDI, a posição como o firmware a numera (caixa * 4 + posição, 16 = o
+ * carretel externo, [QIDI_EXTERNAL]).
  */
 data class Slot(
     val index: Int,
@@ -82,7 +84,11 @@ data class Slot(
     val cfsBox: Int? = null,
     val cfsSlot: Int = 0,
     val nozzle: Int? = null,
+    val qidiSlot: Int? = null,
 )
+
+/** [Slot.qidiSlot] do carretel externo da QIDI (fora da Box). */
+const val QIDI_EXTERNAL = 16
 
 /** Resultado de [Uploader.test]: serviço que respondeu (com a versão, quando há) e tempo da resposta. */
 data class Connection(val service: String, val millis: Long)

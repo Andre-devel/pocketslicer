@@ -50,6 +50,7 @@ import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.SendException
+import io.github.andredevel.slicer.send.QIDI_EXTERNAL
 import io.github.andredevel.slicer.send.Slot
 import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
@@ -311,11 +312,14 @@ private fun MappingRow(filament: Int, color: FloatArray?, name: String?, slots: 
     }
 }
 
-/** "Cabeça 2" na U1, "Slot 1A" (caixa e posição) no CFS da Creality. */
+/** "Cabeça 2" na U1, "Slot 1A" (caixa e posição) no CFS da Creality, "Box 1, posição 3" na QIDI. */
 @Composable
-private fun slotName(slot: Slot): String =
-    if (slot.cfsBox != null) stringResource(R.string.cfs_slot, "${slot.cfsBox}${'A' + slot.cfsSlot}")
-    else stringResource(R.string.toolhead_n, slot.index + 1)
+private fun slotName(slot: Slot): String = when {
+    slot.cfsBox != null -> stringResource(R.string.cfs_slot, "${slot.cfsBox}${'A' + slot.cfsSlot}")
+    slot.qidiSlot == QIDI_EXTERNAL -> stringResource(R.string.external_spool)
+    slot.qidiSlot != null -> stringResource(R.string.qidi_box_slot, slot.qidiSlot / 4 + 1, slot.qidiSlot % 4 + 1)
+    else -> stringResource(R.string.toolhead_n, slot.index + 1)
+}
 
 /**
  * Posição de cada filamento do projeto (0 até [count]): cada um de [used] vai para a posição

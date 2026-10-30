@@ -97,6 +97,10 @@ object MoonrakerUploader : Uploader {
                 mapping == null ->
                     check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)
                 mapping.any { it?.cfsBox != null } -> crealityStart(api, host, path, mapping)
+                mapping.any { it?.qidiSlot != null } -> {
+                    check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", qidiMapping(mapping)).toString()), host)
+                    check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)
+                }
                 else -> {
                     val script = mappedStart(path, metadata(api, host, path), mapping)
                     check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", script).toString()), host)
@@ -107,7 +111,54 @@ object MoonrakerUploader : Uploader {
 
     override suspend fun slots(host: PrinterHost): List<Slot> {
         val api = api(host)
-        return u1Slots(api, host) ?: crealitySlots(api)
+        return u1Slots(api, host) ?: qidiSlots(api, host) ?: crealitySlots(api)
+    }
+
+    /**
+     * Posições da Box da QIDI (`multi_color_controller`, 4 por caixa ligada) e o carretel externo
+     * por último; null num Klipper sem esse objeto. Como o QIDI Studio lê: uma posição tem
+     * filamento com `boxN_box_inserted_P`; o externo conta sempre como carregado.
+     */
+    private suspend fun qidiSlots(api: URL, host: PrinterHost): List<Slot>? {
+        val response = Http.get(api.resolve("/printer/objects/query?multi_color_controller"), headers(host))
+        check(response, host)
+        val controller = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")?.optJSONObject("multi_color_controller") ?: return null
+        val box = controller.optJSONObject("box") ?: return null
+        val slots = mutableListOf<Slot>()
+        for (b in 0 until box.optInt("box_count")) {
+            for (p in 0 until 4) {
+                val info = "box${b}_filament_info_${p}_"
+                slots += Slot(
+                    slots.size,
+                    loaded = box.optInt("box${b}_box_inserted_$p") != 0,
+                    type = box.optString(info + "filament_type").takeIf { it.isNotEmpty() },
+                    color = box.optJSONArray(info + "color_rgb_str")?.optString(0)?.let(::crealityColor),
+                    qidiSlot = b * 4 + p,
+                )
+            }
+        }
+        val external = controller.optJSONObject("extra")?.optJSONObject("filament_info")
+        slots += Slot(
+            slots.size,
+            loaded = true,
+            type = external?.optString("filament_type")?.takeIf { it.isNotEmpty() },
+            color = external?.optJSONArray("color_rgb_str")?.optString(0)?.let(::crealityColor),
+            qidiSlot = QIDI_EXTERNAL,
+        )
+        return slots
+    }
+
+    /**
+     * Mapa da Box da QIDI antes do início, como o QIDI Studio no modo local: `enable_box` liga a
+     * Box (desligada quando todos os filamentos vêm do carretel externo) e `value_tN` diz a
+     * posição do filamento N (`'slotP'`), lida pelo `T_MANAGER` das macros T0..T15.
+     */
+    private fun qidiMapping(mapping: List<Slot?>) = buildString {
+        val box = mapping.any { it?.qidiSlot != null && it.qidiSlot != QIDI_EXTERNAL }
+        append("SAVE_VARIABLE VARIABLE=enable_box VALUE=").append(if (box) 1 else 0)
+        if (box) mapping.forEachIndexed { filament, slot ->
+            if (slot?.qidiSlot != null) append("\nSAVE_VARIABLE VARIABLE=value_t").append(filament).append(" VALUE=\"'slot").append(slot.qidiSlot).append("'\"")
+        }
     }
 
     /** Cabeças da U1 (`print_task_config`); null num Klipper sem esse objeto. */
