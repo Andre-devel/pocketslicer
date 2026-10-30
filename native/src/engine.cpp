@@ -519,6 +519,35 @@ std::string Engine::selected(PresetKind kind) const
     return m->collection(kind).get_selected_preset_name();
 }
 
+namespace {
+
+// Opção de um perfil de impressora do fabricante que o Orca não conhece e descarta ao carregar,
+// lida dos JSON em machine_dir seguindo "inherits".
+std::optional<std::string> vendor_printer_option(const fs::path &machine_dir, std::string name, const std::string &key)
+{
+    std::map<std::string, nlohmann::json> by_name;
+    if (fs::is_directory(machine_dir))
+        for (const fs::directory_entry &file : fs::directory_iterator(machine_dir)) {
+            boost::nowide::ifstream in(file.path().string());
+            nlohmann::json profile = nlohmann::json::parse(in, nullptr, false);
+            if (profile.is_object() && profile.contains("name") && profile["name"].is_string()) {
+                const std::string profile_name = profile["name"].get<std::string>();
+                by_name[profile_name]          = std::move(profile);
+            }
+        }
+    while (!name.empty()) {
+        const auto it = by_name.find(name);
+        if (it == by_name.end())
+            break;
+        if (it->second.contains(key) && it->second[key].is_string())
+            return it->second[key].get<std::string>();
+        name = it->second.value("inherits", "");
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
 void Engine::select(PresetKind kind, const std::string &name)
 {
     PresetCollection &collection = m->collection(kind);
@@ -538,6 +567,17 @@ void Engine::select(PresetKind kind, const std::string &name)
         // Tipo de mesa padrão da impressora, como o Plater da GUI faz (a validação
         // recusa filamentos sem temperatura para a mesa escolhida).
         m->bundle->project_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(m->default_bed_type()));
+        // O firmware do CFS purga a matriz vezes o multiplicador que lê do G-code, e o Creality
+        // Print, ao trocar de impressora, põe no projeto o default_flush_multiplier dela (1,3
+        // quando o perfil não diz; avisa se o projeto ficar abaixo). O padrão do Orca é 0,3.
+        if (m->vendor.rfind("CrealityPrint/", 0) == 0) {
+            const Preset     &printer = collection.get_selected_preset();
+            const fs::path    machine = fs::path(data_dir()) / PRESET_SYSTEM_DIR / m->vendor_index(m->vendor).stem() / "machine";
+            const std::string value   = vendor_printer_option(machine, printer.is_system ? printer.name : printer.inherits(), "default_flush_multiplier")
+                                          .value_or("1.3");
+            auto &multipliers = m->bundle->project_config.option<ConfigOptionFloats>("flush_multiplier")->values;
+            std::fill(multipliers.begin(), multipliers.end(), string_to_double_decimal_point(value));
+        }
         m->place_on_bed();
         break;
     case PresetKind::Filament:

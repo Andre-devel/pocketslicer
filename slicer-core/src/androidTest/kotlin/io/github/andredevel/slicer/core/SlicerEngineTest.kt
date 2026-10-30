@@ -504,6 +504,8 @@ class SlicerEngineTest {
         }
 
         val (k2, k2Gcode) = twoColors("Creality K2 0.4 nozzle", "k2")
+        // Multiplicador do Creality Print para a impressora (default_flush_multiplier), não o 0,3 do Orca.
+        assertEquals(1.3, engine.flushMultipliers()[0], 1e-9)
         val flush = engine.flushVolumes()
         val tools = k2Gcode.useLines { lines -> lines.filter { Regex("T\\d+").matches(it) }.map { it.drop(1).toInt() }.toList() }
         // O firmware purga a matriz vezes o multiplicador (flush_para no metadata.py da K2).
