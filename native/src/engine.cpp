@@ -1698,7 +1698,13 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     // Como o Print::apply() do Creality Print: default_filament_colour com a cor de cada filamento
     // usado (vazio nos outros). O firmware da K3 lê esse campo para escolher o primeiro bico a
     // aquecer e para em BOX_FIRST_NOZZLE_HEATING quando ele está vazio.
-    if (m->vendor.rfind("CrealityPrint/", 0) == 0) {
+    const bool creality = m->vendor.rfind("CrealityPrint/", 0) == 0;
+    // O leitor de metadados do firmware da Creality (metadata.py da K2/K3) só lê
+    // default_filament_colour de arquivos que não se identificam como de outro fatiador
+    // (OrcaSlicer cai no leitor do PrusaSlicer); com o gerador "PocketSlicer" e o modelo da
+    // impressora no cabeçalho, cai no leitor Creality.
+    set_gcode_generator_name(creality ? "PocketSlicer" : "");
+    if (creality) {
         std::set<int> used = m->object_filaments();
         if (auto it = m->model.plates_custom_gcodes.find(m->model.curr_plate_index); it != m->model.plates_custom_gcodes.end())
             for (const CustomGCode::Item &item : it->second.gcodes)
