@@ -359,6 +359,55 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun partsAreAddedMovedAndRemovedAndChangeSlicing() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        suspend fun volume(name: String) = engine.slice(File(work, "$name.gcode")) { _, _ -> }.filamentMm3
+        val base = volume("base")
+        val size = engine.placements()[0].size.copyOf()
+        assertEquals(listOf(Part.Type.MODEL), engine.parts(0).map { it.type })
+        assertTrue(engine.parts(0)[0].positions.isEmpty())
+
+        // Um décimo do maior lado da mesa (256 mm), fora do objeto: não muda o objeto.
+        assertEquals(1, engine.addPart(0, Part.Type.MODIFIER, Part.Shape.CUBE))
+        val modifier = engine.parts(0)[1]
+        assertTrue(modifier.positions.isNotEmpty() && modifier.name.isNotEmpty())
+        for (axis in 0..2) assertEquals(25.6f, modifier.placement.size[axis], 0.01f)
+        for (axis in 0..2) assertEquals(size[axis], engine.placements()[0].size[axis], 0.01f)
+
+        // No centro do cubo, com metade do tamanho e preenchimento cheio.
+        val half = floatArrayOf(0.5f, 0.5f, 0.5f)
+        engine.setPartPlacement(0, 1, FloatArray(3), FloatArray(3), half)
+        engine.setSetting(SettingsTarget(0, SettingsTarget.Kind.VOLUME, 1), "sparse_infill_density", "100%")
+        val filled = volume("modifier")
+        assertTrue("$filled > $base", filled > base)
+
+        // Volumes negativos vêm antes dos modificadores, como no Orca.
+        assertEquals(1, engine.addPart(0, Part.Type.NEGATIVE, Part.Shape.CYLINDER))
+        assertEquals(listOf(Part.Type.MODEL, Part.Type.NEGATIVE, Part.Type.MODIFIER), engine.parts(0).map { it.type })
+        val transform = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
+        engine.setPartTransform(0, 1, transform)
+        assertTrue(volume("negative") < filled)
+
+        assertThrows(SlicerException::class.java) { runBlocking { engine.removePart(0, 0) } }
+        val project = File(work, "parts.3mf")
+        engine.saveProject(project, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.openProject(project)
+        val reopened = engine.parts(0)
+        assertEquals(listOf(Part.Type.MODEL, Part.Type.NEGATIVE, Part.Type.MODIFIER), reopened.map { it.type })
+        assertEquals(0.5f, reopened[2].placement.scale[0], 0.001f)
+        assertEquals("100%", engine.settings(SettingsTarget(0, SettingsTarget.Kind.VOLUME, 2))["sparse_infill_density"])
+
+        engine.removePart(0, 1)
+        engine.removePart(0, 1)
+        assertEquals(listOf(Part.Type.MODEL), engine.parts(0).map { it.type })
+        // Sem o modificador de 100%; não igual ao base, porque o projeto reaberto não fica na mesma posição.
+        assertTrue(volume("removed") < filled)
+    }
+
+    @Test
     fun projectFilamentsAreAddedAssignedAndRemoved() = runBlocking {
         engine.loadVendor("BBL")
         engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")

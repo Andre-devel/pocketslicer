@@ -502,6 +502,11 @@ fun FilamentLabel(index: Int, color: FloatArray?, name: String? = null, modifier
 private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
     val index = state.scene?.selected
     val placement = state.selectedPlacement
+    val part = state.scene?.selectedPart
+    if (index != null && part != null) {
+        SelectedPart(state, viewModel, index, part)
+        return
+    }
     SectionLabel(stringResource(R.string.object_title)) {
         if (index != null) {
             AppIconButton(R.drawable.ic_content_copy, stringResource(R.string.duplicate), { viewModel.duplicate(index) }, enabled = state.editable)
@@ -542,19 +547,27 @@ private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
             labels = state.plates.objects.indices.map { stringResource(R.string.plate_n, it + 1) }, enabled = state.editable,
         )
     }
-    PlacementFields(index, placement, viewModel, state.editable)
+    PlacementFields(placement, state.editable) { offset, rotation, scale -> viewModel.setPlacement(index, offset, rotation, scale) }
     ObjectSettingsSection(state, viewModel, index, placement.size[2])
 }
 
-/** Campos numéricos do objeto selecionado: posição, rotação e escala. */
+/**
+ * Campos numéricos de posição, rotação e escala do objeto ou de uma peça. [positionAxes]: 2 no
+ * objeto (a altura é sempre a da mesa), 3 numa peça.
+ */
 @Composable
-private fun PlacementFields(objectIndex: Int, placement: Placement, viewModel: SlicerViewModel, enabled: Boolean) {
+internal fun PlacementFields(
+    placement: Placement,
+    enabled: Boolean,
+    positionAxes: Int = 2,
+    onCommit: (offset: FloatArray, rotation: FloatArray, scale: FloatArray) -> Unit,
+) {
     var uniform by rememberSaveable { mutableStateOf(true) }
     fun commit(offset: FloatArray = placement.offset, rotation: FloatArray = placement.rotation, scale: FloatArray = placement.scale) =
-        viewModel.setPlacement(objectIndex, offset, rotation, scale)
+        onCommit(offset, rotation, scale)
 
     FieldLabel(stringResource(R.string.position))
-    AxisFields(placement.offset, { axis, value -> commit(offset = placement.offset.copyOf().also { it[axis] = value }) }, axes = 2, suffix = "mm", enabled = enabled)
+    AxisFields(placement.offset, { axis, value -> commit(offset = placement.offset.copyOf().also { it[axis] = value }) }, axes = positionAxes, suffix = "mm", enabled = enabled)
     FieldLabel(stringResource(R.string.rotation))
     AxisFields(placement.rotation, { axis, value -> commit(rotation = placement.rotation.copyOf().also { it[axis] = value }) }, suffix = "°", enabled = enabled)
     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -5,6 +5,7 @@ import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import io.github.andredevel.slicer.core.Bed
 import io.github.andredevel.slicer.core.ObjectMesh
+import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.Placement
 import io.github.andredevel.slicer.core.WipeTower
 import java.nio.ByteBuffer
@@ -21,7 +22,9 @@ import kotlin.math.sqrt
  * mesma lista [meshes]: as malhas só são reenviadas à GPU quando ela muda.
  * [filamentColors]: RGBA de cada filamento; com mais de um, os objetos são pintados com
  * a cor do filamento de cada triângulo, senão com a cor padrão. [wipeTower]: a torre de purga
- * que o fatiamento vai ter, se houver.
+ * que o fatiamento vai ter, se houver. [parts]: as peças de cada objeto (as que não são do objeto
+ * aparecem translúcidas, por cima dele quando é o selecionado); [selectedPart]: índice de uma
+ * delas no objeto [selected]. Como em [meshes], a GPU só recebe [parts] quando a lista muda.
  */
 data class Scene(
     val bed: Bed,
@@ -30,6 +33,8 @@ data class Scene(
     val selected: Int? = null,
     val filamentColors: List<FloatArray> = emptyList(),
     val wipeTower: WipeTower? = null,
+    val parts: List<List<Part>> = emptyList(),
+    val selectedPart: Int? = null,
 )
 
 /**
@@ -51,10 +56,15 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             field = value
             // Posições novas do motor substituem a transformação provisória do arraste.
             dragTransform = null
+            dragPartTransform = null
             dragTower = null
             if (old?.bed !== value?.bed || old?.meshes !== value?.meshes) {
                 gpu?.let(::release)
                 gpu = null
+            }
+            if (old?.parts !== value?.parts) {
+                partsGpu?.forEach { it.forEach { geometry -> geometry?.release() } }
+                partsGpu = null
             }
             val oldBed = old?.bed
             if (value != null && (oldBed == null || !value.bed.shape.contentEquals(oldBed.shape) || value.bed.maxHeight != oldBed.maxHeight))
@@ -63,6 +73,9 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
 
     /** Transformação provisória do objeto selecionado durante um arraste. */
     var dragTransform: FloatArray? = null
+
+    /** Matriz provisória (na mesa) da peça selecionada durante um arraste. */
+    var dragPartTransform: FloatArray? = null
 
     /** Posição provisória (canto x, y) da torre de purga durante um arraste. */
     var dragTower: FloatArray? = null
@@ -85,6 +98,20 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         return scene.placements.mapIndexed { i, p -> dragTransform?.takeIf { i == scene.selected } ?: p.transform }
     }
 
+    /**
+     * Matriz na mesa de cada peça (a do objeto vezes a dela), na ordem de [Scene.parts], com a
+     * [dragPartTransform] na selecionada.
+     */
+    fun partTransforms(): List<List<FloatArray>> {
+        val scene = scene ?: return emptyList()
+        return transforms().zip(scene.parts).mapIndexed { i, (objectTransform, parts) ->
+            parts.mapIndexed { j, part ->
+                dragPartTransform?.takeIf { i == scene.selected && j == scene.selectedPart }
+                    ?: FloatArray(16).also { Matrix.multiplyMM(it, 0, objectTransform, 0, part.placement.transform, 0) }
+            }
+        }
+    }
+
     /** Caminhos do G-code; com [showPreview], substituem os objetos no desenho. */
     var preview: Preview? = null
         set(value) {
@@ -99,6 +126,8 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
 
     /** Recursos GL da [scene] atual; recriados quando o contexto GL é perdido. */
     private var gpu: GpuScene? = null
+    /** Malhas de [Scene.parts] (null nas peças do objeto, que já estão na dele). */
+    private var partsGpu: List<List<Geometry?>>? = null
     private var flatProgram = 0
     private var meshProgram = 0
 
@@ -108,6 +137,7 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
     override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
         // Contexto novo: os objetos GL anteriores deixaram de existir.
         gpu = null
+        partsGpu = null
         toolpathRenderer = null
         flatProgram = program(FLAT_VERTEX, FLAT_FRAGMENT_SOURCE)
         meshProgram = program(MESH_VERTEX, MESH_FRAGMENT)
@@ -230,7 +260,8 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
             val outside = highlight && scene.placements[i].outside
-            val selected = highlight && i == scene.selected
+            // Com uma peça selecionada, só ela fica destacada.
+            val selected = highlight && i == scene.selected && scene.selectedPart == null
             val colors = scene.filamentColors.takeIf { it.size > 1 }
             for ((filament, first, count) in gpu.objects[i].parts) {
                 val filamentColor = colors?.let { it.getOrNull(filament) ?: it.first() }
@@ -244,7 +275,8 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
                 gpu.objects[i].geometry.draw(colorLocation, color, first, count)
             }
         }
-        // A torre não entra na miniatura (não é um objeto do projeto).
+        // As peças e a torre não entram na miniatura (como no Orca).
+        if (highlight) drawParts(scene, camera, mvpLocation, modelViewLocation, colorLocation)
         val tower = towerTransform()
         if (highlight && tower != null) {
             Matrix.multiplyMM(modelView, 0, camera.view, 0, tower, 0)
@@ -253,6 +285,32 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
             gpu.tower.draw(colorLocation, if (dragTower != null) SELECTED else TOWER)
         }
+    }
+
+    /** Peças que não são do objeto, translúcidas, nas cores do Orca; as do selecionado por cima dele. */
+    private fun drawParts(scene: Scene, camera: OrbitCamera, mvpLocation: Int, modelViewLocation: Int, colorLocation: Int) {
+        val geometries = partsGpu ?: scene.parts.map { parts ->
+            parts.map { part -> part.takeIf { it.type != Part.Type.MODEL }?.let { Geometry(GL_TRIANGLES, it.positions, it.indices) } }
+        }.also { partsGpu = it }
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glDepthMask(false)
+        for ((i, transforms) in partTransforms().withIndex()) {
+            val selectedObject = i == scene.selected
+            if (selectedObject) glDisable(GL_DEPTH_TEST)
+            for ((j, transform) in transforms.withIndex()) {
+                val geometry = geometries.getOrNull(i)?.getOrNull(j) ?: continue
+                Matrix.multiplyMM(modelView, 0, camera.view, 0, transform, 0)
+                Matrix.multiplyMM(mvp, 0, camera.projection, 0, modelView, 0)
+                glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
+                glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
+                val color = if (selectedObject && j == scene.selectedPart) SELECTED_PART else PART_COLORS.getValue(scene.parts[i][j].type)
+                geometry.draw(colorLocation, color)
+            }
+            if (selectedObject) glEnable(GL_DEPTH_TEST)
+        }
+        glDepthMask(true)
+        glDisable(GL_BLEND)
     }
 
     private fun frameBed(bed: Bed) {
@@ -297,13 +355,13 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
     /** Um trecho por filamento (os triângulos já vêm agrupados), para desenhar cada um com a cor dele. */
     private fun objectGeometry(mesh: ObjectMesh): ObjectGeometry {
         val triangles = mesh.indices.size / 3
-        val parts = ArrayList<Part>()
+        val parts = ArrayList<FilamentRange>()
         var start = 0
         while (start < triangles) {
             val filament = mesh.filaments.getOrElse(start) { 0 }
             var end = start + 1
             while (end < triangles && mesh.filaments.getOrElse(end) { 0 } == filament) end++
-            parts += Part(filament.toInt() and 0xff, start * 3, (end - start) * 3)
+            parts += FilamentRange(filament.toInt() and 0xff, start * 3, (end - start) * 3)
             start = end
         }
         return ObjectGeometry(Geometry(GL_TRIANGLES, mesh.positions, mesh.indices), parts)
@@ -322,9 +380,9 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
     )
 
     /** [count] índices a partir de [first], todos do [filament]. */
-    private data class Part(val filament: Int, val first: Int, val count: Int)
+    private data class FilamentRange(val filament: Int, val first: Int, val count: Int)
 
-    private class ObjectGeometry(val geometry: Geometry, val parts: List<Part>)
+    private class ObjectGeometry(val geometry: Geometry, val parts: List<FilamentRange>)
 
     /** VAO com posições (x, y, z) e, opcionalmente, índices de 32 bits. */
     private class Geometry(private val mode: Int, positions: FloatArray, indices: IntArray? = null) {
@@ -394,6 +452,14 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7,
         )
         private val SELECTED = floatArrayOf(1.00f, 0.54f, 0.24f, 1f)
+        private val SELECTED_PART = floatArrayOf(1.00f, 0.54f, 0.24f, 0.6f)
+        // GLVolume::MODEL_NEGTIVE_COL, MODEL_MIDIFIER_COL, SUPPORT_BLOCKER_COL e SUPPORT_ENFORCER_COL.
+        private val PART_COLORS = mapOf(
+            Part.Type.NEGATIVE to floatArrayOf(0.3f, 0.3f, 0.3f, 0.4f),
+            Part.Type.MODIFIER to floatArrayOf(1.0f, 1.0f, 0.0f, 0.6f),
+            Part.Type.SUPPORT_BLOCKER to floatArrayOf(1.0f, 0.3f, 0.3f, 0.4f),
+            Part.Type.SUPPORT_ENFORCER to floatArrayOf(0.3f, 0.3f, 1.0f, 0.4f),
+        )
         private val OUTSIDE = floatArrayOf(1.00f, 0.42f, 0.37f, 1f)
         private val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
 

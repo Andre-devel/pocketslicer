@@ -1,7 +1,7 @@
 package io.github.andredevel.slicer.render
 
 import android.opengl.Matrix
-import io.github.andredevel.slicer.core.ObjectMesh
+import io.github.andredevel.slicer.core.Triangles
 
 /** Raio em coordenadas da mesa. */
 class Ray(val origin: FloatArray, val direction: FloatArray) {
@@ -15,8 +15,8 @@ class Ray(val origin: FloatArray, val direction: FloatArray) {
     }
 }
 
-/** Triângulo [triangle] do objeto [objectIndex] atingido em [point]. */
-class Hit(val objectIndex: Int, val triangle: Int, val point: FloatArray)
+/** Triângulo [triangle] da malha [objectIndex] (índice na lista dada a [pick]) atingido em [point], a [distance] da origem do raio. */
+class Hit(val objectIndex: Int, val triangle: Int, val point: FloatArray, val distance: Float)
 
 /** Raio que sai da câmera pelo pixel (x, y) de um viewport [width] x [height]. */
 fun OrbitCamera.ray(x: Float, y: Float, width: Int, height: Int): Ray {
@@ -41,7 +41,7 @@ fun OrbitCamera.ray(x: Float, y: Float, width: Int, height: Int): Ray {
  * Triângulo mais próximo atingido pelo [ray] entre os objetos (malha + transformação),
  * por força bruta (Möller–Trumbore) — suficiente para um toque.
  */
-fun pick(ray: Ray, meshes: List<ObjectMesh>, transforms: List<FloatArray>): Hit? {
+fun pick(ray: Ray, meshes: List<Triangles>, transforms: List<FloatArray>): Hit? {
     var best: Hit? = null
     var bestT = Float.MAX_VALUE
     val inverse = FloatArray(16)
@@ -77,7 +77,7 @@ fun pick(ray: Ray, meshes: List<ObjectMesh>, transforms: List<FloatArray>): Hit?
             val dist = (e2x * qx + e2y * qy + e2z * qz) * inv
             if (dist > 0f && dist < bestT) {
                 bestT = dist
-                best = Hit(index, t, ray.at(dist))
+                best = Hit(index, t, ray.at(dist), dist)
             }
         }
     }

@@ -90,6 +90,22 @@ struct Placement {
     bool outside = false; // fora (total ou parcialmente) do volume de impressão
 };
 
+// Peça de um objeto (ModelVolume), como na lista de objetos do Orca. As de tipo Model formam o
+// objeto (estão em ObjectMesh); as outras mudam como ele é fatiado na região delas: Negative
+// tira material, Modifier tem configuração própria (SettingsTarget::Kind::Volume), os
+// bloqueadores e forçadores de suporte tiram ou põem suporte. placement: na do objeto (a matriz
+// do volume, antes da instância); size é o da peça já transformada, e outside não se aplica.
+struct Part {
+    enum class Type { Model = 0, Negative = 1, Modifier = 2, SupportBlocker = 3, SupportEnforcer = 4 }; // ModelVolumeType
+    // As formas do menu "Adicionar modificador" do Orca.
+    enum class Shape { Cube = 0, Cylinder = 1, Sphere = 2, Cone = 3, Disc = 4, Torus = 5 };
+    std::string           name;
+    Type                  type = Type::Model;
+    Placement             placement;
+    std::vector<float>    positions; // malha da peça, sem a matriz dela; vazia nas de tipo Model
+    std::vector<uint32_t> indices;
+};
+
 // Torre de purga da mesa, estimada como a GUI do Orca a desenha antes de fatiar
 // (PartPlate::estimate_wipe_tower_size). (x, y): canto da frente à esquerda, em mm na mesa;
 // rotation em graus em torno dele.
@@ -282,6 +298,22 @@ public:
     // Novos limites, com a mesma configuração; devolve o novo índice.
     size_t set_height_range(size_t object, size_t index, const HeightRange &range);
     void remove_height_range(size_t object, size_t index);
+
+    // --- Peças (volumes) de um objeto; o índice é o de SettingsTarget::Kind::Volume ---
+
+    // Na ordem do Orca: as do objeto, os volumes negativos, os modificadores, os bloqueadores
+    // e os forçadores de suporte.
+    std::vector<Part> parts(size_t object) const;
+    // Peça nova com a forma, como "Adicionar modificador" da GUI do Orca: com um décimo do
+    // maior lado da mesa, alinhada à mesa e encostada no canto da frente à direita do objeto.
+    // Devolve o índice dela. type Model acrescenta uma peça ao objeto.
+    size_t add_part(size_t object, Part::Type type, Part::Shape shape);
+    // Matriz (ordem de coluna) ou decomposição da peça, na do objeto. Mexer numa peça do
+    // objeto o reapoia na mesa.
+    void set_part_transform(size_t object, size_t part, const std::array<double, 16> &transform);
+    void set_part_placement(size_t object, size_t part, const Vec3 &offset, const Vec3 &rotation, const Vec3 &scale);
+    // Lança se for a última peça do objeto (tipo Model). Os índices seguintes descem um.
+    void remove_part(size_t object, size_t part);
 
     // Volumes de purga (mm³) na troca do filamento i para o j: matriz n x n por linha
     // (flush_volumes_matrix), uma por extrusor da impressora, em sequência.

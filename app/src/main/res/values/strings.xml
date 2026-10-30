@@ -327,4 +327,30 @@
     <string name="settings_suggested">Common parameters</string>
     <string name="settings_no_match">No parameter found.</string>
     <string name="delete_height_range">Delete range</string>
+    <!-- Peças do objeto: modificadores, volumes negativos e de suporte -->
+    <string name="parts">Parts</string>
+    <string name="part_title">Selected part</string>
+    <string name="add_part">Add part</string>
+    <string name="add_part_hint">The new part appears next to the object; move it into place with the tools or the fields.</string>
+    <string name="part_type">Type</string>
+    <string name="part_shape">Shape</string>
+    <string name="part_type_model">Part</string>
+    <string name="part_type_negative">Negative volume</string>
+    <string name="part_type_modifier">Modifier</string>
+    <string name="part_type_support_blocker">Support blocker</string>
+    <string name="part_type_support_enforcer">Support enforcer</string>
+    <string name="part_shape_cube">Cube</string>
+    <string name="part_shape_cylinder">Cylinder</string>
+    <string name="part_shape_sphere">Sphere</string>
+    <string name="part_shape_cone">Cone</string>
+    <string name="part_shape_disc">Disc</string>
+    <string name="part_shape_torus">Torus</string>
+    <string name="part_settings">Part settings</string>
+    <string name="settings_part_hint">These values replace the process ones inside this part only.</string>
+    <string name="part_hint_negative">Removes material from the object where it overlaps it.</string>
+    <string name="part_hint_support_blocker">No support is generated inside it.</string>
+    <string name="part_hint_support_enforcer">With support on, support is always generated inside it.</string>
+    <string name="part_position_hint">Position relative to the object center.</string>
+    <string name="delete_part">Delete part</string>
+    <string name="back_to_object">Back to the object</string>
 </resources>

@@ -14,6 +14,7 @@ import io.github.andredevel.slicer.core.HeightRange
 import io.github.andredevel.slicer.core.LayerChange
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
+import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.PresetValues
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.Plates
@@ -149,8 +150,15 @@ enum class SliceStage(@StringRes val label: Int, private val fromPercent: Int) {
     }
 }
 
-/** Opções próprias de um objeto ([values]) e as faixas de altura dele, cada uma com as suas. */
-data class ObjectSettings(val values: Map<String, String> = emptyMap(), val ranges: List<RangeSettings> = emptyList())
+/**
+ * Opções próprias de um objeto ([values]), das faixas de altura dele e das peças ([parts], na
+ * ordem de [Scene.parts]; vazias nas que não têm configuração).
+ */
+data class ObjectSettings(
+    val values: Map<String, String> = emptyMap(),
+    val ranges: List<RangeSettings> = emptyList(),
+    val parts: List<Map<String, String>> = emptyList(),
+)
 
 data class RangeSettings(val range: HeightRange, val values: Map<String, String>)
 
@@ -694,8 +702,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         null
     }
 
-    fun select(objectIndex: Int?) = _state.update { state ->
-        state.copy(scene = state.scene?.copy(selected = objectIndex))
+    /** [part]: uma peça do objeto, ou o objeto inteiro (null). */
+    fun select(objectIndex: Int?, part: Int? = null) = _state.update { state ->
+        state.copy(scene = state.scene?.copy(selected = objectIndex, selectedPart = part?.takeIf { objectIndex != null }))
     }
 
     fun selectTool(tool: Tool) = _state.update { it.copy(tool = tool) }
@@ -743,6 +752,44 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             markChanged(StaleReason(reason))
         } finally {
             refreshScene(engine)
+        }
+    }
+
+    /** Peça nova com a forma (ver [SlicerEngine.addPart]), que fica selecionada. */
+    fun addPart(objectIndex: Int, type: Part.Type, shape: Part.Shape) = editParts(objectIndex, type) { engine ->
+        engine.addPart(objectIndex, type, shape)
+    }
+
+    fun setPartTransform(objectIndex: Int, part: Int, transform: FloatArray) = editParts(objectIndex, partType(objectIndex, part)) { engine ->
+        engine.setPartTransform(objectIndex, part, transform)
+        part
+    }
+
+    fun setPartPlacement(objectIndex: Int, part: Int, offset: FloatArray, rotation: FloatArray, scale: FloatArray) =
+        editParts(objectIndex, partType(objectIndex, part)) { engine ->
+            engine.setPartPlacement(objectIndex, part, offset, rotation, scale)
+            part
+        }
+
+    fun removePart(objectIndex: Int, part: Int) = editParts(objectIndex, partType(objectIndex, part)) { engine ->
+        engine.removePart(objectIndex, part)
+        null
+    }
+
+    private fun partType(objectIndex: Int, part: Int) = _state.value.scene?.parts?.getOrNull(objectIndex)?.getOrNull(part)?.type
+
+    /**
+     * Altera peças do objeto; [edit] devolve a peça a selecionar depois (ou null, o objeto). Só as
+     * de [Part.Type.MODEL] mudam a malha do objeto.
+     */
+    private fun editParts(objectIndex: Int, type: Part.Type?, edit: suspend (SlicerEngine) -> Int?) = launchEngine(null) { engine ->
+        var selectPart: Int? = _state.value.scene?.selectedPart
+        try {
+            selectPart = edit(engine)
+            markChanged(StaleReason(app.getString(R.string.parts)))
+        } finally {
+            refreshScene(engine, if (type == Part.Type.MODEL) engine.objects() else null, keepSelection = true)
+            select(objectIndex, selectPart)
         }
     }
 
@@ -1010,16 +1057,22 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val tower = engine.wipeTower()
         val layerChanges = engine.layerChanges()
         val filamentChange = engine.filamentChangeAvailable()
+        val parts = placements.indices.map { engine.parts(it) }
         val settings = placements.indices.map { index ->
             val ranges = engine.heightRanges(index).mapIndexed { i, range ->
                 RangeSettings(range, engine.settings(SettingsTarget(index, SettingsTarget.Kind.RANGE, i)))
             }
-            ObjectSettings(engine.settings(SettingsTarget(index)), ranges)
+            val partSettings = parts[index].mapIndexed { i, part ->
+                if (part.hasSettings) engine.settings(SettingsTarget(index, SettingsTarget.Kind.VOLUME, i)) else emptyMap()
+            }
+            ObjectSettings(engine.settings(SettingsTarget(index)), ranges, partSettings)
         }
         _state.update { state ->
             val selected = state.scene?.selected?.takeIf { (meshes == null || keepSelection) && it < placements.size }
+            val selectedPart = state.scene?.selectedPart?.takeIf { selected != null && it < parts[selected].size }
             state.copy(
-                scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors, tower), plates = plates,
+                scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors, tower, parts, selectedPart),
+                plates = plates,
                 layerChanges = layerChanges, filamentChangeAvailable = filamentChange, objectSettings = settings,
             )
         }

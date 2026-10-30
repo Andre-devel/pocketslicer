@@ -18,7 +18,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,13 +30,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.andredevel.slicer.core.HeightRange
 import io.github.andredevel.slicer.core.OptionDef
+import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SettingsTarget
 import io.github.andredevel.slicer.ui.components.AppButton
@@ -44,6 +49,8 @@ import io.github.andredevel.slicer.ui.components.FormField
 import io.github.andredevel.slicer.ui.components.NavigationRow
 import io.github.andredevel.slicer.ui.components.NumberField
 import io.github.andredevel.slicer.ui.components.SectionLabel
+import io.github.andredevel.slicer.ui.components.SelectField
+import io.github.andredevel.slicer.ui.theme.MonoStyles
 import java.util.Locale
 import kotlin.math.roundToLong
 
@@ -87,7 +94,125 @@ fun ObjectSettingsSection(state: SlicerUiState, viewModel: SlicerViewModel, obje
         style = ButtonStyle.TEXT, icon = R.drawable.ic_add, enabled = state.editable,
     )
 
+
+    // Peças: com só a do objeto, a lista não aparece (como no Orca).
+    val parts = state.scene?.parts?.getOrNull(objectIndex).orEmpty()
+    var adding by remember(objectIndex) { mutableStateOf(false) }
+    SectionLabel(stringResource(R.string.parts), Modifier.padding(top = 8.dp))
+    if (parts.size > 1) {
+        parts.forEachIndexed { index, part ->
+            NavigationRow(
+                partIcon(part.type), partTypeLabel(part.type), part.name.ifBlank { partTypeLabel(part.type) },
+                { viewModel.select(objectIndex, index) }, enabled = state.editable,
+            )
+        }
+    }
+    AppButton(stringResource(R.string.add_part), { adding = true }, style = ButtonStyle.TEXT, icon = R.drawable.ic_add, enabled = state.editable)
+
     editing?.let { target -> SettingsEditor(state, viewModel, target) { editing = null } }
+    if (adding) AddPartDialog({ adding = false }) { type, shape -> viewModel.addPart(objectIndex, type, shape) }
+}
+
+/** Peça [partIndex] do objeto selecionado: tipo, posição na do objeto, configuração e exclusão. */
+@Composable
+fun SelectedPart(state: SlicerUiState, viewModel: SlicerViewModel, objectIndex: Int, partIndex: Int) {
+    val parts = state.scene?.parts?.getOrNull(objectIndex).orEmpty()
+    val part = parts.getOrNull(partIndex) ?: return
+    val values = state.objectSettings.getOrNull(objectIndex)?.parts?.getOrNull(partIndex).orEmpty()
+    var editing by remember(objectIndex, partIndex) { mutableStateOf(false) }
+    // A última peça do objeto não sai (como no Orca).
+    val removable = part.type != Part.Type.MODEL || parts.count { it.type == Part.Type.MODEL } > 1
+
+    SectionLabel(stringResource(R.string.part_title)) {
+        AppIconButton(
+            R.drawable.ic_delete, stringResource(R.string.delete_part), { viewModel.removePart(objectIndex, partIndex) },
+            enabled = state.editable && removable, tint = MaterialTheme.colorScheme.error,
+        )
+        AppIconButton(R.drawable.ic_close, stringResource(R.string.back_to_object), { viewModel.select(objectIndex) })
+    }
+    Text(part.name.ifBlank { partTypeLabel(part.type) }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(
+        partTypeLabel(part.type) + " · " + stringResource(R.string.object_size, part.placement.size[0], part.placement.size[1], part.placement.size[2]),
+        style = MonoStyles.small, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    partHint(part.type)?.let {
+        Text(stringResource(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Text(stringResource(R.string.part_position_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    PlacementFields(part.placement, state.editable, positionAxes = 3) { offset, rotation, scale ->
+        viewModel.setPartPlacement(objectIndex, partIndex, offset, rotation, scale)
+    }
+    if (part.hasSettings) {
+        NavigationRow(
+            R.drawable.ic_tune, stringResource(R.string.part_settings), changedSummary(values), { editing = true }, enabled = state.editable,
+        )
+    }
+    if (editing) SettingsEditor(state, viewModel, SettingsTarget(objectIndex, SettingsTarget.Kind.VOLUME, partIndex)) { editing = false }
+}
+
+/** Tipo e forma da peça nova; tocar numa forma acrescenta. Modificador primeiro, como no Orca. */
+@Composable
+private fun AddPartDialog(onDismiss: () -> Unit, onAdd: (Part.Type, Part.Shape) -> Unit) {
+    val types = listOf(Part.Type.MODIFIER, Part.Type.NEGATIVE, Part.Type.SUPPORT_BLOCKER, Part.Type.SUPPORT_ENFORCER, Part.Type.MODEL)
+    var type by rememberSaveable { mutableStateOf(Part.Type.MODIFIER) }
+    val typeLabels = types.map { partTypeLabel(it) }
+    val shapeLabels = mapOf(
+        Part.Shape.CUBE to R.string.part_shape_cube, Part.Shape.CYLINDER to R.string.part_shape_cylinder,
+        Part.Shape.SPHERE to R.string.part_shape_sphere, Part.Shape.CONE to R.string.part_shape_cone,
+        Part.Shape.DISC to R.string.part_shape_disc, Part.Shape.TORUS to R.string.part_shape_torus,
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.add_part)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SelectField(
+                    type.name, types.map { it.name }, { type = Part.Type.valueOf(it) },
+                    Modifier.fillMaxWidth(), label = stringResource(R.string.part_type), labels = typeLabels,
+                )
+                Text(stringResource(R.string.add_part_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.part_shape), style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
+                )
+                for (shape in Part.Shape.entries) {
+                    Text(
+                        stringResource(shapeLabels.getValue(shape)), style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
+                            .clickable { onDismiss(); onAdd(type, shape) }.heightIn(min = 44.dp).padding(horizontal = 8.dp, vertical = 10.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
+}
+
+@Composable
+private fun partTypeLabel(type: Part.Type) = stringResource(
+    when (type) {
+        Part.Type.MODEL -> R.string.part_type_model
+        Part.Type.NEGATIVE -> R.string.part_type_negative
+        Part.Type.MODIFIER -> R.string.part_type_modifier
+        Part.Type.SUPPORT_BLOCKER -> R.string.part_type_support_blocker
+        Part.Type.SUPPORT_ENFORCER -> R.string.part_type_support_enforcer
+    },
+)
+
+private fun partIcon(type: Part.Type) = when (type) {
+    Part.Type.MODEL -> R.drawable.ic_deployed_code
+    Part.Type.NEGATIVE -> R.drawable.ic_remove
+    Part.Type.MODIFIER -> R.drawable.ic_tune
+    Part.Type.SUPPORT_BLOCKER -> R.drawable.ic_block
+    Part.Type.SUPPORT_ENFORCER -> R.drawable.ic_add_box
+}
+
+private fun partHint(type: Part.Type) = when (type) {
+    Part.Type.NEGATIVE -> R.string.part_hint_negative
+    Part.Type.SUPPORT_BLOCKER -> R.string.part_hint_support_blocker
+    Part.Type.SUPPORT_ENFORCER -> R.string.part_hint_support_enforcer
+    else -> null
 }
 
 @Composable
@@ -109,10 +234,15 @@ private fun mm(value: Double): String =
  * e a busca para acrescentar outra. Numa faixa, também os limites.
  */
 @Composable
-private fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, target: SettingsTarget, onDismiss: () -> Unit) {
+internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, target: SettingsTarget, onDismiss: () -> Unit) {
     val settings = state.objectSettings.getOrNull(target.objectIndex) ?: ObjectSettings()
     val range = if (target.kind == SettingsTarget.Kind.RANGE) settings.ranges.getOrNull(target.index) else null
-    val values = if (target.kind == SettingsTarget.Kind.RANGE) range?.values.orEmpty() else settings.values
+    val part = if (target.kind == SettingsTarget.Kind.VOLUME) state.scene?.parts?.getOrNull(target.objectIndex)?.getOrNull(target.index) else null
+    val values = when (target.kind) {
+        SettingsTarget.Kind.OBJECT -> settings.values
+        SettingsTarget.Kind.RANGE -> range?.values.orEmpty()
+        SettingsTarget.Kind.VOLUME -> settings.parts.getOrNull(target.index).orEmpty()
+    }
     val process = state.presets[PresetKind.PROCESS]?.values?.values.orEmpty()
     val allowed = state.settingsKeys[target.kind].orEmpty()
     val defs = state.optionDefs[PresetKind.PROCESS].orEmpty().filter { it.key in allowed && it.key in process }
@@ -135,8 +265,12 @@ private fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, tar
                             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                         )
                         Text(
-                            if (range != null) rangeLabel(range.range) else stringResource(R.string.settings_whole_object),
-                            style = MaterialTheme.typography.titleMedium,
+                            when {
+                                range != null -> rangeLabel(range.range)
+                                part != null -> part.name.ifBlank { partTypeLabel(part.type) }
+                                else -> stringResource(R.string.settings_whole_object)
+                            },
+                            style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
                     IconButton(onClick = onDismiss) { Icon(painterResource(R.drawable.ic_close), stringResource(R.string.close)) }
@@ -144,7 +278,13 @@ private fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, tar
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
                     item(key = "hint") {
                         Text(
-                            stringResource(if (range != null) R.string.height_range_hint else R.string.settings_object_hint),
+                            stringResource(
+                                when (target.kind) {
+                                    SettingsTarget.Kind.OBJECT -> R.string.settings_object_hint
+                                    SettingsTarget.Kind.RANGE -> R.string.height_range_hint
+                                    SettingsTarget.Kind.VOLUME -> R.string.settings_part_hint
+                                },
+                            ),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

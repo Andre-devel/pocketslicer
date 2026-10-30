@@ -413,8 +413,11 @@ private fun Viewport(
             factory = { context ->
                 ViewportView(context).also { created ->
                     created.listener = object : ViewportListener {
-                        override fun onSelect(objectIndex: Int?) = viewModel.select(objectIndex)
+                        override fun onSelect(objectIndex: Int?, part: Int?) = viewModel.select(objectIndex, part)
                         override fun onTransform(objectIndex: Int, transform: FloatArray) { viewModel.setTransform(objectIndex, transform) }
+                        override fun onPartTransform(objectIndex: Int, part: Int, transform: FloatArray) {
+                            viewModel.setPartTransform(objectIndex, part, transform)
+                        }
                         override fun onLayOnFace(objectIndex: Int, triangle: Int) { viewModel.layOnFace(objectIndex, triangle) }
                         override fun onWipeTowerMoved(x: Float, y: Float) { viewModel.setWipeTowerPosition(x, y) }
                         override fun onLongPress(objectIndex: Int, x: Float, y: Float) {

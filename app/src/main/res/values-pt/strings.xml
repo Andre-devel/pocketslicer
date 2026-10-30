@@ -323,4 +323,30 @@
     <string name="settings_suggested">Parâmetros comuns</string>
     <string name="settings_no_match">Nenhum parâmetro encontrado.</string>
     <string name="delete_height_range">Excluir faixa</string>
+    <!-- Peças do objeto: modificadores, volumes negativos e de suporte -->
+    <string name="parts">Peças</string>
+    <string name="part_title">Peça selecionada</string>
+    <string name="add_part">Acrescentar peça</string>
+    <string name="add_part_hint">A peça nova aparece ao lado do objeto; leve-a ao lugar com as ferramentas ou os campos.</string>
+    <string name="part_type">Tipo</string>
+    <string name="part_shape">Forma</string>
+    <string name="part_type_model">Peça</string>
+    <string name="part_type_negative">Volume negativo</string>
+    <string name="part_type_modifier">Modificador</string>
+    <string name="part_type_support_blocker">Bloqueador de suporte</string>
+    <string name="part_type_support_enforcer">Forçador de suporte</string>
+    <string name="part_shape_cube">Cubo</string>
+    <string name="part_shape_cylinder">Cilindro</string>
+    <string name="part_shape_sphere">Esfera</string>
+    <string name="part_shape_cone">Cone</string>
+    <string name="part_shape_disc">Disco</string>
+    <string name="part_shape_torus">Toro</string>
+    <string name="part_settings">Configuração da peça</string>
+    <string name="settings_part_hint">Estes valores substituem os do processo só dentro desta peça.</string>
+    <string name="part_hint_negative">Tira material do objeto onde se sobrepõe a ele.</string>
+    <string name="part_hint_support_blocker">Nenhum suporte é gerado dentro dela.</string>
+    <string name="part_hint_support_enforcer">Com o suporte ligado, sempre gera suporte dentro dela.</string>
+    <string name="part_position_hint">Posição em relação ao centro do objeto.</string>
+    <string name="delete_part">Excluir peça</string>
+    <string name="back_to_object">Voltar ao objeto</string>
 </resources>

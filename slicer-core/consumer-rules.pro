@@ -6,3 +6,4 @@
 -keep class io.github.andredevel.slicer.core.ObjectMesh { <init>(java.lang.String, float[], int[], byte[], int); }
 -keep class io.github.andredevel.slicer.core.Toolpaths { <init>(float[], byte[], int[], byte[], java.lang.String[], float[], int[], float[]); }
 -keep class io.github.andredevel.slicer.core.LayerChangeData { <init>(double, int, int, java.lang.String); }
+-keep class io.github.andredevel.slicer.core.PartData { <init>(java.lang.String, int, double[], float[], int[]); }

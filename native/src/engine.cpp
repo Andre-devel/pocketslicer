@@ -1424,6 +1424,155 @@ void Engine::remove_height_range(size_t object, size_t index)
     o.layer_config_ranges.erase(range_at(o, index));
 }
 
+namespace {
+
+// Placement da transformação, sem size e outside.
+Placement decompose(const Geometry::Transformation &t)
+{
+    Placement p;
+    std::copy(t.get_matrix().data(), t.get_matrix().data() + 16, p.transform.begin());
+    const Vec3d offset = t.get_offset(), rotation = t.get_rotation(), scale = t.get_scaling_factor();
+    for (int i = 0; i < 3; ++i) {
+        p.offset[i] = offset[i];
+        p.rotation[i] = Geometry::rad2deg(rotation[i]);
+        p.scale[i] = scale[i];
+    }
+    return p;
+}
+
+Geometry::Transformation compose(const Vec3 &offset, const Vec3 &rotation, const Vec3 &scale)
+{
+    for (double s : scale)
+        if (!(s > 0.0))
+            throw std::invalid_argument("scale must be positive");
+    Geometry::Transformation t;
+    t.set_offset(Vec3d(offset[0], offset[1], offset[2]));
+    t.set_rotation(Vec3d(Geometry::deg2rad(rotation[0]), Geometry::deg2rad(rotation[1]), Geometry::deg2rad(rotation[2])));
+    t.set_scaling_factor(Vec3d(scale[0], scale[1], scale[2]));
+    return t;
+}
+
+} // namespace
+
+std::vector<Part> Engine::parts(size_t object) const
+{
+    std::vector<Part> out;
+    for (const ModelVolume *volume : m->object(object).volumes) {
+        Part part;
+        part.name      = volume->name;
+        part.type      = Part::Type(int(volume->type()));
+        part.placement = decompose(volume->get_transformation());
+        const Vec3d size = volume->mesh().transformed_bounding_box(volume->get_matrix()).size();
+        std::copy(size.data(), size.data() + 3, part.placement.size.begin());
+        if (!volume->is_model_part()) {
+            const indexed_triangle_set &its = volume->mesh().its;
+            for (const stl_vertex &v : its.vertices)
+                part.positions.insert(part.positions.end(), {v.x(), v.y(), v.z()});
+            for (const stl_triangle_vertex_indices &t : its.indices)
+                part.indices.insert(part.indices.end(), {uint32_t(t[0]), uint32_t(t[1]), uint32_t(t[2])});
+        }
+        out.push_back(std::move(part));
+    }
+    return out;
+}
+
+size_t Engine::add_part(size_t object, Part::Type type, Part::Shape shape)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    ModelObject &o = m->object(object);
+    // create_mesh() e load_generic_subobject() de GUI_ObjectList.cpp.
+    const double side = 0.1 * m->build_volume().bounding_volume2d().size().maxCoeff();
+    static const char *const names[] = {"Cube", "Cylinder", "Sphere", "Cone", "Disc", "Torus"};
+    TriangleMesh mesh;
+    switch (shape) {
+    case Part::Shape::Cube: mesh = TriangleMesh(its_make_cube(side, side, side)); break;
+    case Part::Shape::Cylinder: mesh = TriangleMesh(its_make_cylinder(0.5 * side, side)); break;
+    case Part::Shape::Sphere: mesh = TriangleMesh(its_make_sphere(0.5 * side, PI / 90)); break;
+    case Part::Shape::Cone: mesh = TriangleMesh(its_make_cone(0.5 * side, side)); break;
+    case Part::Shape::Disc: mesh = TriangleMesh(its_make_cylinder(0.5 * side, 0.2f)); break;
+    case Part::Shape::Torus: mesh = TriangleMesh(its_make_torus(0.5 * side, 0.125 * side, PI / 60)); break;
+    default: throw std::invalid_argument("invalid shape");
+    }
+    if (int(type) < int(Part::Type::Model) || int(type) > int(Part::Type::SupportEnforcer))
+        throw std::invalid_argument("invalid part type");
+
+    const ModelInstance &instance    = *o.instances.front();
+    const BoundingBoxf3  instance_bb = o.instance_bounding_box(0);
+    ModelVolume         *volume      = o.add_volume(std::move(mesh), ModelVolumeType(int(type)));
+    // Alinhada à mesa: desfaz a rotação e a escala da instância. (A GUI depois passa a
+    // transformação da instância para as peças; aqui a instância fica como está.)
+    const Transform3d to_object = instance.get_transformation().get_matrix_no_offset().inverse();
+    volume->set_transformation(Geometry::Transformation(to_object));
+    const BoundingBoxf3 mesh_bb = volume->mesh().bounding_box();
+    const Vec3d offset = Vec3d(instance_bb.max.x(), instance_bb.min.y(), instance_bb.min.z()) + 0.5 * mesh_bb.size() - instance.get_offset();
+    volume->set_offset(to_object * offset);
+    volume->name = format("%1%-%2%", _u8L("Generic"), _u8L(names[int(shape)]));
+    // Como a GUI: o filamento da peça é o do objeto (0 = o do objeto) só nas peças do objeto.
+    int extruder = 0;
+    if (type == Part::Type::Model && o.config.has("extruder"))
+        extruder = o.config.opt_int("extruder");
+    volume->config.set_key_value("extruder", new ConfigOptionInt(extruder));
+    volume->source.is_from_builtin_objects = true;
+
+    o.sort_volumes(true);
+    o.invalidate_bounding_box();
+    if (type == Part::Type::Model)
+        o.ensure_on_bed();
+    return size_t(std::distance(o.volumes.begin(), std::find(o.volumes.begin(), o.volumes.end(), volume)));
+}
+
+namespace {
+
+ModelVolume &volume_at(ModelObject &object, size_t part)
+{
+    if (part >= object.volumes.size())
+        throw std::out_of_range("no part " + std::to_string(part));
+    return *object.volumes[part];
+}
+
+void part_moved(ModelObject &object, const ModelVolume &volume)
+{
+    object.invalidate_bounding_box();
+    if (volume.is_model_part())
+        object.ensure_on_bed();
+}
+
+} // namespace
+
+void Engine::set_part_transform(size_t object, size_t part, const std::array<double, 16> &transform)
+{
+    ModelObject &o = m->object(object);
+    ModelVolume &volume = volume_at(o, part);
+    Transform3d matrix;
+    std::copy(transform.begin(), transform.end(), matrix.data());
+    volume.set_transformation(Geometry::Transformation(matrix));
+    part_moved(o, volume);
+}
+
+void Engine::set_part_placement(size_t object, size_t part, const Vec3 &offset, const Vec3 &rotation, const Vec3 &scale)
+{
+    ModelObject &o = m->object(object);
+    ModelVolume &volume = volume_at(o, part);
+    volume.set_transformation(compose(offset, rotation, scale));
+    part_moved(o, volume);
+}
+
+void Engine::remove_part(size_t object, size_t part)
+{
+    ModelObject &o = m->object(object);
+    const ModelVolume &volume = volume_at(o, part);
+    // Como ObjectList::del_subobject_from_object().
+    if (volume.is_model_part() &&
+        std::count_if(o.volumes.begin(), o.volumes.end(), [](const ModelVolume *v) { return v->is_model_part(); }) == 1)
+        throw std::invalid_argument(_u8L("Deleting the last solid part is not allowed."));
+    const bool model_part = volume.is_model_part();
+    // Com uma peça só, a matriz dela passa para a instância (ModelObject::delete_volume()).
+    o.delete_volume(part);
+    if (model_part)
+        o.ensure_on_bed();
+}
+
 std::vector<double> Engine::flush_volumes() const
 {
     if (!m->bundle)
@@ -1662,15 +1811,7 @@ std::vector<Placement> Engine::placements() const
     const BuildVolume volume = m->bundle ? m->build_volume() : BuildVolume();
     for (const ModelObject *object : m->model.objects) {
         const ModelInstance &instance = *object->instances.front();
-        const Geometry::Transformation &t = instance.get_transformation();
-        Placement p;
-        std::copy(t.get_matrix().data(), t.get_matrix().data() + 16, p.transform.begin());
-        const Vec3d offset = t.get_offset(), rotation = t.get_rotation(), scale = t.get_scaling_factor();
-        for (int i = 0; i < 3; ++i) {
-            p.offset[i] = offset[i];
-            p.rotation[i] = Geometry::rad2deg(rotation[i]);
-            p.scale[i] = scale[i];
-        }
+        Placement p = decompose(instance.get_transformation());
         const Vec3d size = object->instance_bounding_box(0).size();
         std::copy(size.data(), size.data() + 3, p.size.begin());
         p.outside = m->bundle && instance.calc_print_volume_state(volume) != ModelInstancePVS_Inside;
@@ -1807,15 +1948,8 @@ void Engine::set_transform(size_t object, const std::array<double, 16> &transfor
 
 void Engine::set_placement(size_t object, const Vec3 &offset, const Vec3 &rotation, const Vec3 &scale)
 {
-    for (double s : scale)
-        if (!(s > 0.0))
-            throw std::invalid_argument("scale must be positive");
     ModelObject &o = m->object(object);
-    Geometry::Transformation t;
-    t.set_offset(Vec3d(offset[0], offset[1], offset[2]));
-    t.set_rotation(Vec3d(Geometry::deg2rad(rotation[0]), Geometry::deg2rad(rotation[1]), Geometry::deg2rad(rotation[2])));
-    t.set_scaling_factor(Vec3d(scale[0], scale[1], scale[2]));
-    o.instances.front()->set_transformation(t);
+    o.instances.front()->set_transformation(compose(offset, rotation, scale));
     o.invalidate_bounding_box();
     o.ensure_on_bed();
 }

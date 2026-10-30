@@ -87,7 +87,13 @@ class Bed(val shape: FloatArray, val maxHeight: Float)
  * agrupados por filamento em ordem crescente. As partes pintadas em várias cores vêm divididas
  * nos triângulos da pintura. [filament]: o do objeto (o das partes sem filamento próprio nem pintura).
  */
-class ObjectMesh(val name: String, val positions: FloatArray, val indices: IntArray, val filaments: ByteArray, val filament: Int)
+class ObjectMesh(val name: String, override val positions: FloatArray, override val indices: IntArray, val filaments: ByteArray, val filament: Int) : Triangles
+
+/** Malha de triângulos: x, y, z por vértice e 3 índices por triângulo. */
+interface Triangles {
+    val positions: FloatArray
+    val indices: IntArray
+}
 
 /**
  * Posição de um objeto na mesa: [transform] é a matriz 4x4 em ordem de coluna (OpenGL),
@@ -112,6 +118,33 @@ data class SettingsTarget(val objectIndex: Int, val kind: Kind = Kind.OBJECT, va
     /** Na ordem de slicer::SettingsTarget::Kind. */
     enum class Kind { OBJECT, VOLUME, RANGE }
 }
+
+/**
+ * Peça (volume) de um objeto, como na lista de objetos do Orca; o índice dela em
+ * [SlicerEngine.parts] é o de [SettingsTarget.Kind.VOLUME]. As de [Type.MODEL] formam o objeto
+ * (já estão em [ObjectMesh], e [positions] vem vazio); as outras mudam como ele é fatiado na
+ * região delas. [placement]: na do objeto (antes da posição dele na mesa); [Placement.size] é o
+ * da peça transformada, e [Placement.outside] não se aplica. [positions]: sem essa transformação.
+ */
+class Part(
+    val name: String,
+    val type: Type,
+    val placement: Placement,
+    override val positions: FloatArray,
+    override val indices: IntArray,
+) : Triangles {
+    /** Se aceita configuração própria ([SettingsTarget.Kind.VOLUME]): como no Orca, só as do objeto e os modificadores. */
+    val hasSettings get() = type == Type.MODEL || type == Type.MODIFIER
+
+    /** Na ordem de slicer::Part::Type (ModelVolumeType). */
+    enum class Type { MODEL, NEGATIVE, MODIFIER, SUPPORT_BLOCKER, SUPPORT_ENFORCER }
+
+    /** As formas do menu "Adicionar modificador" do Orca, na ordem de slicer::Part::Shape. */
+    enum class Shape { CUBE, CYLINDER, SPHERE, CONE, DISC, TORUS }
+}
+
+/** [Part] como o JNI cria: ordinal do tipo e o placement em 28 valores. */
+internal class PartData(val name: String, val type: Int, val placement: DoubleArray, val positions: FloatArray, val indices: IntArray)
 
 /** Faixa de altura de um objeto, em mm desde a base dele. */
 data class HeightRange(val min: Double, val max: Double)
@@ -366,6 +399,33 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
 
     suspend fun removeHeightRange(objectIndex: Int, index: Int) = call { nativeRemoveHeightRange(handle, objectIndex, index) }
 
+    /** Peças do objeto: as dele, os volumes negativos, os modificadores e os de suporte. */
+    suspend fun parts(objectIndex: Int): List<Part> = call {
+        nativeParts(handle, objectIndex).map {
+            fun part(from: Int, size: Int) = FloatArray(size) { i -> it.placement[from + i].toFloat() }
+            val placement = Placement(part(0, 16), part(16, 3), part(19, 3), part(22, 3), part(25, 3), outside = false)
+            Part(it.name, Part.Type.entries[it.type], placement, it.positions, it.indices)
+        }
+    }
+
+    /**
+     * Peça nova com a forma, como "Adicionar modificador" do Orca: um décimo do maior lado da
+     * mesa, encostada no canto da frente à direita do objeto. Devolve o índice dela.
+     */
+    suspend fun addPart(objectIndex: Int, type: Part.Type, shape: Part.Shape): Int =
+        call { nativeAddPart(handle, objectIndex, type.ordinal, shape.ordinal) }
+
+    /** Matriz da peça na do objeto. Mexer numa peça do objeto o reapoia na mesa. */
+    suspend fun setPartTransform(objectIndex: Int, part: Int, transform: FloatArray) =
+        call { nativeSetPartTransform(handle, objectIndex, part, DoubleArray(16) { transform[it].toDouble() }) }
+
+    suspend fun setPartPlacement(objectIndex: Int, part: Int, offset: FloatArray, rotation: FloatArray, scale: FloatArray) = call {
+        nativeSetPartPlacement(handle, objectIndex, part, (offset + rotation + scale).map(Float::toDouble).toDoubleArray())
+    }
+
+    /** Lança se for a última peça do objeto; os índices seguintes descem um. */
+    suspend fun removePart(objectIndex: Int, part: Int) = call { nativeRemovePart(handle, objectIndex, part) }
+
     /**
      * Volumes de purga (mm³) da troca do filamento i para o j: matriz n x n por linha, uma por
      * extrusor da impressora, em sequência.
@@ -582,6 +642,11 @@ private external fun nativeHeightRanges(handle: Long, objectIndex: Int): DoubleA
 private external fun nativeAddHeightRange(handle: Long, objectIndex: Int, min: Double, max: Double): Int
 private external fun nativeSetHeightRange(handle: Long, objectIndex: Int, index: Int, min: Double, max: Double): Int
 private external fun nativeRemoveHeightRange(handle: Long, objectIndex: Int, index: Int)
+private external fun nativeParts(handle: Long, objectIndex: Int): Array<PartData>
+private external fun nativeAddPart(handle: Long, objectIndex: Int, type: Int, shape: Int): Int
+private external fun nativeSetPartTransform(handle: Long, objectIndex: Int, part: Int, transform: DoubleArray)
+private external fun nativeSetPartPlacement(handle: Long, objectIndex: Int, part: Int, values: DoubleArray)
+private external fun nativeRemovePart(handle: Long, objectIndex: Int, part: Int)
 private external fun nativeFlushVolumes(handle: Long): DoubleArray
 private external fun nativeSetFlushVolumes(handle: Long, matrix: DoubleArray)
 private external fun nativeFlushMultipliers(handle: Long): DoubleArray

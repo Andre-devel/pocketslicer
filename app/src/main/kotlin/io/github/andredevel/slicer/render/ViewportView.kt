@@ -7,6 +7,7 @@ import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.view.MotionEvent
 import io.github.andredevel.slicer.core.ObjectMesh
+import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.Thumbnail
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -19,10 +20,12 @@ enum class Tool { MOVE, ROTATE, SCALE, LAY_ON_FACE }
 
 /** Resultados dos gestos, entregues na thread principal. */
 interface ViewportListener {
-    /** Toque num objeto (índice) ou fora deles (null). */
-    fun onSelect(objectIndex: Int?)
+    /** Toque num objeto (índice) ou fora deles (null); [part]: numa peça dele que não é do objeto. */
+    fun onSelect(objectIndex: Int?, part: Int?)
     /** Fim de um arraste que moveu, girou ou escalou o objeto. */
     fun onTransform(objectIndex: Int, transform: FloatArray)
+    /** Fim de um arraste da peça selecionada: a matriz nova dela, na do objeto. */
+    fun onPartTransform(objectIndex: Int, part: Int, transform: FloatArray)
     /** Toque numa face do objeto selecionado com [Tool.LAY_ON_FACE]. */
     fun onLayOnFace(objectIndex: Int, triangle: Int)
     /** Fim de um arraste da torre de purga: canto da frente à esquerda na mesa. */
@@ -34,9 +37,9 @@ interface ViewportListener {
 }
 
 /**
- * Viewport 3D. Gestos: toque seleciona; toque longo abre o menu do objeto; 1 dedo gira a
- * câmera, ou aplica [tool] se o arraste começar sobre o objeto selecionado, ou move a torre de
- * purga se começar nela; 2 dedos movem (pan) e aproximam (pinça).
+ * Viewport 3D. Gestos: toque seleciona (um objeto ou uma peça); toque longo abre o menu do
+ * objeto; 1 dedo gira a câmera, ou aplica [tool] se o arraste começar sobre a peça ou o objeto
+ * selecionado, ou move a torre de purga se começar nela; 2 dedos movem (pan) e aproximam (pinça).
  *
  * Os eventos de toque são interpretados na thread GL (queueEvent), onde estão a
  * câmera e a cena; o estado do arraste (campos "drag*") só é usado nela.
@@ -76,6 +79,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
             // O dedo parado sobre o objeto não deve virar um arraste.
             dragObject = null
             renderer.dragTransform = null
+            renderer.dragPartTransform = null
             val hit = pickAt(x, y) ?: return@onGlThread
             post { listener?.onLongPress(hit.objectIndex, x, y) }
         }
@@ -83,6 +87,8 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
 
     // Thread GL: arraste de objeto em andamento.
     private var dragObject: Int? = null
+    /** Com [dragObject], a peça dele sendo arrastada (senão, o objeto). */
+    private var dragPart: Int? = null
     private var dragTool = Tool.MOVE
     private var dragGrabZ = 0f
     private var dragLast: FloatArray? = null
@@ -218,12 +224,44 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         return pick(ray, scene.meshes, renderer.transforms())
     }
 
+    /** Peça (que não é do objeto) mais próxima no toque: (objeto, peça) e o ponto. */
+    private fun pickPart(x: Float, y: Float): Pair<Pair<Int, Int>, Hit>? {
+        if (renderer.showPreview) return null
+        val scene = renderer.scene ?: return null
+        val ids = ArrayList<Pair<Int, Int>>()
+        val meshes = ArrayList<Part>()
+        val transforms = ArrayList<FloatArray>()
+        for ((i, partTransforms) in renderer.partTransforms().withIndex()) {
+            for ((j, transform) in partTransforms.withIndex()) {
+                val part = scene.parts[i][j]
+                if (part.type == Part.Type.MODEL) continue
+                ids += i to j
+                meshes += part
+                transforms += transform
+            }
+        }
+        val ray = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight)
+        val hit = pick(ray, meshes, transforms) ?: return null
+        return ids[hit.objectIndex] to hit
+    }
+
     private fun startDrag(x: Float, y: Float, tool: Tool) {
         dragObject = null
+        dragPart = null
         draggingTower = false
         if (tool == Tool.LAY_ON_FACE) return
-        val hit = pickAt(x, y)
         val selected = renderer.scene?.selected
+        val selectedPart = renderer.scene?.selectedPart
+        val part = pickPart(x, y)
+        if (selectedPart != null && part != null && part.first == selected to selectedPart) {
+            dragObject = selected
+            dragPart = selectedPart
+            dragTool = tool
+            dragGrabZ = part.second.point[2]
+            dragLast = part.second.point
+            return
+        }
+        val hit = pickAt(x, y)
         if (hit != null && hit.objectIndex == selected) {
             dragObject = selected
             dragTool = tool
@@ -260,8 +298,9 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
 
     private fun drag(x: Float, y: Float, dx: Float, dy: Float) {
         val index = dragObject ?: return
-        val current = renderer.transforms().getOrNull(index) ?: return
-        // Pivô: origem da instância (centro do objeto ao carregar).
+        val part = dragPart
+        val current = (if (part != null) renderer.partTransforms().getOrNull(index)?.getOrNull(part) else renderer.transforms().getOrNull(index)) ?: return
+        // Pivô: origem da instância (centro do objeto ao carregar) ou da peça.
         val cx = current[12]
         val cy = current[13]
         val cz = current[14]
@@ -293,7 +332,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         }
         val result = FloatArray(16)
         Matrix.multiplyMM(result, 0, step, 0, current, 0)
-        renderer.dragTransform = result
+        if (part != null) renderer.dragPartTransform = result else renderer.dragTransform = result
     }
 
     private fun endDrag() {
@@ -305,6 +344,17 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         }
         val index = dragObject ?: return
         dragObject = null
+        val part = dragPart
+        if (part != null) {
+            dragPart = null
+            val world = renderer.dragPartTransform ?: return
+            // Na do objeto: a inversa da matriz dele vezes a da peça na mesa.
+            val inverse = FloatArray(16)
+            if (!Matrix.invertM(inverse, 0, renderer.transforms().getOrNull(index) ?: return, 0)) return
+            val local = FloatArray(16).also { Matrix.multiplyMM(it, 0, inverse, 0, world, 0) }
+            post { listener?.onPartTransform(index, part, local) }
+            return
+        }
         val transform = renderer.dragTransform ?: return
         post { listener?.onTransform(index, transform) }
     }
@@ -314,12 +364,15 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         val hit = pickAt(x, y)
         val selected = renderer.scene?.selected
         if (renderer.showPreview) return
+        if (hit != null && tool == Tool.LAY_ON_FACE && hit.objectIndex == selected) {
+            post { listener?.onLayOnFace(hit.objectIndex, hit.triangle) }
+            return
+        }
+        // As peças do selecionado aparecem por cima dele; as dos outros, só se estiverem na frente.
+        val part = pickPart(x, y)?.takeIf { (id, partHit) -> id.first == selected || hit == null || partHit.distance < hit.distance }
         post {
-            if (hit != null && tool == Tool.LAY_ON_FACE && hit.objectIndex == selected) {
-                listener?.onLayOnFace(hit.objectIndex, hit.triangle)
-            } else {
-                listener?.onSelect(hit?.objectIndex)
-            }
+            if (part != null) listener?.onSelect(part.first.first, part.first.second)
+            else listener?.onSelect(hit?.objectIndex, null)
         }
     }
 

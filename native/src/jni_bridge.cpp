@@ -511,6 +511,74 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemoveHeightRange(JNI
     guarded(env, [&] { engine(handle)->remove_height_range(size_t(object), size_t(index)); });
 }
 
+// PartData: nome, tipo (Part::Type), placement (matriz, offset, rotação, escala e tamanho:
+// 28 valores), posições e índices da malha.
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeParts(JNIEnv *env, jclass, jlong handle, jint object)
+{
+    return guarded(env, [&]() -> jobjectArray {
+        const std::vector<slicer::Part> parts = engine(handle)->parts(size_t(object));
+        jclass cls = env->FindClass("io/github/andredevel/slicer/core/PartData");
+        jmethodID init = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;I[D[F[I)V");
+        jobjectArray out = env->NewObjectArray(jsize(parts.size()), cls, nullptr);
+        for (size_t i = 0; i < parts.size(); ++i) {
+            const slicer::Part &part = parts[i];
+            const slicer::Placement &p = part.placement;
+            std::vector<jdouble> values(p.transform.begin(), p.transform.end());
+            for (const slicer::Vec3 *v : {&p.offset, &p.rotation, &p.scale, &p.size})
+                values.insert(values.end(), v->begin(), v->end());
+            jdoubleArray placement = env->NewDoubleArray(jsize(values.size()));
+            env->SetDoubleArrayRegion(placement, 0, jsize(values.size()), values.data());
+            jfloatArray positions = to_float_array(env, part.positions);
+            jintArray indices = env->NewIntArray(jsize(part.indices.size()));
+            env->SetIntArrayRegion(indices, 0, jsize(part.indices.size()), reinterpret_cast<const jint *>(part.indices.data()));
+            jstring name = env->NewStringUTF(part.name.c_str());
+            jobject item = env->NewObject(cls, init, name, jint(part.type), placement, positions, indices);
+            env->SetObjectArrayElement(out, jsize(i), item);
+            for (jobject ref : {jobject(name), jobject(placement), jobject(positions), jobject(indices), item})
+                env->DeleteLocalRef(ref);
+        }
+        return out;
+    });
+}
+
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeAddPart(JNIEnv *env, jclass, jlong handle, jint object, jint type, jint shape)
+{
+    return guarded(env, [&] {
+        return jint(engine(handle)->add_part(size_t(object), slicer::Part::Type(type), slicer::Part::Shape(shape)));
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetPartTransform(JNIEnv *env, jclass, jlong handle, jint object, jint part,
+                                                                          jdoubleArray transform)
+{
+    guarded(env, [&] {
+        std::array<double, 16> matrix{};
+        env->GetDoubleArrayRegion(transform, 0, 16, matrix.data());
+        engine(handle)->set_part_transform(size_t(object), size_t(part), matrix);
+    });
+}
+
+// values: offset, rotação (graus) e escala, 3 valores cada.
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetPartPlacement(JNIEnv *env, jclass, jlong handle, jint object, jint part,
+                                                                          jdoubleArray values)
+{
+    guarded(env, [&] {
+        std::array<double, 9> v{};
+        env->GetDoubleArrayRegion(values, 0, 9, v.data());
+        engine(handle)->set_part_placement(size_t(object), size_t(part), {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, {v[6], v[7], v[8]});
+    });
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemovePart(JNIEnv *env, jclass, jlong handle, jint object, jint part)
+{
+    guarded(env, [&] { engine(handle)->remove_part(size_t(object), size_t(part)); });
+}
+
 JNIEXPORT jdoubleArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeFlushVolumes(JNIEnv *env, jclass, jlong handle)
 {
