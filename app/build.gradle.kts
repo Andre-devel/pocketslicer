@@ -14,7 +14,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 29
         targetSdk = 37
-        versionName = "0.3.0"
+        versionName = "0.4.0"
         // Derivado do versionName (0.1.0 → 100, 1.2.3 → 10203): o Android recusa atualizar para um
         // versionCode menor, e a atualização pelo GitHub (update/AppUpdater) compara o versionName.
         // Só X.Y.Z com cada parte de 0 a 99, senão uma versão mais nova poderia ter código menor.
