@@ -47,6 +47,16 @@
     <string name="paint_gap_area">Área da lacuna</string>
     <string name="paint_perform">Preencher lacunas</string>
     <string name="paint_gap_fill_hint">Trechos pintados ou não, menores que a área da lacuna, passam ao estado em volta deles. Eles aparecem nesse estado.</string>
+    <string name="tool_paint_color_short">Cor</string>
+    <string name="tool_paint_color">Pintura de cor</string>
+    <string name="paint_paint">Pintar</string>
+    <string name="paint_filament">Filamento</string>
+    <string name="paint_color_one_filament">O projeto tem um filamento. Adicione filamentos em Filamentos para pintar outras cores.</string>
+    <string name="paint_triangle">Triângulo</string>
+    <string name="paint_height">Altura</string>
+    <string name="paint_height_range">Faixa de altura</string>
+    <string name="paint_edge_detection">Detecção de bordas</string>
+    <string name="paint_triangle_hint">Pinta só o triângulo tocado.</string>
     <string name="paint_section_view">Vista em corte</string>
     <string name="paint_reset_direction">Redefinir direção</string>
     <string name="object_title">Objeto selecionado</string>

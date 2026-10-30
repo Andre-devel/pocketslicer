@@ -160,7 +160,13 @@ Creality, Box da QIDI).
      torre de limpeza e a troca no início que entupiam o extrusor.
    - Mapeamento para os slots do AMS da Bambu feito (2026-10-30), sem teste real: o início de
      impressão pela LAN só funciona com modo somente LAN + desenvolvedor (plano-envio.md).
-   - Falta: pintura multicolor com o dedo (adiada).
+   - Feito (2026-10-30): pintura de cor com o dedo ("Cor"), como o GLGizmoMmuSegmentation do
+     Orca (mmu_segmentation_facets): pintar com o filamento escolhido ou apagar; círculo, esfera,
+     triângulo, balde (região de mesma cor, com ou sem "Detecção de bordas"), faixa de altura
+     (0,1 a 8 mm, em todas as peças) e lacunas; vista em corte e "Apagar tudo". O objeto aparece
+     nas cores dos filamentos ao pintar e depois. Conferido com o Orca 2.4.2 desktop: o 3MF pintado
+     no app fatia lá igual (1710 e 238 mm de cada filamento, as mesmas trocas). As travas
+     "Vertical"/"Horizontal" do arraste do Orca não foram feitas.
 5. Reativar OpenVDB (hollowing, reparo) e OCCT (STEP) se o tamanho do APK permitir.
 6. Ferramentas de calibração reaproveitando os geradores do Orca.
 7. Play Asset Delivery para perfis sob demanda; ABI x86_64 para emulador.

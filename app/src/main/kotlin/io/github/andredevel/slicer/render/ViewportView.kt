@@ -23,7 +23,7 @@ import kotlin.math.hypot
  */
 enum class Tool(val paintKind: PaintKind? = null) {
     MOVE, ROTATE, SCALE, LAY_ON_FACE, PAINT_SUPPORT(PaintKind.SUPPORT), PAINT_SEAM(PaintKind.SEAM),
-    PAINT_FUZZY_SKIN(PaintKind.FUZZY_SKIN)
+    PAINT_FUZZY_SKIN(PaintKind.FUZZY_SKIN), PAINT_COLOR(PaintKind.COLOR)
 }
 
 /** Resultados dos gestos, entregues na thread principal. */
@@ -368,7 +368,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                 Matrix.scaleM(step, 0, factor, factor, factor)
                 Matrix.translateM(step, 0, -cx, -cy, -cz)
             }
-            Tool.LAY_ON_FACE, Tool.PAINT_SUPPORT, Tool.PAINT_SEAM, Tool.PAINT_FUZZY_SKIN -> return
+            Tool.LAY_ON_FACE, Tool.PAINT_SUPPORT, Tool.PAINT_SEAM, Tool.PAINT_FUZZY_SKIN, Tool.PAINT_COLOR -> return
         }
         val result = FloatArray(16)
         Matrix.multiplyMM(result, 0, step, 0, current, 0)

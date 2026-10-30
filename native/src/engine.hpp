@@ -136,23 +136,29 @@ struct SettingsTarget {
     size_t index = 0;
 };
 
-// Pintura nas peças do objeto, como os gizmos "Pintura de suporte", "Pintura de costura" e
-// "Pintura de pele difusa" do Orca (ModelVolume::supported_facets, seam_facets e
-// fuzzy_skin_facets). Enforce/Block: forçar ou bloquear o suporte (ou a costura); None apaga.
-// A pele difusa só tem Enforce (TriangleStateType::FUZZY_SKIN) e None.
-enum class PaintKind { Support = 0, Seam = 1, FuzzySkin = 2 };
+// Pintura nas peças do objeto, como os gizmos "Pintura de suporte", "Pintura de costura",
+// "Pintura de pele difusa" e "Pintura de cor" do Orca (ModelVolume::supported_facets,
+// seam_facets, fuzzy_skin_facets e mmu_segmentation_facets). Enforce/Block: forçar ou bloquear o
+// suporte (ou a costura); None apaga. A pele difusa só tem Enforce (TriangleStateType::FUZZY_SKIN)
+// e None; a cor, Enforce (pinta com Brush::color) e None.
+enum class PaintKind { Support = 0, Seam = 1, FuzzySkin = 2, Color = 3 };
 enum class PaintState { None = 0, Enforce = 1, Block = 2 }; // EnforcerBlockerType
 
 // Ferramenta de um toque ou arraste. Circle pinta o que está dentro do círculo visto da câmera,
 // Sphere o que está dentro da esfera, SmartFill a região plana (até smart_fill_angle graus entre
-// faces vizinhas) em volta do ponto, como "Preencher" do Orca.
+// faces vizinhas) em volta do ponto, como "Preencher" do Orca. As da pintura de cor:
+// Triangle pinta o triângulo tocado, BucketFill a região de mesma cor ligada a ele (sem passar
+// de smart_fill_angle graus entre faces vizinhas; negativo: sem esse limite, "Detecção de
+// bordas" desligada), HeightRange a faixa de height mm de todas as peças desde a altura tocada.
 struct Brush {
-    enum class Tool { Circle = 0, Sphere = 1, SmartFill = 2 };
+    enum class Tool { Circle = 0, Sphere = 1, SmartFill = 2, Triangle = 3, BucketFill = 4, HeightRange = 5 };
     Tool       tool = Tool::Circle;
     PaintState state = PaintState::Enforce;
     double     radius = 1.0;            // mm; o Orca permite de 0,4 a 8
     double     smart_fill_angle = 30.0; // graus
     double     overhang_angle = 0.0;    // graus; > 0: só nas faces pendentes ("Só nas saliências destacadas")
+    int        color = 1;               // filamento (a partir de 1) da pintura de cor
+    double     height = 0.2;            // mm, de HeightRange; o Orca permite de 0,1 a 8
 };
 
 // "Vista em corte" do gizmo, na mesa: o lado com normal·p > offset fica escondido e não é pintado.
@@ -162,10 +168,12 @@ struct ClipPlane {
 };
 
 // Triângulos pintados (estado diferente de None) das peças de um objeto, em coordenadas dele.
+// Na pintura de cor, todos os triângulos das peças, com o filamento (a partir de 1) de cada um:
+// o pintado ou, sem pintura, o da peça.
 struct PaintMesh {
     std::vector<float>    positions;
     std::vector<uint32_t> indices;
-    std::vector<uint8_t>  states; // PaintState por triângulo
+    std::vector<uint8_t>  states; // PaintState (ou filamento) por triângulo
 };
 
 // Faixa de altura de um objeto, em mm desde a base dele.
@@ -354,7 +362,7 @@ public:
     // Lança se for a última peça do objeto (tipo Model). Os índices seguintes descem um.
     void remove_part(size_t object, size_t part);
 
-    // --- Pintura de suporte e de costura ---
+    // --- Pintura de suporte, costura, pele difusa e cor ---
 
     // Pinta onde o raio (na mesa; origin na câmera ou no plano próximo dela) atinge as peças do
     // objeto. Num arraste (stroke_start false) liga o ponto ao do toque anterior, como o Orca
@@ -362,7 +370,7 @@ public:
     bool paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start,
                const std::optional<ClipPlane> &clip = std::nullopt);
     PaintMesh painted(size_t object, PaintKind kind) const;
-    // "Preencher lacunas" do gizmo de suporte: cada trecho pintado ou não, de área menor que
+    // "Preencher lacunas" dos gizmos de suporte e de cor: cada trecho pintado ou não, de área menor que
     // area (mm², na malha da peça; o Orca permite até 5), passa ao estado vizinho. gaps() mostra
     // esses trechos já no estado que vão receber; fill_gaps() os aplica e devolve quantos mudaram.
     PaintMesh gaps(size_t object, PaintKind kind, double area);

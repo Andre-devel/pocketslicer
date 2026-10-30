@@ -225,6 +225,8 @@ data class SlicerUiState(
     val brush: Brush = Brush(),
     /** Pintar só nas saliências destacadas (suporte). */
     val paintOnOverhangsOnly: Boolean = false,
+    /** "Detecção de bordas" do balde da pintura de cor: limita o balde a [Brush.smartFillAngle] entre faces vizinhas. */
+    val edgeDetection: Boolean = true,
     /** Com "Preencher lacunas" (suporte) escolhido no lugar de [brush]: a área máxima (mm²) dos trechos. */
     val gapArea: Float? = null,
     /** Viewport na pré-visualização do G-code (só com fatiamento concluído). */
@@ -749,6 +751,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setPaintOnOverhangsOnly(only: Boolean) = _state.update { it.copy(paintOnOverhangsOnly = only) }
 
+    fun setEdgeDetection(on: Boolean) = _state.update { it.copy(edgeDetection = on) }
+
     fun setHighlightAngle(angle: Float) = _state.update { state -> state.copy(painting = state.painting?.copy(highlightAngle = angle)) }
 
     /** "Preencher lacunas" com a área (mm²), ou de volta ao pincel (null). */
@@ -774,12 +778,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun paint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean, clip: ClipPlane?) {
         val state = _state.value
         // "Preencher lacunas" não pinta com o toque, como no Orca.
-        val painting = state.painting?.takeIf { it.objectIndex == objectIndex && state.editable && (state.gapArea == null || it.kind != PaintKind.SUPPORT) } ?: return
-        // A costura não tem o preenchimento; a pele difusa não bloqueia; as saliências só valem no suporte.
-        val tool = state.brush.tool.takeIf { painting.kind != PaintKind.SEAM || it != Brush.Tool.SMART_FILL } ?: Brush.Tool.CIRCLE
-        val paintState = state.brush.state.takeIf { painting.kind != PaintKind.FUZZY_SKIN || it != PaintState.BLOCK } ?: PaintState.ENFORCE
+        val painting = state.painting?.takeIf { it.objectIndex == objectIndex && state.editable && (state.gapArea == null || !it.kind.hasGapFill) } ?: return
+        // Cada pintura com as ferramentas e estados dela; as saliências só valem no suporte.
+        val tool = state.brush.tool.takeIf { it in painting.kind.tools } ?: Brush.Tool.CIRCLE
+        val paintState = state.brush.state.takeIf { it != PaintState.BLOCK || painting.kind.hasBlock } ?: PaintState.ENFORCE
         val overhang = if (painting.kind == PaintKind.SUPPORT && state.paintOnOverhangsOnly) painting.highlightAngle.toDouble() else 0.0
-        val brush = state.brush.copy(tool = tool, state = paintState, overhangAngle = overhang)
+        val color = state.brush.color.coerceIn(1, state.scene?.filamentColors?.size?.coerceAtLeast(1) ?: 1)
+        val angle = if (tool == Brush.Tool.BUCKET_FILL && !state.edgeDetection) -1.0 else state.brush.smartFillAngle
+        val brush = state.brush.copy(tool = tool, state = paintState, overhangAngle = overhang, color = color, smartFillAngle = angle)
         paintStrokes.trySend(PaintRay(objectIndex, painting.kind, origin, direction, brush, strokeStart, clip))
     }
 
@@ -835,22 +841,26 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         PaintKind.SUPPORT -> R.string.tool_paint_support
         PaintKind.SEAM -> R.string.tool_paint_seam
         PaintKind.FUZZY_SKIN -> R.string.tool_paint_fuzzy_skin
+        PaintKind.COLOR -> R.string.tool_paint_color
     }
 
     /**
      * Relê a pintura do objeto selecionado com uma ferramenta de pintura (ou a fecha). Ao abrir
-     * num objeto ou tipo novo, as saliências destacadas são as do gizmo do Orca.
+     * num objeto ou tipo novo, as saliências destacadas são as do gizmo do Orca. Ao fechar a
+     * pintura de cor, relê as malhas, que passam a ter as cores pintadas.
      */
     private suspend fun refreshPainting(engine: SlicerEngine) {
         val state = _state.value
         val kind = state.tool.paintKind
         val selected = state.scene?.selected
+        val closedColor = state.painting?.takeIf { it.kind == PaintKind.COLOR && (it.kind != kind || it.objectIndex != selected) } != null
         if (kind == null || selected == null) {
             _state.update { it.copy(painting = null, tool = if (selected == null && kind != null) Tool.MOVE else it.tool) }
+            if (closedColor) refreshScene(engine, engine.objects(), keepSelection = true)
             return
         }
         val mesh = engine.painted(selected, kind)
-        val gaps = state.gapArea?.takeIf { kind == PaintKind.SUPPORT }?.let { engine.gaps(selected, kind, it.toDouble()) }
+        val gaps = state.gapArea?.takeIf { kind.hasGapFill }?.let { engine.gaps(selected, kind, it.toDouble()) }
         val previous = state.painting?.takeIf { it.objectIndex == selected && it.kind == kind }
         val angle = previous?.highlightAngle ?: if (kind == PaintKind.SUPPORT) engine.overhangHighlightAngle(selected).toFloat() else 0f
         _state.update {
@@ -858,6 +868,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             val current = it.painting?.takeIf { p -> p.objectIndex == selected && p.kind == kind }
             it.copy(painting = current?.copy(mesh = mesh, gaps = gaps) ?: Painting(selected, kind, mesh, angle, gaps))
         }
+        if (closedColor) refreshScene(engine, engine.objects(), keepSelection = true)
     }
 
     fun showPreview(show: Boolean) = _state.update { it.copy(showPreview = show) }

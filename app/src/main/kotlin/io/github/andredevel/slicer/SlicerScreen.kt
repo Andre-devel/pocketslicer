@@ -68,6 +68,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.andredevel.slicer.core.ClipPlane
+import io.github.andredevel.slicer.core.PaintKind
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.Thumbnail
 import io.github.andredevel.slicer.render.CameraView
@@ -440,7 +441,10 @@ private fun Viewport(
                 it.dark = dark
                 it.setScene(state.scene)
                 it.tool = state.tool
-                it.setPaint(state.painting?.let { p -> PaintOverlay(p.objectIndex, p.mesh, p.highlightAngle, p.gaps, p.clipRatio, p.clipDirection) })
+                it.setPaint(state.painting?.let { p -> PaintOverlay(
+                    p.objectIndex, p.mesh, p.highlightAngle, p.gaps, p.clipRatio, p.clipDirection,
+                    state.scene?.filamentColors.takeIf { p.kind == PaintKind.COLOR },
+                ) })
                 it.setPreview(state.preview, state.previewVisible, previewSettings)
             },
         )

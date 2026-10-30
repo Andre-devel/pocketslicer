@@ -42,10 +42,11 @@ data class Scene(
 )
 
 /**
- * Pintura de suporte ou de costura do objeto [objectIndex], como o gizmo do Orca a mostra.
+ * Pintura do objeto [objectIndex], como o gizmo do Orca a mostra.
  * [highlightAngle] > 0: destaca as faces pendentes além desse ângulo ("Destacar saliências").
  * [gaps]: trechos que o "Preencher lacunas" vai mudar, no estado novo. [clipRatio] > 0: vista em
  * corte; a direção é a da câmera quando ela é ligada ou quando [clipDirection] muda.
+ * [colors]: na pintura de cor, RGBA de cada filamento, pelo estado (filamento a partir de 1).
  */
 data class PaintOverlay(
     val objectIndex: Int,
@@ -54,6 +55,7 @@ data class PaintOverlay(
     val gaps: PaintMesh? = null,
     val clipRatio: Float = 0f,
     val clipDirection: Int = 0,
+    val colors: List<FloatArray>? = null,
 )
 
 /**
@@ -370,7 +372,7 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         glEnable(GL_POLYGON_OFFSET_FILL)
         glPolygonOffset(-1f, -1f)
         for ((state, first, count) in geometry.parts) {
-            geometry.geometry.draw(colorLocation, if (state == PaintState.BLOCK.ordinal) BLOCKER else ENFORCER, first, count)
+            geometry.geometry.draw(colorLocation, paintColor(paint, state), first, count)
         }
         // As lacunas por cima, translúcidas na cor que vão receber (TriangleSelectorPatch::render).
         val gaps = paint.gaps?.takeIf { it.states.isNotEmpty() }
@@ -380,12 +382,19 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             for ((state, first, count) in gapsGeometry.parts) {
-                val color = (if (state == PaintState.BLOCK.ordinal) BLOCKER else if (state == PaintState.ENFORCE.ordinal) ENFORCER else OBJECT).copyOf().also { it[3] = 0.85f }
+                val color = paintColor(paint, state).copyOf().also { it[3] = 0.85f }
                 gapsGeometry.geometry.draw(colorLocation, color, first, count)
             }
             glDisable(GL_BLEND)
         }
         glDisable(GL_POLYGON_OFFSET_FILL)
+    }
+
+    private fun paintColor(paint: PaintOverlay, state: Int): FloatArray = when {
+        paint.colors != null -> paint.colors.getOrNull(state - 1) ?: paint.colors.firstOrNull() ?: OBJECT
+        state == PaintState.BLOCK.ordinal -> BLOCKER
+        state == PaintState.ENFORCE.ordinal -> ENFORCER
+        else -> OBJECT
     }
 
     /** Peças que não são do objeto, translúcidas, nas cores do Orca; as do selecionado por cima dele. */

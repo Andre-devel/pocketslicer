@@ -595,16 +595,17 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemovePart(JNIEnv *en
 }
 
 // ray: origem e direção (6 valores); brush: ferramenta, estado, raio, ângulo do preenchimento e
-// das saliências (Brush, na ordem); clip: normal e offset (4 valores) ou null.
+// das saliências, cor e altura (Brush, na ordem); clip: normal e offset (4 valores) ou null.
 JNIEXPORT jboolean JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativePaint(JNIEnv *env, jclass, jlong handle, jint object, jint kind, jdoubleArray ray,
                                                                 jint tool, jint state, jdouble radius, jdouble smart_fill_angle,
-                                                                jdouble overhang_angle, jboolean stroke_start, jdoubleArray clip)
+                                                                jdouble overhang_angle, jint color, jdouble height, jboolean stroke_start,
+                                                                jdoubleArray clip)
 {
     return guarded(env, [&] {
         std::array<double, 6> r{};
         env->GetDoubleArrayRegion(ray, 0, 6, r.data());
-        const slicer::Brush brush{slicer::Brush::Tool(tool), slicer::PaintState(state), radius, smart_fill_angle, overhang_angle};
+        const slicer::Brush brush{slicer::Brush::Tool(tool), slicer::PaintState(state), radius, smart_fill_angle, overhang_angle, color, height};
         std::optional<slicer::ClipPlane> plane;
         if (clip != nullptr) {
             std::array<double, 4> c{};

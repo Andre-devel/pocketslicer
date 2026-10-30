@@ -868,6 +868,68 @@ class SlicerEngineTest {
     }
 
     @Test
+    fun colorPaintingSplitsTheObjectByFilament() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val down = floatArrayOf(0f, 0f, -1f)
+        val above = floatArrayOf(128f, 128f, 100f)
+        // Sem pintura: a malha inteira (12 triângulos) no filamento da peça.
+        val plain = engine.painted(0, PaintKind.COLOR)
+        assertEquals(12, plain.states.size)
+        assertTrue(plain.states.all { it.toInt() == 1 })
+        // Só há um filamento; as ferramentas das outras pinturas não valem aqui, nem o contrário.
+        assertTrue(runCatching { engine.paint(0, PaintKind.COLOR, above, down, Brush(color = 2), strokeStart = true) }.isFailure)
+        engine.addFilament()
+        assertTrue(runCatching { engine.paint(0, PaintKind.COLOR, above, down, Brush(Brush.Tool.SMART_FILL, color = 2), strokeStart = true) }.isFailure)
+        assertTrue(runCatching { engine.paint(0, PaintKind.SUPPORT, above, down, Brush(Brush.Tool.TRIANGLE), strokeStart = true) }.isFailure)
+
+        // Balde: a região de mesma cor ligada ao toque, sem passar de 30° entre faces (a face de cima).
+        assertTrue(engine.paint(0, PaintKind.COLOR, above, down, Brush(Brush.Tool.BUCKET_FILL, color = 2), strokeStart = true))
+        assertEquals(2, engine.painted(0, PaintKind.COLOR).states.count { it.toInt() == 2 })
+        // Sem detecção de bordas, o cubo inteiro; triângulo: só o tocado.
+        engine.clearPaint(0, PaintKind.COLOR)
+        assertTrue(engine.paint(0, PaintKind.COLOR, above, down, Brush(Brush.Tool.BUCKET_FILL, color = 2, smartFillAngle = -1.0), strokeStart = true))
+        assertTrue(engine.painted(0, PaintKind.COLOR).states.all { it.toInt() == 2 })
+        assertTrue(engine.paint(0, PaintKind.COLOR, above, down, Brush(Brush.Tool.TRIANGLE, PaintState.NONE), strokeStart = true))
+        assertEquals(1, engine.painted(0, PaintKind.COLOR).states.count { it.toInt() == 1 })
+        engine.clearPaint(0, PaintKind.COLOR)
+
+        // Faixa de altura de 2 mm a partir do meio (z = 10 na mesa), tocando a face x = +10: as
+        // quatro paredes entre 10 e 12 mm, nenhuma parte da base nem do topo.
+        assertTrue(engine.paint(0, PaintKind.COLOR, floatArrayOf(200f, 128f, 10f), floatArrayOf(-1f, 0f, 0f), Brush(Brush.Tool.HEIGHT_RANGE, color = 2, height = 2.0), strokeStart = true))
+        val band = engine.painted(0, PaintKind.COLOR)
+        val banded = (0 until band.states.size).filter { band.states[it].toInt() == 2 }
+        val zs = banded.flatMap { t -> (0..2).map { band.positions[band.indices[t * 3 + it] * 3 + 2] } }
+        assertTrue("${zs.min()}..${zs.max()}", zs.min() >= -0.01f && zs.max() <= 2.01f)
+        val walls = banded.map { t ->
+            val v = (0..2).map { band.positions[band.indices[t * 3 + it] * 3] to band.positions[band.indices[t * 3 + it] * 3 + 1] }
+            when {
+                v.all { it.first > 9.99f } -> "+x"
+                v.all { it.first < -9.99f } -> "-x"
+                v.all { it.second > 9.99f } -> "+y"
+                v.all { it.second < -9.99f } -> "-y"
+                else -> "other"
+            }
+        }
+        assertEquals(setOf("+x", "-x", "+y", "-y"), walls.toSet())
+
+        // O fatiamento troca de filamento na faixa, e o 3MF guarda a pintura.
+        val gcode = File(work, "color.gcode")
+        engine.slice(gcode) { _, _ -> }
+        assertTrue(gcode.useLines { lines -> lines.any { it.trim() == "T1" || it.startsWith("M620 S1") } })
+        assertTrue(engine.objects()[0].filaments.any { it.toInt() == 1 })
+        val project = File(work, "color.3mf")
+        engine.saveProject(project, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.openProject(project)
+        assertEquals(banded.size, engine.painted(0, PaintKind.COLOR).states.count { it.toInt() == 2 })
+        // Excluir o filamento 2 apaga a pintura dele.
+        engine.removeFilament(1)
+        assertTrue(engine.painted(0, PaintKind.COLOR).states.all { it.toInt() == 1 })
+    }
+
+    @Test
     fun vendorProfilesDropValuesOutOfOrcaRange() = runBlocking {
         // O Bambu Studio usa -1 (automático) onde o Orca só aceita 0 a 2; o Orca recusaria o 3MF.
         engine.loadVendor("BambuStudio/BBL")

@@ -1756,6 +1756,7 @@ static FacetsAnnotation &paint_facets(ModelVolume &volume, PaintKind kind)
     switch (kind) {
     case PaintKind::Seam: return volume.seam_facets;
     case PaintKind::FuzzySkin: return volume.fuzzy_skin_facets;
+    case PaintKind::Color: return volume.mmu_segmentation_facets;
     default: return volume.supported_facets;
     }
 }
@@ -1857,8 +1858,20 @@ static TriangleSelector::ClippingPlane clipping_plane(const std::optional<ClipPl
 bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start,
                    const std::optional<ClipPlane> &clip)
 {
-    if (kind == PaintKind::FuzzySkin && brush.state == PaintState::Block)
-        throw std::invalid_argument("fuzzy skin has no block state");
+    if ((kind == PaintKind::FuzzySkin || kind == PaintKind::Color) && brush.state == PaintState::Block)
+        throw std::invalid_argument("this paint has no block state");
+    const bool color_tool = brush.tool == Brush::Tool::Triangle || brush.tool == Brush::Tool::BucketFill || brush.tool == Brush::Tool::HeightRange;
+    if (color_tool != (kind == PaintKind::Color) && brush.tool != Brush::Tool::Circle && brush.tool != Brush::Tool::Sphere)
+        throw std::invalid_argument("tool not available for this paint");
+    // GLGizmoMmuSegmentation::get_left_button_state_type(): o filamento, até Extruder16.
+    EnforcerBlockerType state = EnforcerBlockerType(brush.state);
+    if (kind == PaintKind::Color && brush.state == PaintState::Enforce) {
+        if (!m->bundle)
+            throw std::runtime_error("no vendor loaded");
+        if (brush.color < 1 || size_t(brush.color) > m->filament_count() || brush.color > int(EnforcerBlockerType::ExtruderMax))
+            throw std::invalid_argument("invalid filament: " + std::to_string(brush.color));
+        state = EnforcerBlockerType(brush.color);
+    }
     ModelObject &o = m->object(object);
     const Vec3d  world_origin(origin[0], origin[1], origin[2]);
     const Vec3d  world_direction(direction[0], direction[1], direction[2]);
@@ -1909,7 +1922,6 @@ bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3
     // Como GLGizmoPainterBase::gizmo_event() com o botão apertado.
     Impl::PaintVolume &pv = m->paint_volumes[hit.volume];
     TriangleSelector  &selector = *pv.selector;
-    const auto         state = EnforcerBlockerType(brush.state);
     Transform3d        trafo_no_translate = hit_trafo;
     trafo_no_translate.translation() = Vec3d::Zero();
     const Vec3f camera = (hit_trafo.inverse() * world_origin).cast<float>();
@@ -1918,6 +1930,46 @@ bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3
     if (brush.tool == Brush::Tool::SmartFill) {
         selector.seed_fill_select_triangles(hit.point, hit.facet, trafo_no_translate, no_clipping, float(brush.smart_fill_angle), overhang, true);
         selector.seed_fill_apply_on_triangles(state);
+    } else if (brush.tool == Brush::Tool::Triangle || brush.tool == Brush::Tool::BucketFill) {
+        const bool bucket = brush.tool == Brush::Tool::BucketFill;
+        selector.bucket_fill_select_triangles(hit.point, hit.facet, no_clipping, bucket ? float(brush.smart_fill_angle) : -1.f, bucket, true);
+        selector.seed_fill_apply_on_triangles(state);
+    } else if (brush.tool == Brush::Tool::HeightRange) {
+        // GLGizmoPainterBase::get_projected_height_range(): a faixa começa na altura tocada (na
+        // mesa) e vale para todas as peças, cada uma a partir de um triângulo dela dentro da faixa.
+        const float  height = float(std::clamp(brush.height, 0.1, 8.0));
+        const double z_bottom = (hit_trafo * hit.point.cast<double>()).z();
+        for (ModelVolume *volume : o.volumes) {
+            if (!volume->is_model_part())
+                continue;
+            Impl::PaintVolume &other = m->paint_volume(o, kind, *volume);
+            const Transform3d  trafo = instance * volume->get_matrix();
+            int                first = volume == hit_volume ? hit.facet : -1;
+            const indexed_triangle_set &its = other.mesh->its;
+            for (size_t i = 0; first < 0 && i < its.indices.size(); ++i) {
+                double low = std::numeric_limits<double>::max(), high = std::numeric_limits<double>::lowest();
+                for (int j = 0; j < 3; ++j) {
+                    const double z = (trafo * its.vertices[its.indices[i][j]].cast<double>()).z();
+                    low  = std::min(low, z);
+                    high = std::max(high, z);
+                }
+                if (high >= z_bottom && low <= z_bottom + height)
+                    first = int(i);
+            }
+            if (first < 0)
+                continue;
+            Transform3d linear = trafo;
+            linear.translation() = Vec3d::Zero();
+            const Vec3f camera_pos = (trafo.inverse() * world_origin).cast<float>();
+            other.selector->select_patch(first,
+                                         TriangleSelector::SinglePointCursor::cursor_factory(float(z_bottom), camera_pos, height, trafo, clipping_plane(clip, trafo)),
+                                         state, linear, true, 0.f);
+            if (volume != hit_volume) {
+                FacetsAnnotation &facets = paint_facets(*volume, kind);
+                facets.set(*other.selector);
+                other.timestamp = facets.timestamp();
+            }
+        }
     } else {
         const auto  type   = brush.tool == Brush::Tool::Sphere ? TriangleSelector::SPHERE : TriangleSelector::CIRCLE;
         const float radius = float(std::clamp(brush.radius, 0.4, 8.0));
@@ -1948,13 +2000,17 @@ PaintMesh Engine::painted(size_t object, PaintKind kind) const
         if (!volume->is_model_part())
             continue;
         const FacetsAnnotation &facets = paint_facets(*volume, kind);
-        if (facets.empty())
+        const bool              color  = kind == PaintKind::Color;
+        if (facets.empty() && !color)
             continue;
         // Índice = EnforcerBlockerType.
         std::vector<indexed_triangle_set> per_state;
-        facets.get_facets(*volume, per_state);
+        if (facets.empty())
+            per_state.push_back(volume->mesh().its);
+        else
+            facets.get_facets(*volume, per_state);
         const Transform3d matrix = volume->get_matrix();
-        for (size_t state = 1; state < per_state.size() && state <= size_t(PaintState::Block); ++state) {
+        for (size_t state = color ? 0 : 1; state < per_state.size() && (color || state <= size_t(PaintState::Block)); ++state) {
             const uint32_t first = uint32_t(out.positions.size() / 3);
             for (const stl_vertex &v : per_state[state].vertices) {
                 const Vec3f p = (matrix * v.cast<double>()).cast<float>();
@@ -1962,7 +2018,7 @@ PaintMesh Engine::painted(size_t object, PaintKind kind) const
             }
             for (const stl_triangle_vertex_indices &t : per_state[state].indices)
                 out.indices.insert(out.indices.end(), {first + uint32_t(t[0]), first + uint32_t(t[1]), first + uint32_t(t[2])});
-            out.states.insert(out.states.end(), per_state[state].indices.size(), uint8_t(state));
+            out.states.insert(out.states.end(), per_state[state].indices.size(), uint8_t(state == 0 ? std::max(volume->extruder_id(), 1) : int(state)));
         }
     }
     return out;
@@ -1988,7 +2044,8 @@ PaintMesh Engine::gaps(size_t object, PaintKind kind, double area)
             }
             for (const stl_triangle_vertex_indices &t : its.indices)
                 out.indices.insert(out.indices.end(), {first + uint32_t(t[0]), first + uint32_t(t[1]), first + uint32_t(t[2])});
-            out.states.insert(out.states.end(), its.indices.size(), uint8_t(state));
+            const int shown = kind == PaintKind::Color && state == EnforcerBlockerType::NONE ? std::max(volume->extruder_id(), 1) : int(state);
+            out.states.insert(out.states.end(), its.indices.size(), uint8_t(shown));
         }
     }
     return out;

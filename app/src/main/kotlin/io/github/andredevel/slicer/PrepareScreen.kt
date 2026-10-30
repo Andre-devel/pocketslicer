@@ -80,6 +80,7 @@ private val TOOLS = listOf(
     Triple(Tool.PAINT_SUPPORT, R.drawable.ic_brush, R.string.tool_paint_support_short),
     Triple(Tool.PAINT_SEAM, R.drawable.ic_timeline, R.string.tool_paint_seam_short),
     Triple(Tool.PAINT_FUZZY_SKIN, R.drawable.ic_texture, R.string.tool_paint_fuzzy_skin_short),
+    Triple(Tool.PAINT_COLOR, R.drawable.ic_palette, R.string.tool_paint_color_short),
 )
 
 internal val SlicerUiState.editable get() = busy == null && slice !is SliceState.Running
@@ -374,8 +375,8 @@ private fun PlateControls(plates: Plates, viewModel: SlicerViewModel, enabled: B
 }
 
 @Composable
-private fun ToolButtons(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier = Modifier) {
-    for ((tool, icon, label) in TOOLS) {
+private fun ToolButtons(state: SlicerUiState, viewModel: SlicerViewModel, tools: List<Triple<Tool, Int, Int>> = TOOLS, modifier: Modifier = Modifier) {
+    for ((tool, icon, label) in tools) {
         ToolButton(icon, stringResource(label), state.tool == tool, { viewModel.selectTool(tool) }, modifier, enabled = state.editable)
     }
 }
@@ -440,8 +441,11 @@ fun PrepareSheet(state: SlicerUiState, viewModel: SlicerViewModel, pickers: File
             AppIconButton(R.drawable.ic_add_box, stringResource(R.string.add_model), pickers.addModel, enabled = state.editable, tonal = true)
         }
         if (state.scene?.selected != null) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                ToolButtons(state, viewModel, Modifier.weight(1f))
+            // Duas linhas: as de mover e girar, e as de pintura; numa só, os rótulos quebram.
+            for (row in TOOLS.chunked(4)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ToolButtons(state, viewModel, row, Modifier.weight(1f))
+                }
             }
         }
         SelectedObject(state, viewModel)

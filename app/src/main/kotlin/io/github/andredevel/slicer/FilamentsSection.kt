@@ -183,7 +183,7 @@ fun ObjectFilamentField(state: SlicerUiState, viewModel: SlicerViewModel, object
 
 /** Círculo na cor do filamento com o número dele. */
 @Composable
-private fun ColorSwatch(color: FloatArray?, text: String, modifier: Modifier = Modifier) {
+internal fun ColorSwatch(color: FloatArray?, text: String, modifier: Modifier = Modifier) {
     val fill = color?.let { Color(it[0], it[1], it[2]) } ?: MaterialTheme.colorScheme.outline
     Box(
         modifier.size(36.dp).background(fill, CircleShape).border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),

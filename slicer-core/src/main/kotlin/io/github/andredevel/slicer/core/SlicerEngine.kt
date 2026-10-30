@@ -147,14 +147,14 @@ class Part(
 internal class PartData(val name: String, val type: Int, val placement: DoubleArray, val positions: FloatArray, val indices: IntArray)
 
 /**
- * Pintura nas peças do objeto, como os gizmos "Pintura de suporte", "Pintura de costura" e
- * "Pintura de pele difusa" do Orca. Na ordem de slicer::PaintKind.
+ * Pintura nas peças do objeto, como os gizmos "Pintura de suporte", "Pintura de costura",
+ * "Pintura de pele difusa" e "Pintura de cor" do Orca. Na ordem de slicer::PaintKind.
  */
-enum class PaintKind { SUPPORT, SEAM, FUZZY_SKIN }
+enum class PaintKind { SUPPORT, SEAM, FUZZY_SKIN, COLOR }
 
 /**
  * Forçar ou bloquear o suporte (ou a costura); [NONE] apaga. A pele difusa só tem [ENFORCE] e
- * [NONE]. Na ordem de slicer::PaintState.
+ * [NONE]; a cor também, e [ENFORCE] pinta com [Brush.color]. Na ordem de slicer::PaintState.
  */
 enum class PaintState { NONE, ENFORCE, BLOCK }
 
@@ -162,7 +162,11 @@ enum class PaintState { NONE, ENFORCE, BLOCK }
  * Ferramenta de um toque ou arraste: [Tool.CIRCLE] pinta o que está dentro do círculo visto da
  * câmera, [Tool.SPHERE] o que está dentro da esfera, [Tool.SMART_FILL] a região plana (até
  * [smartFillAngle] graus entre faces vizinhas) em volta do ponto. [radius] em mm (0,4 a 8);
- * [overhangAngle] > 0: só nas faces pendentes além desse ângulo.
+ * [overhangAngle] > 0: só nas faces pendentes além desse ângulo. Só na pintura de cor:
+ * [Tool.TRIANGLE] pinta o triângulo tocado, [Tool.BUCKET_FILL] a região de mesma cor ligada a ele
+ * (até [smartFillAngle] graus entre faces vizinhas; negativo: sem limite), [Tool.HEIGHT_RANGE] a
+ * faixa de [height] mm (0,1 a 8) de todas as peças desde a altura tocada; [color]: o filamento
+ * (a partir de 1).
  */
 data class Brush(
     val tool: Tool = Tool.CIRCLE,
@@ -170,9 +174,11 @@ data class Brush(
     val radius: Double = 1.0,
     val smartFillAngle: Double = 30.0,
     val overhangAngle: Double = 0.0,
+    val color: Int = 1,
+    val height: Double = 0.2,
 ) {
     /** Na ordem de slicer::Brush::Tool. */
-    enum class Tool { CIRCLE, SPHERE, SMART_FILL }
+    enum class Tool { CIRCLE, SPHERE, SMART_FILL, TRIANGLE, BUCKET_FILL, HEIGHT_RANGE }
 }
 
 /**
@@ -181,7 +187,11 @@ data class Brush(
  */
 class ClipPlane(val normal: FloatArray, val offset: Float)
 
-/** Triângulos pintados das peças de um objeto, em coordenadas dele; [states]: [PaintState] (ordinal) de cada um. */
+/**
+ * Triângulos pintados das peças de um objeto, em coordenadas dele; [states]: [PaintState] (ordinal)
+ * de cada um. Na pintura de cor, todos os triângulos das peças, e [states] é o filamento (a partir
+ * de 1): o pintado ou, sem pintura, o da peça.
+ */
 class PaintMesh(override val positions: FloatArray, override val indices: IntArray, val states: ByteArray) : Triangles
 
 /** Faixa de altura de um objeto, em mm desde a base dele. */
@@ -548,7 +558,7 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
         val plane = clip?.let { c -> DoubleArray(4) { if (it < 3) c.normal[it].toDouble() else c.offset.toDouble() } }
         nativePaint(
             handle, objectIndex, kind.ordinal, ray, brush.tool.ordinal, brush.state.ordinal,
-            brush.radius, brush.smartFillAngle, brush.overhangAngle, strokeStart, plane,
+            brush.radius, brush.smartFillAngle, brush.overhangAngle, brush.color, brush.height, strokeStart, plane,
         )
     }
 
@@ -733,7 +743,7 @@ private external fun nativeSetPartPlacement(handle: Long, objectIndex: Int, part
 private external fun nativeRemovePart(handle: Long, objectIndex: Int, part: Int)
 private external fun nativePaint(
     handle: Long, objectIndex: Int, kind: Int, ray: DoubleArray, tool: Int, state: Int,
-    radius: Double, smartFillAngle: Double, overhangAngle: Double, strokeStart: Boolean, clip: DoubleArray?,
+    radius: Double, smartFillAngle: Double, overhangAngle: Double, color: Int, height: Double, strokeStart: Boolean, clip: DoubleArray?,
 ): Boolean
 private external fun nativeGaps(handle: Long, objectIndex: Int, kind: Int, area: Double): PaintMesh
 private external fun nativeFillGaps(handle: Long, objectIndex: Int, kind: Int, area: Double): Int

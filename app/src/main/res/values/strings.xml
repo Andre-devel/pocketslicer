@@ -48,6 +48,16 @@
     <string name="paint_gap_area">Gap area</string>
     <string name="paint_perform">Fill gaps</string>
     <string name="paint_gap_fill_hint">Painted or unpainted patches smaller than the gap area take the state around them. They are shown in that state.</string>
+    <string name="tool_paint_color_short">Color</string>
+    <string name="tool_paint_color">Color painting</string>
+    <string name="paint_paint">Paint</string>
+    <string name="paint_filament">Filament</string>
+    <string name="paint_color_one_filament">The project has one filament. Add filaments in Filaments to paint other colors.</string>
+    <string name="paint_triangle">Triangle</string>
+    <string name="paint_height">Height</string>
+    <string name="paint_height_range">Height range</string>
+    <string name="paint_edge_detection">Edge detection</string>
+    <string name="paint_triangle_hint">Paints only the triangle you tap.</string>
     <string name="paint_section_view">Section view</string>
     <string name="paint_reset_direction">Reset direction</string>
     <string name="object_title">Selected object</string>
