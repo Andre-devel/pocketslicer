@@ -13,6 +13,7 @@
 #include <boost/log/trivial.hpp>
 
 #include "libslic3r/libslic3r.h"
+#include "libslic3r/AABBMesh.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/BuildVolume.hpp"
@@ -31,6 +32,7 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/TriangleSelector.hpp"
 #include "libslic3r/Utils.hpp"
 
 #include "nlohmann/json.hpp"
@@ -64,6 +66,27 @@ struct Engine::Impl {
     // e a entrada dela aqui, vazia, até outra ser escolhida. Sempre há ao menos uma.
     std::vector<Model> plates = std::vector<Model>(1);
     size_t             plate = 0;
+
+    // Pintura em andamento (paint()), como os TriangleSelectorGUI do gizmo: seletor e raycaster de
+    // cada peça do objeto, válidos enquanto a pintura guardada na peça tiver o timestamp deles.
+    struct PaintVolume {
+        ObjectID                            volume;
+        ObjectWithTimestamp::Timestamp      timestamp = 0;
+        std::shared_ptr<const TriangleMesh> mesh; // o seletor guarda uma referência a ela
+        std::unique_ptr<TriangleSelector>   selector;
+        std::unique_ptr<AABBMesh>           raycaster;
+    };
+    ObjectID                 paint_object;
+    PaintKind                paint_kind = PaintKind::Support;
+    std::vector<PaintVolume> paint_volumes;
+    // Ponto do toque anterior do arraste: peça (em paint_volumes), triângulo e ponto na malha dela.
+    struct PaintHit {
+        size_t volume = 0;
+        int    facet  = -1;
+        Vec3f  point  = Vec3f::Zero();
+    };
+    std::optional<PaintHit> paint_last;
+    PaintVolume &paint_volume(const ModelObject &object, PaintKind kind, const ModelVolume &volume);
 
     // Índice de um fabricante de vendors(): "<app>/<fabricante>" está em vendors_dir, e o
     // nome só, em profiles_dir. Os perfis ficam no diretório de mesmo nome, sem o .json.
@@ -1625,6 +1648,164 @@ void Engine::remove_part(size_t object, size_t part)
     o.delete_volume(part);
     if (model_part)
         o.ensure_on_bed();
+}
+
+// A pintura do tipo na peça.
+static FacetsAnnotation &paint_facets(ModelVolume &volume, PaintKind kind)
+{
+    return kind == PaintKind::Seam ? volume.seam_facets : volume.supported_facets;
+}
+
+static const FacetsAnnotation &paint_facets(const ModelVolume &volume, PaintKind kind)
+{
+    return paint_facets(const_cast<ModelVolume &>(volume), kind);
+}
+
+Engine::Impl::PaintVolume &Engine::Impl::paint_volume(const ModelObject &object, PaintKind kind, const ModelVolume &volume)
+{
+    if (object.id() != paint_object || kind != paint_kind) {
+        paint_volumes.clear();
+        paint_object = object.id();
+        paint_kind   = kind;
+    }
+    const FacetsAnnotation &facets = paint_facets(volume, kind);
+    auto it = std::find_if(paint_volumes.begin(), paint_volumes.end(), [&](const PaintVolume &v) { return v.volume == volume.id(); });
+    if (it != paint_volumes.end() && it->timestamp == facets.timestamp() && it->mesh == volume.mesh_ptr())
+        return *it;
+    if (it == paint_volumes.end())
+        it = paint_volumes.emplace(paint_volumes.end());
+    // Como GLGizmoFdmSupports::update_from_model_object().
+    it->volume    = volume.id();
+    it->timestamp = facets.timestamp();
+    it->mesh      = volume.mesh_ptr();
+    it->selector  = std::make_unique<TriangleSelector>(*it->mesh);
+    it->selector->deserialize(facets.get_data(), false);
+    it->raycaster = std::make_unique<AABBMesh>(*it->mesh);
+    return *it;
+}
+
+bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start)
+{
+    ModelObject &o = m->object(object);
+    const Vec3d  world_origin(origin[0], origin[1], origin[2]);
+    const Vec3d  world_direction(direction[0], direction[1], direction[2]);
+    if (stroke_start)
+        m->paint_last.reset();
+
+    // A peça do objeto mais próxima no raio, como o MeshRaycaster do gizmo.
+    const Transform3d instance = o.instances.front()->get_matrix();
+    ModelVolume      *hit_volume = nullptr;
+    Impl::PaintHit    hit;
+    Transform3d       hit_trafo;
+    double            best = std::numeric_limits<double>::max();
+    for (ModelVolume *volume : o.volumes) {
+        if (!volume->is_model_part())
+            continue;
+        Impl::PaintVolume &pv     = m->paint_volume(o, kind, *volume);
+        const Transform3d  trafo  = instance * volume->get_matrix();
+        const Transform3d  inv    = trafo.inverse();
+        const Vec3d        source = inv * world_origin;
+        const Vec3d        dir    = (inv.linear() * world_direction).normalized();
+        if (!dir.allFinite())
+            continue;
+        const AABBMesh::hit_result result = pv.raycaster->query_ray_hit(source, dir);
+        if (!result.is_hit())
+            continue;
+        const double distance = (trafo * result.position() - world_origin).norm();
+        if (distance < best) {
+            best       = distance;
+            hit_volume = volume;
+            hit        = {size_t(&pv - m->paint_volumes.data()), result.face(), result.position().cast<float>()};
+            hit_trafo  = trafo;
+        }
+    }
+    if (hit_volume == nullptr) {
+        // Saiu do objeto: o próximo ponto que o atingir começa outro traço.
+        m->paint_last.reset();
+        return false;
+    }
+
+    // Como GLGizmoPainterBase::gizmo_event() com o botão apertado.
+    Impl::PaintVolume &pv = m->paint_volumes[hit.volume];
+    TriangleSelector  &selector = *pv.selector;
+    const auto         state = EnforcerBlockerType(brush.state);
+    Transform3d        trafo_no_translate = hit_trafo;
+    trafo_no_translate.translation() = Vec3d::Zero();
+    const Vec3f camera = (hit_trafo.inverse() * world_origin).cast<float>();
+    const TriangleSelector::ClippingPlane no_clipping;
+    const float overhang = float(std::max(brush.overhang_angle, 0.0));
+    if (brush.tool == Brush::Tool::SmartFill) {
+        selector.seed_fill_select_triangles(hit.point, hit.facet, trafo_no_translate, no_clipping, float(brush.smart_fill_angle), overhang, true);
+        selector.seed_fill_apply_on_triangles(state);
+    } else {
+        const auto  type   = brush.tool == Brush::Tool::Sphere ? TriangleSelector::SPHERE : TriangleSelector::CIRCLE;
+        const float radius = float(std::clamp(brush.radius, 0.4, 8.0));
+        const std::optional<Impl::PaintHit> &last = m->paint_last;
+        if (last && last->volume == hit.volume)
+            selector.select_patch(last->facet,
+                                  TriangleSelector::DoublePointCursor::cursor_factory(last->point, hit.point, camera, radius, type, hit_trafo, no_clipping),
+                                  state, trafo_no_translate, true, overhang);
+        else
+            selector.select_patch(hit.facet, TriangleSelector::SinglePointCursor::cursor_factory(hit.point, camera, radius, type, hit_trafo, no_clipping),
+                                  state, trafo_no_translate, true, overhang);
+    }
+    m->paint_last = hit;
+
+    // GLGizmoFdmSupports::update_model_object(), aqui a cada toque: a pintura na peça é sempre a
+    // atual (para salvar e fatiar).
+    FacetsAnnotation &facets = paint_facets(*hit_volume, kind);
+    facets.set(selector);
+    pv.timestamp = facets.timestamp();
+    return true;
+}
+
+PaintMesh Engine::painted(size_t object, PaintKind kind) const
+{
+    const ModelObject &o = m->object(object);
+    PaintMesh          out;
+    for (const ModelVolume *volume : o.volumes) {
+        if (!volume->is_model_part())
+            continue;
+        const FacetsAnnotation &facets = paint_facets(*volume, kind);
+        if (facets.empty())
+            continue;
+        // Índice = EnforcerBlockerType.
+        std::vector<indexed_triangle_set> per_state;
+        facets.get_facets(*volume, per_state);
+        const Transform3d matrix = volume->get_matrix();
+        for (size_t state = 1; state < per_state.size() && state <= size_t(PaintState::Block); ++state) {
+            const uint32_t first = uint32_t(out.positions.size() / 3);
+            for (const stl_vertex &v : per_state[state].vertices) {
+                const Vec3f p = (matrix * v.cast<double>()).cast<float>();
+                out.positions.insert(out.positions.end(), {p.x(), p.y(), p.z()});
+            }
+            for (const stl_triangle_vertex_indices &t : per_state[state].indices)
+                out.indices.insert(out.indices.end(), {first + uint32_t(t[0]), first + uint32_t(t[1]), first + uint32_t(t[2])});
+            out.states.insert(out.states.end(), per_state[state].indices.size(), uint8_t(state));
+        }
+    }
+    return out;
+}
+
+void Engine::clear_paint(size_t object, PaintKind kind)
+{
+    for (ModelVolume *volume : m->object(object).volumes)
+        if (volume->is_model_part())
+            paint_facets(*volume, kind).reset();
+    m->paint_last.reset();
+}
+
+double Engine::overhang_highlight_angle(size_t object) const
+{
+    if (!m->bundle)
+        return 0.0;
+    // GLGizmoFdmSupports::get_selection_support_threshold_angle().
+    const ModelConfig        &object_config = m->object(object).config;
+    const DynamicPrintConfig &process       = m->bundle->prints.get_edited_preset().config;
+    auto option = [&](const char *key) { return object_config.has(key) ? object_config.option(key) : process.option(key); };
+    const bool enable_support = option("enable_support")->getBool();
+    const auto support_type   = SupportType(option("support_type")->getInt());
+    return enable_support && is_auto(support_type) ? double(option("support_threshold_angle")->getInt()) : 0.0;
 }
 
 std::vector<double> Engine::flush_volumes() const

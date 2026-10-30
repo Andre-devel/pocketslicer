@@ -136,6 +136,31 @@ struct SettingsTarget {
     size_t index = 0;
 };
 
+// Pintura nas peças do objeto, como os gizmos "Pintura de suporte" e "Pintura de costura" do
+// Orca (ModelVolume::supported_facets e seam_facets). Enforce/Block: forçar ou bloquear o suporte
+// (ou a costura); None apaga.
+enum class PaintKind { Support = 0, Seam = 1 };
+enum class PaintState { None = 0, Enforce = 1, Block = 2 }; // EnforcerBlockerType
+
+// Ferramenta de um toque ou arraste. Circle pinta o que está dentro do círculo visto da câmera,
+// Sphere o que está dentro da esfera, SmartFill a região plana (até smart_fill_angle graus entre
+// faces vizinhas) em volta do ponto, como "Preencher" do Orca.
+struct Brush {
+    enum class Tool { Circle = 0, Sphere = 1, SmartFill = 2 };
+    Tool       tool = Tool::Circle;
+    PaintState state = PaintState::Enforce;
+    double     radius = 1.0;            // mm; o Orca permite de 0,4 a 8
+    double     smart_fill_angle = 30.0; // graus
+    double     overhang_angle = 0.0;    // graus; > 0: só nas faces pendentes ("Só nas saliências destacadas")
+};
+
+// Triângulos pintados (estado diferente de None) das peças de um objeto, em coordenadas dele.
+struct PaintMesh {
+    std::vector<float>    positions;
+    std::vector<uint32_t> indices;
+    std::vector<uint8_t>  states; // PaintState por triângulo
+};
+
 // Faixa de altura de um objeto, em mm desde a base dele.
 struct HeightRange {
     double min = 0.0, max = 0.0;
@@ -321,6 +346,19 @@ public:
     void set_part_placement(size_t object, size_t part, const Vec3 &offset, const Vec3 &rotation, const Vec3 &scale);
     // Lança se for a última peça do objeto (tipo Model). Os índices seguintes descem um.
     void remove_part(size_t object, size_t part);
+
+    // --- Pintura de suporte e de costura ---
+
+    // Pinta onde o raio (na mesa; origin na câmera ou no plano próximo dela) atinge as peças do
+    // objeto. Num arraste (stroke_start false) liga o ponto ao do toque anterior, como o Orca
+    // faz entre dois eventos do mouse. Devolve se atingiu o objeto.
+    bool paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start);
+    PaintMesh painted(size_t object, PaintKind kind) const;
+    // "Apagar tudo" do gizmo.
+    void clear_paint(size_t object, PaintKind kind);
+    // Ângulo das saliências que o gizmo de suporte destaca ao abrir: o support_threshold_angle do
+    // objeto com suporte automático ligado, senão 0 (nada destacado).
+    double overhang_highlight_angle(size_t object) const;
 
     // Volumes de purga (mm³) na troca do filamento i para o j: matriz n x n por linha
     // (flush_volumes_matrix), uma por extrusor da impressora, em sequência.

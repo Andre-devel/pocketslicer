@@ -10,10 +10,13 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.andredevel.slicer.core.BedTypes
+import io.github.andredevel.slicer.core.Brush
 import io.github.andredevel.slicer.core.HeightRange
 import io.github.andredevel.slicer.core.LayerChange
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
+import io.github.andredevel.slicer.core.PaintKind
+import io.github.andredevel.slicer.core.PaintMesh
 import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.PresetValues
 import io.github.andredevel.slicer.core.PresetKind
@@ -43,6 +46,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -162,6 +166,12 @@ data class ObjectSettings(
 
 data class RangeSettings(val range: HeightRange, val values: Map<String, String>)
 
+/**
+ * Pintura aberta (uma ferramenta de pintura com o objeto [objectIndex] selecionado): o que está
+ * pintado dele e o ângulo das saliências destacadas (0 = nenhuma), como no gizmo do Orca.
+ */
+data class Painting(val objectIndex: Int, val kind: PaintKind, val mesh: PaintMesh, val highlightAngle: Float)
+
 data class SlicerUiState(
     /** Operação em andamento que bloqueia os controles (carregar perfis, modelo...). */
     @StringRes val busy: Int? = R.string.busy_installing_profiles,
@@ -197,6 +207,11 @@ data class SlicerUiState(
     /** Placas da mesa; Fatiar e Arranjar agem na escolhida. */
     val plates: Plates = Plates(listOf(0), 0),
     val tool: Tool = Tool.MOVE,
+    val painting: Painting? = null,
+    /** Pincel das ferramentas de pintura; o ângulo das saliências vem de [Painting.highlightAngle]. */
+    val brush: Brush = Brush(),
+    /** Pintar só nas saliências destacadas (suporte). */
+    val paintOnOverhangsOnly: Boolean = false,
     /** Viewport na pré-visualização do G-code (só com fatiamento concluído). */
     val showPreview: Boolean = false,
     val slice: SliceState = SliceState.Idle,
@@ -703,11 +718,98 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /** [part]: uma peça do objeto, ou o objeto inteiro (null). */
-    fun select(objectIndex: Int?, part: Int? = null) = _state.update { state ->
-        state.copy(scene = state.scene?.copy(selected = objectIndex, selectedPart = part?.takeIf { objectIndex != null }))
+    fun select(objectIndex: Int?, part: Int? = null) {
+        _state.update { state ->
+            state.copy(scene = state.scene?.copy(selected = objectIndex, selectedPart = part?.takeIf { objectIndex != null }))
+        }
+        if (_state.value.tool.paintKind != null) launchEngine(null) { refreshPainting(it) }
     }
 
-    fun selectTool(tool: Tool) = _state.update { it.copy(tool = tool) }
+    fun selectTool(tool: Tool) {
+        _state.update { it.copy(tool = tool) }
+        launchEngine(null) { refreshPainting(it) }
+    }
+
+    fun setBrush(brush: Brush) = _state.update { it.copy(brush = brush) }
+
+    fun setPaintOnOverhangsOnly(only: Boolean) = _state.update { it.copy(paintOnOverhangsOnly = only) }
+
+    fun setHighlightAngle(angle: Float) = _state.update { state -> state.copy(painting = state.painting?.copy(highlightAngle = angle)) }
+
+    /** Raio pelo dedo sobre o objeto pintado (ver ViewportListener.onPaint); vai para a fila de [paintStrokes]. */
+    fun paint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean) {
+        val state = _state.value
+        val painting = state.painting?.takeIf { it.objectIndex == objectIndex && state.editable } ?: return
+        // A costura não tem o preenchimento; as saliências só valem no suporte.
+        val tool = state.brush.tool.takeIf { painting.kind == PaintKind.SUPPORT || it != Brush.Tool.SMART_FILL } ?: Brush.Tool.CIRCLE
+        val overhang = if (painting.kind == PaintKind.SUPPORT && state.paintOnOverhangsOnly) painting.highlightAngle.toDouble() else 0.0
+        paintStrokes.trySend(PaintRay(objectIndex, painting.kind, origin, direction, state.brush.copy(tool = tool, overhangAngle = overhang), strokeStart))
+    }
+
+    fun clearPaint() {
+        val painting = _state.value.painting ?: return
+        launchEngine(null) { engine ->
+            engine.clearPaint(painting.objectIndex, painting.kind)
+            markChanged(StaleReason(app.getString(paintLabel(painting.kind))))
+            refreshPainting(engine)
+        }
+    }
+
+    private class PaintRay(val objectIndex: Int, val kind: PaintKind, val origin: FloatArray, val direction: FloatArray, val brush: Brush, val strokeStart: Boolean)
+
+    /** Toques da pintura, aplicados em ordem na thread do motor sem esperar o desenho de cada um. */
+    private val paintStrokes = Channel<PaintRay>(Channel.UNLIMITED)
+    private val paintJob = viewModelScope.launch { applyPaintStrokes(engine.await()) }
+
+    private suspend fun applyPaintStrokes(engine: SlicerEngine) {
+        while (true) {
+            var ray = paintStrokes.receive()
+            // Pontos seguidos de um arraste viram o último: o motor liga cada ponto ao anterior.
+            var hit = false
+            while (true) {
+                val next = paintStrokes.tryReceive().getOrNull() ?: break
+                if (next.strokeStart || next.objectIndex != ray.objectIndex || next.kind != ray.kind || next.brush != ray.brush) {
+                    hit = paintRay(engine, ray) || hit
+                }
+                ray = next
+            }
+            hit = paintRay(engine, ray) || hit
+            val painting = _state.value.painting
+            if (!hit || painting?.objectIndex != ray.objectIndex || painting.kind != ray.kind) continue
+            val mesh = runCatching { engine.painted(ray.objectIndex, ray.kind) }.getOrElse { continue }
+            markChanged(StaleReason(app.getString(paintLabel(ray.kind))))
+            _state.update { state -> state.copy(painting = state.painting?.takeIf { it.objectIndex == ray.objectIndex && it.kind == ray.kind }?.copy(mesh = mesh)) }
+        }
+    }
+
+    private suspend fun paintRay(engine: SlicerEngine, ray: PaintRay): Boolean = try {
+        engine.paint(ray.objectIndex, ray.kind, ray.origin, ray.direction, ray.brush, ray.strokeStart)
+    } catch (e: SlicerException) {
+        // Ex.: o objeto saiu da mesa entre o toque e a aplicação.
+        Log.w(TAG, e)
+        false
+    }
+
+    @StringRes
+    private fun paintLabel(kind: PaintKind) = if (kind == PaintKind.SEAM) R.string.tool_paint_seam else R.string.tool_paint_support
+
+    /**
+     * Relê a pintura do objeto selecionado com uma ferramenta de pintura (ou a fecha). Ao abrir
+     * num objeto ou tipo novo, as saliências destacadas são as do gizmo do Orca.
+     */
+    private suspend fun refreshPainting(engine: SlicerEngine) {
+        val state = _state.value
+        val kind = state.tool.paintKind
+        val selected = state.scene?.selected
+        if (kind == null || selected == null) {
+            _state.update { it.copy(painting = null, tool = if (selected == null && kind != null) Tool.MOVE else it.tool) }
+            return
+        }
+        val mesh = engine.painted(selected, kind)
+        val previous = state.painting?.takeIf { it.objectIndex == selected && it.kind == kind }
+        val angle = previous?.highlightAngle ?: if (kind == PaintKind.SUPPORT) engine.overhangHighlightAngle(selected).toFloat() else 0f
+        _state.update { it.copy(painting = Painting(selected, kind, mesh, angle)) }
+    }
 
     fun showPreview(show: Boolean) = _state.update { it.copy(showPreview = show) }
 
@@ -1092,6 +1194,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 layerChanges = layerChanges, filamentChangeAvailable = filamentChange, objectSettings = settings,
             )
         }
+        refreshPainting(engine)
     }
 
     /**

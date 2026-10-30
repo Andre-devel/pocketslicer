@@ -77,6 +77,8 @@ private val TOOLS = listOf(
     Triple(Tool.ROTATE, R.drawable.ic_rotate_right, R.string.tool_rotate),
     Triple(Tool.SCALE, R.drawable.ic_open_in_full, R.string.tool_scale),
     Triple(Tool.LAY_ON_FACE, R.drawable.ic_vertical_align_bottom, R.string.tool_lay_on_face),
+    Triple(Tool.PAINT_SUPPORT, R.drawable.ic_brush, R.string.tool_paint_support_short),
+    Triple(Tool.PAINT_SEAM, R.drawable.ic_timeline, R.string.tool_paint_seam_short),
 )
 
 internal val SlicerUiState.editable get() = busy == null && slice !is SliceState.Running
@@ -503,6 +505,10 @@ private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
     val index = state.scene?.selected
     val placement = state.selectedPlacement
     val part = state.scene?.selectedPart
+    state.painting?.takeIf { it.objectIndex == index }?.let {
+        PaintPanel(state, viewModel, it)
+        return
+    }
     if (index != null && part != null) {
         SelectedPart(state, viewModel, index, part)
         return

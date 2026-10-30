@@ -7,6 +7,7 @@ import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.view.MotionEvent
 import io.github.andredevel.slicer.core.ObjectMesh
+import io.github.andredevel.slicer.core.PaintKind
 import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.Thumbnail
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -15,8 +16,13 @@ import android.view.ViewConfiguration
 import kotlin.math.exp
 import kotlin.math.hypot
 
-/** Ação de um arraste de 1 dedo que começa sobre o objeto selecionado (ou de um toque, em [LAY_ON_FACE]). */
-enum class Tool { MOVE, ROTATE, SCALE, LAY_ON_FACE }
+/**
+ * Ação de um arraste de 1 dedo que começa sobre o objeto selecionado (ou de um toque, em
+ * [LAY_ON_FACE]). [paintKind]: as de pintura, em que tocar e arrastar no objeto pinta.
+ */
+enum class Tool(val paintKind: PaintKind? = null) {
+    MOVE, ROTATE, SCALE, LAY_ON_FACE, PAINT_SUPPORT(PaintKind.SUPPORT), PAINT_SEAM(PaintKind.SEAM)
+}
 
 /** Resultados dos gestos, entregues na thread principal. */
 interface ViewportListener {
@@ -26,6 +32,11 @@ interface ViewportListener {
     fun onTransform(objectIndex: Int, transform: FloatArray)
     /** Fim de um arraste da peça selecionada: a matriz nova dela, na do objeto. */
     fun onPartTransform(objectIndex: Int, part: Int, transform: FloatArray)
+    /**
+     * Toque ou ponto de um arraste no objeto selecionado com uma ferramenta de pintura: o raio
+     * ([origin], [direction], na mesa) pelo dedo; [strokeStart] no primeiro do arraste.
+     */
+    fun onPaint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean)
     /** Toque numa face do objeto selecionado com [Tool.LAY_ON_FACE]. */
     fun onLayOnFace(objectIndex: Int, triangle: Int)
     /** Fim de um arraste da torre de purga: canto da frente à esquerda na mesa. */
@@ -40,6 +51,8 @@ interface ViewportListener {
  * Viewport 3D. Gestos: toque seleciona (um objeto ou uma peça); toque longo abre o menu do
  * objeto; 1 dedo gira a câmera, ou aplica [tool] se o arraste começar sobre a peça ou o objeto
  * selecionado, ou move a torre de purga se começar nela; 2 dedos movem (pan) e aproximam (pinça).
+ * Com uma ferramenta de pintura, tocar e arrastar no objeto selecionado pinta, e tocar fora dele
+ * não muda a seleção.
  *
  * Os eventos de toque são interpretados na thread GL (queueEvent), onde estão a
  * câmera e a cena; o estado do arraste (campos "drag*") só é usado nela.
@@ -93,6 +106,9 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     private var dragGrabZ = 0f
     private var dragLast: FloatArray? = null
     private var draggingTower = false
+    /** Objeto sendo pintado no gesto (o selecionado, se ele começou sobre ele). */
+    private var paintObject: Int? = null
+    private var paintStarted = false
 
     init {
         setEGLContextClientVersion(3)
@@ -117,6 +133,15 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
     private var previewSettings = PreviewSettings()
 
     /** Caminhos do G-code; com [show], o viewport mostra só eles e não edita objetos. */
+    private var paint: PaintOverlay? = null
+
+    /** Pintura do objeto selecionado, desenhada sobre ele com a ferramenta de pintura. */
+    fun setPaint(paint: PaintOverlay?) {
+        if (paint == this.paint) return
+        this.paint = paint
+        onGlThread { renderer.paint = paint }
+    }
+
     fun setPreview(preview: Preview?, show: Boolean, settings: PreviewSettings) {
         if (preview === this.preview && show == showPreview && settings == previewSettings) return
         this.preview = preview
@@ -163,8 +188,8 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                 downY = y
                 moved = false
                 longPressed = false
-                postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                 val tool = tool
+                if (tool.paintKind == null) postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                 onGlThread { startDrag(x, y, tool) }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -187,6 +212,11 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                             pointers == 2 -> {
                                 camera.pan(dx, dy, renderer.viewportHeight)
                                 camera.zoom(zoom)
+                            }
+                            paintObject != null -> {
+                                // Só depois de passar do touch slop: um segundo dedo antes disso não pinta.
+                                if (!paintStarted) paintAt(downX, downY, strokeStart = true)
+                                paintAt(x, y, strokeStart = false)
                             }
                             dragObject != null -> drag(x, y, dx, dy)
                             draggingTower -> dragTower(x, y)
@@ -249,6 +279,13 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         dragObject = null
         dragPart = null
         draggingTower = false
+        paintObject = null
+        paintStarted = false
+        if (tool.paintKind != null) {
+            val selected = renderer.scene?.selected
+            paintObject = selected?.takeIf { pickAt(x, y)?.objectIndex == it }
+            return
+        }
         if (tool == Tool.LAY_ON_FACE) return
         val selected = renderer.scene?.selected
         val selectedPart = renderer.scene?.selectedPart
@@ -328,14 +365,22 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                 Matrix.scaleM(step, 0, factor, factor, factor)
                 Matrix.translateM(step, 0, -cx, -cy, -cz)
             }
-            Tool.LAY_ON_FACE -> return
+            Tool.LAY_ON_FACE, Tool.PAINT_SUPPORT, Tool.PAINT_SEAM -> return
         }
         val result = FloatArray(16)
         Matrix.multiplyMM(result, 0, step, 0, current, 0)
         if (part != null) renderer.dragPartTransform = result else renderer.dragTransform = result
     }
 
+    private fun paintAt(x: Float, y: Float, strokeStart: Boolean) {
+        val index = paintObject ?: return
+        paintStarted = true
+        val ray = renderer.camera.ray(x, y, renderer.viewportWidth, renderer.viewportHeight)
+        post { listener?.onPaint(index, ray.origin, ray.direction, strokeStart) }
+    }
+
     private fun endDrag() {
+        paintObject = null
         if (draggingTower) {
             draggingTower = false
             val position = renderer.dragTower ?: return
@@ -364,6 +409,11 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         val hit = pickAt(x, y)
         val selected = renderer.scene?.selected
         if (renderer.showPreview) return
+        if (tool.paintKind != null) {
+            if (paintObject != null) paintAt(x, y, strokeStart = true)
+            paintObject = null
+            return
+        }
         if (hit != null && tool == Tool.LAY_ON_FACE && hit.objectIndex == selected) {
             post { listener?.onLayOnFace(hit.objectIndex, hit.triangle) }
             return

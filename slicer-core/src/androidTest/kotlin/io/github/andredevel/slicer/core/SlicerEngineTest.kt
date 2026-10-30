@@ -750,6 +750,68 @@ class SlicerEngineTest {
         assertTrue(engine.slice(File(work, "cube20.gcode")) { _, _ -> }.filamentMm3 > 0)
     }
 
+    @Test
+    fun paintingSupportsMarksFacetsIsSavedAndBlocksSupport() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        // Cubo de 20 mm no centro da mesa (128, 128), de z = 0 a 20; o raio desce no centro dele.
+        val down = floatArrayOf(0f, 0f, -1f)
+        val above = floatArrayOf(128f, 128f, 100f)
+        assertTrue(engine.paint(0, PaintKind.SUPPORT, above, down, Brush(radius = 2.0), strokeStart = true))
+        val circle = engine.painted(0, PaintKind.SUPPORT)
+        assertTrue(circle.states.isNotEmpty() && circle.states.all { it.toInt() == PaintState.ENFORCE.ordinal })
+        // No topo (coordenadas do objeto: centro na origem), dentro do círculo.
+        for (v in 0 until circle.positions.size / 3) {
+            assertEquals(10f, circle.positions[v * 3 + 2], 0.001f)
+            assertTrue(hypotOf(circle.positions[v * 3], circle.positions[v * 3 + 1]) <= 2.01f)
+        }
+        assertTrue(engine.painted(0, PaintKind.SEAM).states.isEmpty())
+        // Fora do objeto não pinta.
+        assertTrue(!engine.paint(0, PaintKind.SUPPORT, floatArrayOf(10f, 10f, 100f), down, Brush(), strokeStart = true))
+
+        // Arrastar liga os pontos: uma faixa de 10 mm de comprimento.
+        engine.paint(0, PaintKind.SUPPORT, floatArrayOf(123f, 128f, 100f), down, Brush(state = PaintState.BLOCK), strokeStart = true)
+        engine.paint(0, PaintKind.SUPPORT, floatArrayOf(133f, 128f, 100f), down, Brush(state = PaintState.BLOCK), strokeStart = false)
+        val stroke = engine.painted(0, PaintKind.SUPPORT)
+        val blocked = (0 until stroke.states.size).filter { stroke.states[it].toInt() == PaintState.BLOCK.ordinal }
+        val xs = blocked.flatMap { t -> (0..2).map { stroke.positions[stroke.indices[t * 3 + it] * 3] } }
+        assertTrue("${xs.min()}..${xs.max()}", xs.min() < -5.5f && xs.max() > 5.5f)
+
+        // O preenchimento pega a face de cima inteira (os dois triângulos do STL).
+        engine.paint(0, PaintKind.SEAM, above, down, Brush(Brush.Tool.SMART_FILL), strokeStart = true)
+        val face = engine.painted(0, PaintKind.SEAM)
+        assertEquals(2, face.states.size)
+
+        val project = File(work, "painted.3mf")
+        engine.saveProject(project, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+        engine.loadModel(testAsset("cube20.stl"))
+        assertTrue(engine.painted(0, PaintKind.SUPPORT).states.isEmpty())
+        engine.openProject(project)
+        assertEquals(stroke.states.size, engine.painted(0, PaintKind.SUPPORT).states.size)
+        assertEquals(2, engine.painted(0, PaintKind.SEAM).states.size)
+        engine.clearPaint(0, PaintKind.SUPPORT)
+        assertTrue(engine.painted(0, PaintKind.SUPPORT).states.isEmpty())
+        assertEquals(2, engine.painted(0, PaintKind.SEAM).states.size)
+
+        // Bloquear tudo (preenchimento até 90°) tira o suporte automático.
+        engine.loadModel(testAsset("calicat.stl"))
+        engine.setOption(PresetKind.PROCESS, "enable_support", "1")
+        assertEquals(engine.values(PresetKind.PROCESS).values["support_threshold_angle"]!!.toDouble(), engine.overhangHighlightAngle(0), 0.0)
+        suspend fun volume(name: String) = engine.slice(File(work, "$name.gcode")) { _, _ -> }.filamentMm3
+        val supported = volume("supported")
+        engine.setOption(PresetKind.PROCESS, "enable_support", "0")
+        val none = volume("none")
+        assertEquals(0.0, engine.overhangHighlightAngle(0), 0.0)
+        engine.setOption(PresetKind.PROCESS, "enable_support", "1")
+        assertTrue(engine.paint(0, PaintKind.SUPPORT, above, down, Brush(Brush.Tool.SMART_FILL, PaintState.BLOCK, smartFillAngle = 90.0), strokeStart = true))
+        val blockedVolume = volume("blocked")
+        assertTrue("$none < $supported", none < supported)
+        assertEquals(none, blockedVolume, none * 0.01)
+    }
+
+    private fun hypotOf(x: Float, y: Float) = kotlin.math.hypot(x, y)
+
     private fun worldVertices(mesh: ObjectMesh, placement: Placement): List<FloatArray> {
         val m = placement.transform
         return (0 until mesh.positions.size / 3).map { v ->

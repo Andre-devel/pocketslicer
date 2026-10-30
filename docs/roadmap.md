@@ -131,6 +131,14 @@ Creality, Box da QIDI).
      Peça de arquivo (STL, OBJ, 3MF) na posição relativa que tinha nele, como o "Carregar..."
      do Orca, e troca do tipo de uma peça (a última do objeto não muda).
 3. Pintura de suportes/seam (gizmos de pintura do Orca são GUI; reimplementar sobre `TriangleSelector` de libslic3r).
+   - Feito (2026-10-30): ferramentas "Suporte" e "Costura" em Preparar, como os gizmos do Orca
+     sobre o `TriangleSelector` de libslic3r. Tocar e arrastar no objeto selecionado pinta (forçar,
+     bloquear ou apagar), com círculo ou esfera do tamanho escolhido (0,4 a 8 mm) e, no suporte,
+     o preenchimento por ângulo; os pontos de um arraste são ligados como entre os eventos do
+     mouse no Orca. No suporte, as saliências ficam destacadas pelo ângulo do suporte automático
+     (ajustável) e dá para pintar só nelas. "Apagar tudo". A pintura fica nas peças do objeto
+     (supported_facets e seam_facets), vai no 3MF e muda o fatiamento.
+     Falta: preenchimento de lacunas e faixa de altura (ferramentas da BBS) e plano de corte.
 4. Multi-material (AMS/MMU) com torre de purga.
    - Feito (2026-10-29): 3MF multicolor do Orca/Bambu fatia igual ao Orca desktop; filamentos do
      projeto (acrescentar, excluir, preset e cor), filamento do objeto, volumes de purga com o

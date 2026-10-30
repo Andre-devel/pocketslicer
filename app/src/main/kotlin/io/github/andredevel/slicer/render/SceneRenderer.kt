@@ -5,6 +5,8 @@ import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import io.github.andredevel.slicer.core.Bed
 import io.github.andredevel.slicer.core.ObjectMesh
+import io.github.andredevel.slicer.core.PaintMesh
+import io.github.andredevel.slicer.core.PaintState
 import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.Placement
 import io.github.andredevel.slicer.core.WipeTower
@@ -13,6 +15,7 @@ import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sqrt
 
@@ -36,6 +39,12 @@ data class Scene(
     val parts: List<List<Part>> = emptyList(),
     val selectedPart: Int? = null,
 )
+
+/**
+ * Pintura de suporte ou de costura do objeto [objectIndex], como o gizmo do Orca a mostra.
+ * [highlightAngle] > 0: destaca as faces pendentes além desse ângulo ("Destacar saliências").
+ */
+data class PaintOverlay(val objectIndex: Int, val mesh: PaintMesh, val highlightAngle: Float)
 
 /**
  * Desenha a cena com OpenGL ES 3. Roda na thread GL do [GLSurfaceView]; [scene] e
@@ -112,6 +121,17 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         }
     }
 
+    var paint: PaintOverlay? = null
+        set(value) {
+            if (value?.mesh !== field?.mesh) {
+                paintGpu?.geometry?.release()
+                paintGpu = null
+            }
+            field = value
+        }
+    /** Malha de [paint], com um trecho por estado (os triângulos vêm agrupados). */
+    private var paintGpu: ObjectGeometry? = null
+
     /** Caminhos do G-code; com [showPreview], substituem os objetos no desenho. */
     var preview: Preview? = null
         set(value) {
@@ -138,6 +158,7 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         // Contexto novo: os objetos GL anteriores deixaram de existir.
         gpu = null
         partsGpu = null
+        paintGpu = null
         toolpathRenderer = null
         flatProgram = program(FLAT_VERTEX, FLAT_FRAGMENT_SOURCE)
         meshProgram = program(MESH_VERTEX, MESH_FRAGMENT)
@@ -254,6 +275,11 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         val mvpLocation = glGetUniformLocation(meshProgram, "uMvp")
         val modelViewLocation = glGetUniformLocation(meshProgram, "uModelView")
         val colorLocation = glGetUniformLocation(meshProgram, "uColor")
+        val slopeLocation = glGetUniformLocation(meshProgram, "uSlopeNormalZ")
+        // Rotação da vista: leva a normal da face, calculada na vista, de volta à mesa.
+        val viewRotation = FloatArray(9) { camera.view[it / 3 * 4 + it % 3] }
+        glUniformMatrix3fv(glGetUniformLocation(meshProgram, "uViewRotation"), 1, false, viewRotation, 0)
+        val paint = paint?.takeIf { highlight && it.objectIndex < scene.meshes.size }
         for ((i, transform) in transforms().withIndex()) {
             Matrix.multiplyMM(modelView, 0, camera.view, 0, transform, 0)
             Matrix.multiplyMM(mvp, 0, camera.projection, 0, modelView, 0)
@@ -261,7 +287,11 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
             val outside = highlight && scene.placements[i].outside
             // Com uma peça selecionada, só ela fica destacada.
-            val selected = highlight && i == scene.selected && scene.selectedPart == null
+            // Pintando, o objeto fica com a cor dele (como no gizmo) e com as saliências destacadas.
+            val painting = paint?.objectIndex == i
+            val selected = highlight && i == scene.selected && scene.selectedPart == null && !painting
+            // GLGizmoPainterBase: normal_z = -cos(ângulo); sem ângulo, nada fica abaixo de -2.
+            glUniform1f(slopeLocation, if (painting && paint!!.highlightAngle > 0f) -cos(Math.toRadians(paint.highlightAngle.toDouble())).toFloat() else -2f)
             val colors = scene.filamentColors.takeIf { it.size > 1 }
             for ((filament, first, count) in gpu.objects[i].parts) {
                 val filamentColor = colors?.let { it.getOrNull(filament) ?: it.first() }
@@ -274,7 +304,9 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
                 }
                 gpu.objects[i].geometry.draw(colorLocation, color, first, count)
             }
+            if (painting) drawPaint(paint!!, colorLocation, slopeLocation)
         }
+        glUniform1f(slopeLocation, -2f)
         // As peças e a torre não entram na miniatura (como no Orca).
         if (highlight) drawParts(scene, camera, mvpLocation, modelViewLocation, colorLocation)
         val tower = towerTransform()
@@ -285,6 +317,21 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
             gpu.tower.draw(colorLocation, if (dragTower != null) SELECTED else TOWER)
         }
+    }
+
+    /** Triângulos pintados sobre os do objeto (com as matrizes dele já aplicadas), nas cores do Orca. */
+    private fun drawPaint(paint: PaintOverlay, colorLocation: Int, slopeLocation: Int) {
+        if (paint.mesh.states.isEmpty()) return
+        val geometry = paintGpu ?: rangesBy(paint.mesh.indices, paint.mesh.states).let { ObjectGeometry(Geometry(GL_TRIANGLES, paint.mesh.positions, paint.mesh.indices), it) }
+            .also { paintGpu = it }
+        glUniform1f(slopeLocation, -2f)
+        // Na frente das faces do objeto, que estão no mesmo lugar.
+        glEnable(GL_POLYGON_OFFSET_FILL)
+        glPolygonOffset(-1f, -1f)
+        for ((state, first, count) in geometry.parts) {
+            geometry.geometry.draw(colorLocation, if (state == PaintState.BLOCK.ordinal) BLOCKER else ENFORCER, first, count)
+        }
+        glDisable(GL_POLYGON_OFFSET_FILL)
     }
 
     /** Peças que não são do objeto, translúcidas, nas cores do Orca; as do selecionado por cima dele. */
@@ -353,18 +400,22 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
     }
 
     /** Um trecho por filamento (os triângulos já vêm agrupados), para desenhar cada um com a cor dele. */
-    private fun objectGeometry(mesh: ObjectMesh): ObjectGeometry {
-        val triangles = mesh.indices.size / 3
+    private fun objectGeometry(mesh: ObjectMesh) =
+        ObjectGeometry(Geometry(GL_TRIANGLES, mesh.positions, mesh.indices), rangesBy(mesh.indices, mesh.filaments))
+
+    /** Trechos de triângulos seguidos com o mesmo valor em [values] (um por triângulo). */
+    private fun rangesBy(indices: IntArray, values: ByteArray): List<FilamentRange> {
+        val triangles = indices.size / 3
         val parts = ArrayList<FilamentRange>()
         var start = 0
         while (start < triangles) {
-            val filament = mesh.filaments.getOrElse(start) { 0 }
+            val value = values.getOrElse(start) { 0 }
             var end = start + 1
-            while (end < triangles && mesh.filaments.getOrElse(end) { 0 } == filament) end++
-            parts += FilamentRange(filament.toInt() and 0xff, start * 3, (end - start) * 3)
+            while (end < triangles && values.getOrElse(end) { 0 } == value) end++
+            parts += FilamentRange(value.toInt() and 0xff, start * 3, (end - start) * 3)
             start = end
         }
-        return ObjectGeometry(Geometry(GL_TRIANGLES, mesh.positions, mesh.indices), parts)
+        return parts
     }
 
     private fun release(gpu: GpuScene) {
@@ -379,7 +430,7 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         val tower: Geometry,
     )
 
-    /** [count] índices a partir de [first], todos do [filament]. */
+    /** [count] índices a partir de [first], todos do [filament] (ou do estado da pintura). */
     private data class FilamentRange(val filament: Int, val first: Int, val count: Int)
 
     private class ObjectGeometry(val geometry: Geometry, val parts: List<FilamentRange>)
@@ -460,6 +511,9 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             Part.Type.SUPPORT_BLOCKER to floatArrayOf(1.0f, 0.3f, 0.3f, 0.4f),
             Part.Type.SUPPORT_ENFORCER to floatArrayOf(0.3f, 0.3f, 1.0f, 0.4f),
         )
+        // TriangleSelectorGUI::enforcers_color e blockers_color.
+        private val ENFORCER = floatArrayOf(0.5f, 1.0f, 0.5f, 1f)
+        private val BLOCKER = floatArrayOf(1.0f, 0.5f, 0.5f, 1f)
         private val OUTSIDE = floatArrayOf(1.00f, 0.42f, 0.37f, 1f)
         private val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
 
@@ -542,12 +596,20 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             precision highp float;
             in vec3 vViewPosition;
             uniform vec4 uColor;
+            uniform mat3 uViewRotation;
+            // Faces com a normal (na mesa) abaixo disto ficam avermelhadas, como as saliências no
+            // gizmo de pintura de suporte do Orca (shader gouraud, slope).
+            uniform float uSlopeNormalZ;
             out vec4 fragColor;
             void main() {
                 vec3 normal = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
                 // Luz na direção da câmera, mais uma vinda de cima para dar volume.
                 float light = 0.35 + 0.5 * abs(normal.z) + 0.25 * max(normal.y, 0.0);
-                fragColor = vec4(uColor.rgb * light, uColor.a);
+                vec3 color = uColor.rgb;
+                // A face vista está virada para a câmera; transposta da rotação = inversa.
+                vec3 facing = dot(normal, vViewPosition) > 0.0 ? -normal : normal;
+                if ((facing * uViewRotation).z < uSlopeNormalZ - 0.0001) color = color * 0.5 + vec3(0.78, 0.0, 0.0) * 0.5;
+                fragColor = vec4(color * light, uColor.a);
             }
         """
     }

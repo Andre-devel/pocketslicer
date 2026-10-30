@@ -146,6 +146,35 @@ class Part(
 /** [Part] como o JNI cria: ordinal do tipo e o placement em 28 valores. */
 internal class PartData(val name: String, val type: Int, val placement: DoubleArray, val positions: FloatArray, val indices: IntArray)
 
+/**
+ * Pintura nas peças do objeto, como os gizmos "Pintura de suporte" e "Pintura de costura" do Orca.
+ * Na ordem de slicer::PaintKind.
+ */
+enum class PaintKind { SUPPORT, SEAM }
+
+/** Forçar ou bloquear o suporte (ou a costura); [NONE] apaga. Na ordem de slicer::PaintState. */
+enum class PaintState { NONE, ENFORCE, BLOCK }
+
+/**
+ * Ferramenta de um toque ou arraste: [Tool.CIRCLE] pinta o que está dentro do círculo visto da
+ * câmera, [Tool.SPHERE] o que está dentro da esfera, [Tool.SMART_FILL] a região plana (até
+ * [smartFillAngle] graus entre faces vizinhas) em volta do ponto. [radius] em mm (0,4 a 8);
+ * [overhangAngle] > 0: só nas faces pendentes além desse ângulo.
+ */
+data class Brush(
+    val tool: Tool = Tool.CIRCLE,
+    val state: PaintState = PaintState.ENFORCE,
+    val radius: Double = 1.0,
+    val smartFillAngle: Double = 30.0,
+    val overhangAngle: Double = 0.0,
+) {
+    /** Na ordem de slicer::Brush::Tool. */
+    enum class Tool { CIRCLE, SPHERE, SMART_FILL }
+}
+
+/** Triângulos pintados das peças de um objeto, em coordenadas dele; [states]: [PaintState] (ordinal) de cada um. */
+class PaintMesh(override val positions: FloatArray, override val indices: IntArray, val states: ByteArray) : Triangles
+
 /** Faixa de altura de um objeto, em mm desde a base dele. */
 data class HeightRange(val min: Double, val max: Double)
 
@@ -498,6 +527,26 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
         }
     }
 
+    /**
+     * Pinta onde o raio ([origin] e [direction], na mesa) atinge as peças do objeto. Fora do
+     * início do arraste ([strokeStart] false) liga o ponto ao do toque anterior. Devolve se atingiu.
+     */
+    suspend fun paint(objectIndex: Int, kind: PaintKind, origin: FloatArray, direction: FloatArray, brush: Brush, strokeStart: Boolean): Boolean = call {
+        val ray = DoubleArray(6) { (if (it < 3) origin[it] else direction[it - 3]).toDouble() }
+        nativePaint(
+            handle, objectIndex, kind.ordinal, ray, brush.tool.ordinal, brush.state.ordinal,
+            brush.radius, brush.smartFillAngle, brush.overhangAngle, strokeStart,
+        )
+    }
+
+    suspend fun painted(objectIndex: Int, kind: PaintKind): PaintMesh = call { nativePainted(handle, objectIndex, kind.ordinal) }
+
+    /** "Apagar tudo" do gizmo. */
+    suspend fun clearPaint(objectIndex: Int, kind: PaintKind) = call { nativeClearPaint(handle, objectIndex, kind.ordinal) }
+
+    /** Ângulo das saliências que o Orca destaca ao abrir a pintura de suporte (0 com o suporte automático desligado). */
+    suspend fun overhangHighlightAngle(objectIndex: Int): Double = call { nativeOverhangHighlightAngle(handle, objectIndex) }
+
     /** As alterações de posição sempre apoiam o objeto na mesa. */
     suspend fun setTransform(objectIndex: Int, transform: FloatArray) =
         call { nativeSetTransform(handle, objectIndex, DoubleArray(16) { transform[it].toDouble() }) }
@@ -660,6 +709,13 @@ private external fun nativeSetPartType(handle: Long, objectIndex: Int, part: Int
 private external fun nativeSetPartTransform(handle: Long, objectIndex: Int, part: Int, transform: DoubleArray)
 private external fun nativeSetPartPlacement(handle: Long, objectIndex: Int, part: Int, values: DoubleArray)
 private external fun nativeRemovePart(handle: Long, objectIndex: Int, part: Int)
+private external fun nativePaint(
+    handle: Long, objectIndex: Int, kind: Int, ray: DoubleArray, tool: Int, state: Int,
+    radius: Double, smartFillAngle: Double, overhangAngle: Double, strokeStart: Boolean,
+): Boolean
+private external fun nativePainted(handle: Long, objectIndex: Int, kind: Int): PaintMesh
+private external fun nativeClearPaint(handle: Long, objectIndex: Int, kind: Int)
+private external fun nativeOverhangHighlightAngle(handle: Long, objectIndex: Int): Double
 private external fun nativeFlushVolumes(handle: Long): DoubleArray
 private external fun nativeSetFlushVolumes(handle: Long, matrix: DoubleArray)
 private external fun nativeFlushMultipliers(handle: Long): DoubleArray

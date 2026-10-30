@@ -70,6 +70,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.Thumbnail
 import io.github.andredevel.slicer.render.CameraView
+import io.github.andredevel.slicer.render.PaintOverlay
 import io.github.andredevel.slicer.render.PreviewSettings
 import io.github.andredevel.slicer.render.ViewportListener
 import io.github.andredevel.slicer.render.ViewportView
@@ -418,6 +419,9 @@ private fun Viewport(
                         override fun onPartTransform(objectIndex: Int, part: Int, transform: FloatArray) {
                             viewModel.setPartTransform(objectIndex, part, transform)
                         }
+                        override fun onPaint(objectIndex: Int, origin: FloatArray, direction: FloatArray, strokeStart: Boolean) {
+                            viewModel.paint(objectIndex, origin, direction, strokeStart)
+                        }
                         override fun onLayOnFace(objectIndex: Int, triangle: Int) { viewModel.layOnFace(objectIndex, triangle) }
                         override fun onWipeTowerMoved(x: Float, y: Float) { viewModel.setWipeTowerPosition(x, y) }
                         override fun onLongPress(objectIndex: Int, x: Float, y: Float) {
@@ -435,6 +439,7 @@ private fun Viewport(
                 it.dark = dark
                 it.setScene(state.scene)
                 it.tool = state.tool
+                it.setPaint(state.painting?.let { p -> PaintOverlay(p.objectIndex, p.mesh, p.highlightAngle) })
                 it.setPreview(state.preview, state.previewVisible, previewSettings)
             },
         )
