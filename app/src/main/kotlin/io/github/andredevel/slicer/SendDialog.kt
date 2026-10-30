@@ -203,7 +203,7 @@ private sealed interface SlotsLoad {
  * filamento usado, já escolhida pela cor, e [onConfirm] recebe o mapeamento; senão, null.
  */
 @Composable
-private fun ConfirmPrint(host: PrinterHost, state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit, onConfirm: (List<Int>?) -> Unit) {
+private fun ConfirmPrint(host: PrinterHost, state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit, onConfirm: (List<Slot?>?) -> Unit) {
     var bedClear by remember { mutableStateOf(false) }
     var filamentLoaded by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -239,11 +239,18 @@ private fun ConfirmPrint(host: PrinterHost, state: SlicerUiState, viewModel: Sli
                     }
                     is SlotsLoad.Loaded -> if (mapping.isNotEmpty()) {
                         SectionLabel(stringResource(R.string.filament_mapping))
+                        val fixed = l.slots.any { it.nozzle != null }
                         for (filament in used) {
-                            MappingRow(filament, colors.getOrNull(filament), state.filaments.getOrNull(filament), l.slots, mapping[filament]) { mapping[filament] = it }
+                            MappingRow(filament, colors.getOrNull(filament), state.filaments.getOrNull(filament), l.slots, mapping[filament], enabled = !fixed) { mapping[filament] = it }
                         }
-                        for (slot in used.map { mapping[it] }.distinct().filter { !l.slots[it].loaded }) {
-                            Banner(Tone.WARNING, stringResource(R.string.mapping_slot_empty, stringResource(R.string.toolhead_n, slot + 1)), Modifier.fillMaxWidth())
+                        if (fixed) {
+                            Text(stringResource(R.string.mapping_fixed_nozzles), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        for (filament in used.filter { it !in mapping.indices || mapping[it] < 0 }) {
+                            Banner(Tone.ERROR, stringResource(R.string.mapping_no_slot, filament + 1), Modifier.fillMaxWidth())
+                        }
+                        for (slot in used.mapNotNull { l.slots.getOrNull(mapping[it]) }.distinct().filter { !it.loaded }) {
+                            Banner(Tone.WARNING, stringResource(R.string.mapping_slot_empty, slotName(slot)), Modifier.fillMaxWidth())
                         }
                     }
                 }
@@ -262,8 +269,8 @@ private fun ConfirmPrint(host: PrinterHost, state: SlicerUiState, viewModel: Sli
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(mapping.toList().takeIf { it.isNotEmpty() }) },
-                enabled = bedClear && filamentLoaded && load is SlotsLoad.Loaded,
+                onClick = { onConfirm(mapping.takeIf { it.isNotEmpty() }?.mapIndexed { i, slot -> if (i in used) slots[slot] else null }) },
+                enabled = bedClear && filamentLoaded && load is SlotsLoad.Loaded && used.all { mapping.isEmpty() || mapping[it] >= 0 },
             ) { Text(stringResource(R.string.print_start)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.back)) } },
@@ -272,27 +279,35 @@ private fun ConfirmPrint(host: PrinterHost, state: SlicerUiState, viewModel: Sli
 
 /** Filamento do projeto e a posição da impressora escolhida para ele. */
 @Composable
-private fun MappingRow(filament: Int, color: FloatArray?, name: String?, slots: List<Slot>, slot: Int, onSelect: (Int) -> Unit) {
+private fun MappingRow(filament: Int, color: FloatArray?, name: String?, slots: List<Slot>, slot: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilamentLabel(filament, color, name, Modifier.weight(1f))
         Box(
             Modifier.size(12.dp)
-                .background(slots[slot].color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.outline, CircleShape)
+                .background(slots.getOrNull(slot)?.color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.outline, CircleShape)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
         )
-        val labels = slots.mapIndexed { i, s ->
-            listOf(stringResource(R.string.toolhead_n, i + 1), if (s.loaded) s.type else stringResource(R.string.slot_empty)).filterNotNull().joinToString(" · ")
+        val labels = slots.map { s ->
+            listOf(slotName(s), if (s.loaded) s.type else stringResource(R.string.slot_empty)).filterNotNull().joinToString(" · ")
         }
-        SelectField(slot.toString(), slots.indices.map { it.toString() }, { onSelect(it.toInt()) }, Modifier.weight(1f), labels = labels)
+        SelectField(slot.toString(), slots.indices.map { it.toString() }, { onSelect(it.toInt()) }, Modifier.weight(1f), labels = labels, enabled = enabled)
     }
 }
+
+/** "Cabeça 2" na U1, "Slot 1A" (caixa e posição) no CFS da Creality. */
+@Composable
+private fun slotName(slot: Slot): String =
+    if (slot.cfsBox != null) stringResource(R.string.cfs_slot, "${slot.cfsBox}${'A' + slot.cfsSlot}")
+    else stringResource(R.string.toolhead_n, slot.index + 1)
 
 /**
  * Posição de cada filamento do projeto (0 até [count]): cada um de [used] vai para a posição
  * carregada de cor mais próxima ainda livre; os outros, e os que sobram sem posição carregada,
- * para a de mesmo número.
+ * para a de mesmo número. Com bicos fixos ([Slot.nozzle]), é a posição do bico do filamento, ou
+ * -1 se nenhuma o alimenta.
  */
 private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?>, slots: List<Slot>): List<Int> {
+    if (slots.any { it.nozzle != null }) return List(count) { i -> slots.indexOfFirst { it.nozzle == i + 1 } }
     val taken = mutableSetOf<Int>()
     return List(count) { i ->
         val fallback = i % slots.size

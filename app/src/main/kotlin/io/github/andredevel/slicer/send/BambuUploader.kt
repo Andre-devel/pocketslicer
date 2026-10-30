@@ -48,7 +48,7 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
 
     override suspend fun upload(
         host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit,
-        starting: () -> Unit, mapping: List<Int>?,
+        starting: () -> Unit, mapping: List<Slot?>?,
     ) {
         val tray = if (start) idleTray(host) else null
         session(host) { control ->

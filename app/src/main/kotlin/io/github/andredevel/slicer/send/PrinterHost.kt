@@ -37,12 +37,13 @@ interface Uploader {
     /**
      * Envia [file] com o nome [name]; com [start], confere antes que a impressora está livre e
      * depois inicia a impressão dele. [progress] de 0 a 1 durante o envio; [starting] quando o
-     * arquivo chegou e o pedido de iniciar vai sair. [mapping]: posição em [slots] de cada
-     * filamento do projeto (pelo índice), só com [start] e numa impressora que mapeia.
+     * arquivo chegou e o pedido de iniciar vai sair. [mapping]: posição de [slots] para cada
+     * filamento do projeto (pelo índice; null nos que não são usados), só com [start] e numa
+     * impressora que mapeia.
      */
     suspend fun upload(
         host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit,
-        starting: () -> Unit = {}, mapping: List<Int>? = null,
+        starting: () -> Unit = {}, mapping: List<Slot?>? = null,
     )
 
     /**
@@ -67,10 +68,21 @@ data class PrinterStatus(val state: State, val progress: Float? = null, val file
 }
 
 /**
- * Posição da impressora para filamento ([Uploader.slots]): [loaded] quando há filamento
- * detectado; [type] como a impressora informa ("PLA") e [color] `#RRGGBB`, quando ela sabe.
+ * Posição da impressora para filamento ([Uploader.slots]), [index] na lista dela: cabeça da
+ * Snapmaker U1, ou a posição [cfsSlot] (0 = A) da caixa [cfsBox] do CFS da Creality. [loaded]
+ * quando há filamento detectado; [type] como a impressora informa ("PLA") e [color] `#RRGGBB`,
+ * quando ela sabe. [nozzle]: na impressora de vários bicos com CFS (K3), o bico (a partir de 1)
+ * que essa posição alimenta; só o filamento desse bico (T de mesmo número menos 1) pode usá-la.
  */
-data class Slot(val loaded: Boolean, val type: String? = null, val color: String? = null)
+data class Slot(
+    val index: Int,
+    val loaded: Boolean,
+    val type: String? = null,
+    val color: String? = null,
+    val cfsBox: Int? = null,
+    val cfsSlot: Int = 0,
+    val nozzle: Int? = null,
+)
 
 /** Resultado de [Uploader.test]: serviço que respondeu (com a versão, quando há) e tempo da resposta. */
 data class Connection(val service: String, val millis: Long)

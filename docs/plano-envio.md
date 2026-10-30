@@ -37,7 +37,24 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
   metadados dão `extruders_used` e as conferências de bico. O mapa volta ao padrão no fim da
   impressão. `/printer/print/start` usa `SDCARD_PRINT_FILE`, sem mapa (mapa identidade).
 - No app: a confirmação de "Enviar e imprimir" lista os filamentos usados com a cabeça escolhida
-  pela cor mais próxima e avisa de cabeça sem filamento.
+  pela cor mais próxima e avisa de cabeça sem filamento. Testado na U1 real em 2026-10-29
+  (mapa [2,0] aplicado, impressão completa).
+
+### Mapeamento no CFS da Creality (K2, K3) (2026-10-29, incompleto)
+- Interface da Creality (WebSocket 9999): `get boxsInfo` (posições, tipo, cor `#0RRGGBB`),
+  `get nozzleFilament` (K3: bico <- posição). Início como o Creality Print
+  (resources/web/deviceMgr): `set colorMatch {path, list:[{id:"T1A", type, color, boxId,
+  materialId}]}` e `set multiColorPrint {gcode, enableSelfTest}`; o caminho é o da raiz `gcodes`
+  do Moonraker (`/mnt/SDCARD/cxsw/printer_data/gcodes/` na K3). O estado de impressão vem em
+  resposta a `get reqPrinterPara` (`state` 1 ou 5).
+- K3: cada `T` é um bico fixo, alimentado pela posição de `nozzleFilament` (sem troca no
+  firmware); o app fixa o mapa por bico.
+- K3 ainda falha: `START_PRINT` para em `BOX_FIRST_NOZZLE_HEATING` (StopIteration em
+  box_nano_wrapper, código fechado; o log registra `default_filament_colour: None`) e o Klipper
+  entra em shutdown. O G-code do app já grava `default_filament_colour` como o Creality Print,
+  mas a K3 marca o arquivo com `fileCheckResult: 1` (o do Creality Print tem 0) e lê de outro
+  jeito o consumo por filamento: falta descobrir o que mais o G-code do Creality Print traz.
+  K2 não testada.
 
 ### Creality K2 (e K3)
 - Envio: `POST http://<ip>/upload/<nome url-encoded>`, multipart com `file`

@@ -14,7 +14,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
-import java.io.DataInputStream
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -22,8 +21,6 @@ import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
-import java.util.Base64
-import kotlin.random.Random
 
 /**
  * Impressora achada na rede. [name]: o modelo, como a própria impressora informa; [kind]: protocolo
@@ -39,7 +36,6 @@ data class FoundPrinter(val address: String, val name: String, val kind: Kind?)
 object PrinterScanner {
     private const val TAG = "PrinterScanner"
     private const val MOONRAKER_PORT = 7125
-    private const val CREALITY_PORT = 9999
     private const val BAMBU_SSDP_PORT = 2021
     private const val CONNECT_TIMEOUT_MS = 500
     private const val PARALLEL = 64
@@ -81,7 +77,7 @@ object PrinterScanner {
         val probed = hosts.map { ip ->
             async(Dispatchers.IO) {
                 val moonraker = gate.withPermit { isOpen(ip, MOONRAKER_PORT) }
-                val creality = gate.withPermit { isOpen(ip, CREALITY_PORT) }
+                val creality = gate.withPermit { isOpen(ip, CrealitySocket.PORT) }
                 identify(ip, moonraker, creality)
             }
         }.awaitAll().filterNotNull()
@@ -153,52 +149,12 @@ object PrinterScanner {
      * código do modelo em `model`. Código desconhecido aparece como está.
      */
     private fun crealityModel(ip: String): String? = try {
-        Socket().use { socket ->
-            socket.connect(InetSocketAddress(ip, CREALITY_PORT), CONNECT_TIMEOUT_MS)
-            socket.soTimeout = CREALITY_READ_MS
-            val key = Base64.getEncoder().encodeToString(Random.nextBytes(16))
-            socket.getOutputStream().write(
-                ("GET / HTTP/1.1\r\nHost: $ip:$CREALITY_PORT\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
-                    "Sec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n\r\n").toByteArray()
-            )
-            val input = DataInputStream(socket.getInputStream().buffered())
-            if (!readHeaders(input).startsWith("HTTP/1.1 101")) return null
-            val deadline = System.currentTimeMillis() + CREALITY_READ_MS
-            while (System.currentTimeMillis() < deadline) {
-                val text = readTextFrame(input) ?: continue
-                val code = try {
-                    JSONObject(text).optString("model")
-                } catch (e: JSONException) {
-                    ""
-                }
-                if (code.isNotEmpty()) return CREALITY_MODELS[code] ?: "Creality ($code)"
-            }
-            null
+        CrealitySocket.open(ip, CONNECT_TIMEOUT_MS).use { socket ->
+            val code = socket.awaitMessage(CREALITY_READ_MS) { it.optString("model").isNotEmpty() }?.optString("model")
+            code?.let { CREALITY_MODELS[it] ?: "Creality ($it)" }
         }
     } catch (e: IOException) {
         null
-    }
-
-    private fun readHeaders(input: DataInputStream): String {
-        val text = StringBuilder()
-        while (!text.endsWith("\r\n\r\n")) text.append(input.readUnsignedByte().toChar())
-        return text.toString()
-    }
-
-    /** Um quadro do servidor (sem máscara); null quando não é texto. */
-    private fun readTextFrame(input: DataInputStream): String? {
-        val opcode = input.readUnsignedByte() and 0x0f
-        val second = input.readUnsignedByte()
-        val length = when (val small = second and 0x7f) {
-            126 -> input.readUnsignedShort().toLong()
-            127 -> input.readLong()
-            else -> small.toLong()
-        }
-        if (length > 1 shl 20) throw IOException("frame too large: $length")
-        val mask = if (second and 0x80 != 0) ByteArray(4).also(input::readFully) else null
-        val payload = ByteArray(length.toInt()).also(input::readFully)
-        if (mask != null) for (i in payload.indices) payload[i] = (payload[i].toInt() xor mask[i % 4].toInt()).toByte()
-        return if (opcode == 1) String(payload) else null
     }
 
     /**

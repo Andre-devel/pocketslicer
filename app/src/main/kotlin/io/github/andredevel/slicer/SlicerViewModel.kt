@@ -809,7 +809,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
      * Envia o G-code fatiado para [host]; com [start], também inicia a impressão, com a posição
      * da impressora de cada filamento do projeto em [mapping] (Uploader.upload).
      */
-    fun sendGcode(host: PrinterHost, start: Boolean = false, mapping: List<Int>? = null) = runSend(R.string.send_connecting) {
+    fun sendGcode(host: PrinterHost, start: Boolean = false, mapping: List<Slot?>? = null) = runSend(R.string.send_connecting) {
         val file = printFile(engine.await())
         val all = if (start) listOf(SendStep.CONNECT, SendStep.UPLOAD, SendStep.START) else listOf(SendStep.CONNECT, SendStep.UPLOAD)
         var steps = SendSteps(all, SendStep.CONNECT, 0, file.length())

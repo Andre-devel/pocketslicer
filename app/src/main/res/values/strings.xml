@@ -185,10 +185,13 @@
     <string name="filament_mapping">Filaments on the printer</string>
     <string name="mapping_loading">Reading the printer\'s filaments…</string>
     <string name="mapping_failed">Couldn\'t read the printer\'s filaments: %1$s</string>
-    <string name="mapping_slot_empty">No filament detected in %1$s.</string>
-    <string name="check_mapping">Each filament is in the toolhead shown</string>
+    <string name="mapping_slot_empty">No filament detected: %1$s.</string>
+    <string name="mapping_fixed_nozzles">On this printer each filament uses the nozzle with its number, fed by the slot shown. To use another slot, change the order of the filaments in the project.</string>
+    <string name="mapping_no_slot">No slot feeds the nozzle of filament %1$d.</string>
+    <string name="check_mapping">Each filament is where shown</string>
     <string name="toolhead_n">Toolhead %1$d</string>
-    <string name="slot_empty">empty</string>
+    <string name="slot_empty">no filament</string>
+    <string name="cfs_slot">Slot %1$s</string>
     <string name="print_heats_note">The printer starts heating as soon as the file arrives.</string>
     <string name="printer_from">Printer · %1$s</string>
     <string name="printers">Printers</string>
