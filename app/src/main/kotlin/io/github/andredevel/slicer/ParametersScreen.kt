@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -99,7 +99,8 @@ fun ParametersScreen(
     val general = stringResource(R.string.category_general)
     val categories = remember(defs, filter.advanced, query, general) {
         defs.filter { def ->
-            if (query.isEmpty()) filter.advanced || def.simple
+            // No básico, só o que a GUI do Orca mostra (opções sem grupo ficam no avançado).
+            if (query.isEmpty()) filter.advanced || (def.simple && def.group.isNotEmpty())
             else listOf(def.label, def.key, def.tooltip).any { it.contains(query, ignoreCase = true) }
         }.groupBy { it.category.ifEmpty { general } }.map { (name, list) -> Category(name, list) }
     }
@@ -174,7 +175,16 @@ fun ParametersScreen(
                         item(key = "category-${filter.kind}-${category.name}") {
                             SectionLabel(category.name, Modifier.padding(top = 12.dp))
                         }
-                        items(category.defs, key = { "option-${filter.kind}-${it.key}" }) { def ->
+                        itemsIndexed(category.defs, key = { _, def -> "option-${filter.kind}-${def.key}" }) { index, def ->
+                            // Grupo da aba do Orca ("Print temperature"...) acima da primeira opção dele.
+                            if (def.group.isNotEmpty() && def.group != category.defs.getOrNull(index - 1)?.group) {
+                                Text(
+                                    def.group,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = if (index == 0) 0.dp else 16.dp, bottom = 2.dp),
+                                )
+                            }
                             val saved = choice.values.saved[def.key]?.takeIf { def.key in choice.values.dirty }
                             OptionRow(
                                 def, choice.values.values[def.key], saved, filter.advanced, enabled,

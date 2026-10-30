@@ -239,7 +239,8 @@ data class Plates(val objects: List<Int>, val selected: Int)
 enum class OptionType { BOOL, INT, FLOAT, PERCENT, FLOAT_OR_PERCENT, STRING, ENUM, POINT, POINTS, OTHER }
 
 /**
- * Definição de uma opção editável, vinda do `PrintConfigDef` do Orca. [simple]: aparece no
+ * Definição de uma opção editável, vinda do `PrintConfigDef` do Orca, na página ([category]) e
+ * na ordem das abas da GUI do Orca. [simple]: aparece no
  * modo simples da GUI do Orca (painel básico); as demais são do modo avançado. [vector]:
  * um valor por extrusor/filamento, separados por vírgula na forma serializada.
  */
@@ -247,6 +248,8 @@ data class OptionDef(
     val key: String,
     val label: String,
     val category: String,
+    /** Grupo dentro da página ([category]) na aba do Orca; vazio se a GUI do Orca não mostra a opção. */
+    val group: String,
     val tooltip: String,
     val sidetext: String,
     val type: OptionType,
@@ -712,6 +715,7 @@ private fun parseOptions(json: String): List<OptionDef> {
             key = o.getString("key"),
             label = o.getString("label"),
             category = o.getString("category"),
+            group = o.getString("group"),
             tooltip = o.getString("tooltip"),
             sidetext = o.getString("sidetext"),
             type = OptionType.valueOf(o.getString("type").uppercase()),

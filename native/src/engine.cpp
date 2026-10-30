@@ -610,6 +610,26 @@ const std::vector<std::string> &option_keys(PresetKind kind)
     throw std::invalid_argument("invalid preset kind");
 }
 
+struct OptionPlace
+{
+    const char *key, *page, *group, *line;
+};
+
+#include "option_layout.inc"
+
+const std::vector<OptionPlace> &option_layout(PresetKind kind)
+{
+    static const std::vector<OptionPlace> printer(std::begin(printer_layout), std::end(printer_layout));
+    static const std::vector<OptionPlace> filament(std::begin(filament_layout), std::end(filament_layout));
+    static const std::vector<OptionPlace> process(std::begin(process_layout), std::end(process_layout));
+    switch (kind) {
+    case PresetKind::Printer: return printer;
+    case PresetKind::Filament: return filament;
+    case PresetKind::Process: return process;
+    }
+    throw std::invalid_argument("invalid preset kind");
+}
+
 Preset::Type preset_type(PresetKind kind)
 {
     switch (kind) {
@@ -3217,32 +3237,40 @@ void Engine::lay_on_face(size_t object, size_t triangle)
 
 std::string Engine::options_json(PresetKind kind) const
 {
-    // Rótulos curtos repetidos ("Other layers" em temperatura do bico, da mesa...) só fazem
-    // sentido dentro dos grupos da GUI do Orca; fora deles vale o full_label, como na busca do Orca.
-    std::map<std::string, int> label_count;
+    // Página, grupo e linha de cada opção nas abas do Orca; as opções saem nessa ordem e as
+    // que a GUI do Orca não mostra vêm depois, na categoria do PrintConfigDef.
+    std::map<std::string, std::pair<size_t, const OptionPlace *>> places;
+    for (const OptionPlace &place : option_layout(kind))
+        places.emplace(place.key, std::make_pair(places.size(), &place));
+    // printer_options() repete opções de extruder_option_keys() (extruder_type).
+    std::vector<std::string> keys;
+    std::set<std::string> unique;
     for (const std::string &key : option_keys(kind))
-        if (const ConfigOptionDef *def = editable_def(key))
-            ++label_count[def->label];
+        if (editable_def(key) != nullptr && unique.insert(key).second)
+            keys.push_back(key);
+    std::stable_sort(keys.begin(), keys.end(), [&](const std::string &a, const std::string &b) {
+        auto pa = places.find(a), pb = places.find(b);
+        return (pa == places.end() ? places.size() : pa->second.first) < (pb == places.end() ? places.size() : pb->second.first);
+    });
+    // Rótulos curtos repetidos fora de uma linha do Orca ("Fan speed") usam o full_label.
+    std::map<std::string, int> label_count;
+    for (const std::string &key : keys)
+        ++label_count[editable_def(key)->label];
     nlohmann::json out = nlohmann::json::array();
-    for (const std::string &key : option_keys(kind)) {
+    for (const std::string &key : keys) {
         const ConfigOptionDef *def = editable_def(key);
-        if (def == nullptr)
-            continue;
-        std::string label = i18n::translate(label_count[def->label] > 1 && !def->full_label.empty() ? def->full_label : def->label);
-        // As temperaturas da mesa repetem até o full_label; no Orca cada placa é uma linha.
-        static const std::map<std::string, std::string> plate_lines = {
-            {"supertack_plate_temp", "Cool Plate (SuperTack)"}, {"cool_plate_temp", "Cool Plate"},
-            {"textured_cool_plate_temp", "Textured Cool Plate"}, {"eng_plate_temp", "Engineering Plate"},
-            {"hot_plate_temp", "Smooth PEI Plate / High Temp Plate"}, {"textured_plate_temp", "Textured PEI Plate"},
-        };
-        const std::string suffix = "_initial_layer";
-        const std::string base = key.size() > suffix.size() && key.compare(key.size() - suffix.size(), suffix.size(), suffix) == 0 ? key.substr(0, key.size() - suffix.size()) : key;
-        if (auto plate = plate_lines.find(base); plate != plate_lines.end())
-            label = i18n::translate(plate->second) + " · " + i18n::translate(def->label);
+        auto it = places.find(key);
+        const OptionPlace *place = it == places.end() ? nullptr : it->second.second;
+        std::string label;
+        if (place != nullptr && *place->line != '\0' && def->label != place->line)
+            label = i18n::translate(place->line) + " · " + i18n::translate(def->label);
+        else
+            label = i18n::translate(label_count[def->label] > 1 && !def->full_label.empty() ? def->full_label : def->label);
         nlohmann::json o = {
             {"key", key},
             {"label", label},
-            {"category", i18n::translate(def->category)},
+            {"category", i18n::translate(place != nullptr ? place->page : def->category)},
+            {"group", place != nullptr ? i18n::translate(place->group) : std::string()},
             {"tooltip", i18n::translate(def->tooltip)},
             {"sidetext", i18n::translate(def->sidetext)},
             {"type", def->type == coPoints ? "points" : type_name(def->type)},
