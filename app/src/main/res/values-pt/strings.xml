@@ -249,6 +249,8 @@
     <string name="theme_system">Padrão do sistema</string>
     <string name="theme_light">Claro</string>
     <string name="theme_dark">Escuro</string>
+    <string name="ui_scale">Tamanho da interface</string>
+    <string name="ui_scale_auto">Automático (%1$d%%)</string>
     <string name="currency_from_language">Conforme o idioma (%1$s)</string>
     <string name="currency_hint">Os perfis de filamento guardam só o preço por kg (filament_cost), sem moeda. O custo no resumo do fatiamento aparece nesta moeda.</string>
     <string name="updates">Atualizações</string>

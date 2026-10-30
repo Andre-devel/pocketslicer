@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.ui.components.AppButton
@@ -44,6 +45,11 @@ class SettingsStore(private val prefs: SharedPreferences) {
         get() = prefs.getString(KEY_THEME, null)?.let { name -> ThemeMode.entries.firstOrNull { it.name == name } } ?: ThemeMode.SYSTEM
         set(value) = prefs.edit().putString(KEY_THEME, value.name).apply()
 
+    /** Escala da interface em % ([UI_SCALES]); null: [defaultUiScale]. */
+    var uiScale: Int?
+        get() = prefs.getInt(KEY_UI_SCALE, 0).takeIf { it in UI_SCALES }
+        set(value) = prefs.edit().apply { if (value == null) remove(KEY_UI_SCALE) else putInt(KEY_UI_SCALE, value) }.apply()
+
     /** Última procura automática por versão nova (System.currentTimeMillis). */
     var lastUpdateCheck: Long
         get() = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0)
@@ -53,12 +59,22 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_CURRENCY = "currency"
         const val KEY_AUTO_UPDATE = "auto_update"
         const val KEY_THEME = "theme"
+        const val KEY_UI_SCALE = "ui_scale"
         const val KEY_LAST_UPDATE_CHECK = "last_update_check"
     }
 }
 
 /** Tema claro ou escuro, ou o do sistema. */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+/** Escalas da interface oferecidas em Ajustes, em %. */
+val UI_SCALES = listOf(80, 90, 100, 115)
+
+/**
+ * Escala padrão: 90% em tablets (menor lado >= 600 dp), onde o tamanho do Material
+ * deixa caber pouco na tela; 100% nos celulares.
+ */
+fun defaultUiScale(smallestScreenWidthDp: Int): Int = if (smallestScreenWidthDp >= 600) 90 else 100
 
 /** Moedas oferecidas na tela de Configurações. */
 val CURRENCIES = listOf("BRL", "USD", "EUR", "GBP", "CAD", "AUD", "CHF", "JPY", "CNY", "INR", "MXN", "ARS", "CLP", "COP", "PEN", "UYU", "PLN", "SEK", "NOK", "DKK", "CZK")
@@ -86,6 +102,7 @@ fun rememberCostFormat(currency: String?): (Double) -> String {
 fun SettingsScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier) {
     val locale = LocalConfiguration.current.locales[0]
     val theme by viewModel.theme.collectAsState()
+    val uiScale by viewModel.uiScale.collectAsState()
     Column(modifier) {
         ScreenHeader(stringResource(R.string.settings))
         PanelColumn(Modifier.verticalScroll(rememberScrollState()).widthIn(max = 560.dp)) {
@@ -97,6 +114,16 @@ fun SettingsScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
                 Modifier.fillMaxWidth(),
                 label = stringResource(R.string.theme),
                 labels = listOf(stringResource(R.string.theme_system), stringResource(R.string.theme_light), stringResource(R.string.theme_dark)),
+            )
+            // A escala padrão depende da tela real, não da já escalada pelo app.
+            val defaultScale = defaultUiScale(LocalContext.current.resources.configuration.smallestScreenWidthDp)
+            SelectField(
+                uiScale?.toString().orEmpty(),
+                listOf("") + UI_SCALES.map { it.toString() },
+                { viewModel.setUiScale(it.toIntOrNull()) },
+                Modifier.fillMaxWidth(),
+                label = stringResource(R.string.ui_scale),
+                labels = listOf(stringResource(R.string.ui_scale_auto, defaultScale)) + UI_SCALES.map { "$it%" },
             )
             SectionLabel(stringResource(R.string.cost), Modifier.padding(top = 16.dp))
             val options = listOf<String?>(null) + CURRENCIES

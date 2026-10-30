@@ -296,6 +296,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     // Lido já na criação: a primeira tela sai com o tema certo, sem piscar.
     private val _theme = MutableStateFlow(settings.theme)
     val theme: StateFlow<ThemeMode> = _theme.asStateFlow()
+    private val _uiScale = MutableStateFlow(settings.uiScale)
+    /** Escala da interface em %; null: [defaultUiScale] conforme a tela. */
+    val uiScale: StateFlow<Int?> = _uiScale.asStateFlow()
     private val updater = AppUpdater(app)
     val installedVersion get() = updater.installedVersion
     private var updateJob: Job? = null
@@ -350,6 +353,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun setTheme(mode: ThemeMode) {
         settings.theme = mode
         _theme.value = mode
+    }
+
+    fun setUiScale(percent: Int?) {
+        settings.uiScale = percent
+        _uiScale.value = percent
     }
 
     fun setAutoUpdate(enabled: Boolean) {
