@@ -61,6 +61,21 @@ Impressoras do usuário: Bambu Lab A1, Creality K2 e K3, Snapmaker U1, Qidi Q2.
 - A confirmação oferece trocar as cores do projeto pelas das posições escolhidas e fatiar de novo,
   para a vista prévia e a purga baterem com a peça.
 
+### Mapeamento na Box da QIDI (Q2) (2026-10-29)
+- Posições pelo Moonraker: `multi_color_controller.box` (`boxN_box_inserted_P`,
+  `boxN_filament_info_P_*`, 4 por caixa) e `extra.filament_info` para o carretel externo
+  (posição 16), como o QIDI Studio lê (QDSDeviceManager.cpp).
+- Início como o QIDI Studio no modo local (SelectMachine.cpp): `SAVE_VARIABLE
+  VARIABLE=enable_box VALUE=1` e, por filamento, `SAVE_VARIABLE VARIABLE=value_tN
+  VALUE="'slotP'"` (P = caixa * 4 + posição), depois `/printer/print/start`; o `T_MANAGER` das
+  macros T0..T15 lê esse mapa. Só com o carretel externo vai `enable_box` 0.
+- O perfil Q2 do QIDI Studio usa `[chamber_temperatures]` no G-code inicial; a cópia dos perfis
+  troca para `chamber_temperature`, nome da opção no Orca.
+- Impressão real na Q2 em 2026-10-29: a impressora gravou o mapa (filamento 1 na posição 3, 2 na
+  4), carregou a posição 3 e começou; na primeira troca o firmware parou com `QDE_004_008`
+  (falha ao descarregar o extrusor, sensor ainda com filamento depois do corte) e a impressão foi
+  cancelada. Falta repetir depois de conferir o cortador/extrusor da Q2.
+
 ### Creality K2 (e K3)
 - Envio: `POST http://<ip>/upload/<nome url-encoded>`, multipart com `file`
   (e `path` se houver subpasta) — `CrealityPrint::upload()`.
