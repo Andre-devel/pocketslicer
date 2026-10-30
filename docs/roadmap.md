@@ -175,8 +175,10 @@ Creality, Box da QIDI).
      amortecimento) e VFA. O motor carrega o modelo do teste (Draco agora é compilado; os modelos
      de calib/ vão no APK), faz os cortes e os ajustes nos perfis como o Plater do Orca e passa os
      parâmetros por camada ao gerador de G-code. As alterações não salvas dos perfis são
-     descartadas ao criar um teste (o Orca pergunta). Falta: avanço de pressão em padrão
-     (pa_pattern, com o G-code gerado por placa); conferir uma impressão real.
+     descartadas ao criar um teste (o Orca pergunta). Avanço de pressão em padrão (PA Pattern):
+     uma alça por combinação de velocidade e aceleração, arranjadas na mesa (e em placas novas
+     quando não cabem), com o G-code dos padrões gerado a cada fatiamento para os objetos da
+     placa, sem aparecer nas ações por altura. Falta: conferir uma impressão real.
 7. Play Asset Delivery para perfis sob demanda; ABI x86_64 para emulador.
 
 ## Cadência de atualização do OrcaSlicer

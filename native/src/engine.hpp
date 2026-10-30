@@ -187,7 +187,8 @@ struct HeightRange {
 // amortecimento do input shaping), print_numbers (PA linha), flow_linear e flow_pass (fluxo:
 // YOLO ou passo 1/2) com flow_monotonic (padrão do topo), model (input shaping e cornering:
 // 0 torre de ringing, 1 torre rápida, 2 SCV-V2), shaper_type e as frequências (input shaping;
-// no de amortecimento só as de início), speeds e accelerations (PA padrão).
+// no de amortecimento só as de início), speeds e accelerations (PA padrão: um padrão por
+// combinação; vazias, as do perfil).
 struct Calibration {
     enum class Test {
         Temperature = 0, MaxVolumetricSpeed = 1, PressureAdvanceTower = 2, PressureAdvanceLine = 3,

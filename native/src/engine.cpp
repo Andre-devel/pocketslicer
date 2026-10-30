@@ -138,6 +138,10 @@ struct Engine::Impl {
     // Parâmetros do teste de calibração na mesa (calibrate()), que o gerador de G-code lê a cada
     // camada; Calib_None fora de um teste.
     Calib_Params calib;
+    // Padrão do teste de PA padrão (Model::calib_pa_pattern na GUI), que gera o G-code das alças
+    // de cada placa em slice().
+    std::unique_ptr<CalibPressureAdvancePattern> pa_pattern;
+    void calib_pa_pattern(bool junction_deviation);
     PaintVolume &paint_volume(const ModelObject &object, PaintKind kind, const ModelVolume &volume);
 
     // Índice de um fabricante de vendors(): "<app>/<fabricante>" está em vendors_dir, e o
@@ -229,6 +233,7 @@ struct Engine::Impl {
         plates.assign(1, Model());
         plate = 0;
         calib = Calib_Params();
+        pa_pattern.reset();
     }
 
     Model &plate_model(size_t index)
@@ -2332,6 +2337,115 @@ void prepare_input_shaping(DynamicPrintConfig &print, DynamicPrintConfig &printe
 
 } // namespace
 
+// Plater::_calib_pa_pattern(): ajustes do teste e uma alça (cubo) por combinação de velocidade e
+// aceleração, arranjadas como os padrões que vão ao lado delas, em placas novas se precisar. O
+// G-code dos padrões é gerado em slice() (_calib_pa_pattern_gen_gcode()).
+void Engine::Impl::calib_pa_pattern(bool junction_deviation)
+{
+    std::vector<double> speeds = calib.speeds;
+    std::vector<double> accels = calib.accelerations;
+    DynamicPrintConfig &print    = bundle->prints.get_edited_preset().config;
+    DynamicPrintConfig &printer  = bundle->printers.get_edited_preset().config;
+    DynamicPrintConfig &filament = bundle->filaments.get_edited_preset().config;
+    const double        nozzle_diameter = first_float(printer, "nozzle_diameter");
+    filament.set_key_value("filament_retract_when_changing_layer", new ConfigOptionBoolsNullable{false});
+    filament.set_key_value("filament_wipe", new ConfigOptionBoolsNullable{false});
+    printer.set_key_value("wipe", new ConfigOptionBools{false});
+    printer.set_key_value("retract_when_changing_layer", new ConfigOptionBools{false});
+    printer.set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+
+    // A aceleração da parede externa, ou a interna, ou a padrão; com várias, a maior, que dá o
+    // tamanho do padrão.
+    double accel = print.option<ConfigOptionFloat>("outer_wall_acceleration")->value;
+    if (accel == 0)
+        accel = print.option<ConfigOptionFloat>("inner_wall_acceleration")->value;
+    if (accel == 0)
+        accel = print.option<ConfigOptionFloat>("default_acceleration")->value;
+    if (accels.empty())
+        accels.assign({accel});
+    else
+        accel = *std::max_element(accels.begin(), accels.end());
+    print.set_key_value("outer_wall_acceleration", new ConfigOptionFloat(accel));
+    print.set_key_value("print_sequence", new ConfigOptionEnum(PrintSequence::ByLayer));
+
+    if (!junction_deviation && print.option<ConfigOptionFloat>("default_jerk")->value > 0) {
+        double jerk = print.option<ConfigOptionFloat>("outer_wall_jerk")->value;
+        if (jerk == 0)
+            jerk = print.option<ConfigOptionFloat>("inner_wall_jerk")->value;
+        if (jerk == 0)
+            jerk = print.option<ConfigOptionFloat>("default_jerk")->value;
+        for (const char *key : {"default_jerk", "outer_wall_jerk", "inner_wall_jerk", "top_surface_jerk", "infill_jerk", "travel_jerk"})
+            print.set_key_value(key, new ConfigOptionFloat(jerk));
+    }
+    if (junction_deviation)
+        print.set_key_value("default_junction_deviation", new ConfigOptionFloat(0));
+
+    const SuggestedConfigCalibPAPattern suggested;
+    for (const auto &[key, value] : suggested.float_pairs)
+        print.set_key_value(key, new ConfigOptionFloat(value));
+    for (const auto &[key, ratio] : suggested.nozzle_ratio_pairs)
+        print.set_key_value(key, new ConfigOptionFloatOrPercent(nozzle_diameter * ratio / 100, false));
+    for (const auto &[key, value] : suggested.int_pairs)
+        print.set_key_value(key, new ConfigOptionInt(value));
+    print.set_key_value(suggested.brim_pair.first, new ConfigOptionEnum<BrimType>(suggested.brim_pair.second));
+    print.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+
+    // Sem velocidades, a ótima para o teste (limitada pela velocidade volumétrica máxima).
+    if (speeds.empty()) {
+        const double speed = CalibPressureAdvance::find_optimal_PA_speed(bundle->full_config(), print.get_abs_value("line_width", nozzle_diameter),
+                                                                         print.get_abs_value("layer_height"), 0, 0);
+        print.set_key_value("outer_wall_speed", new ConfigOptionFloat(speed));
+        speeds.assign({speed});
+    } else if (speeds.size() == 1) {
+        print.set_key_value("outer_wall_speed", new ConfigOptionFloat(speeds.front()));
+    }
+
+    const DynamicPrintConfig full = bundle->full_config();
+    ModelObject             *cube = model.objects.front();
+    CalibPressureAdvancePattern pattern(calib, full, bundle->is_bbl_vendor(), *cube, Vec3d::Zero());
+
+    // O cubo do tamanho de um padrão (com folga) serve de referência para o arranjo.
+    BoundingBoxf3 cube_bb = cube->raw_bounding_box();
+    cube->scale((pattern.print_size_x() + 4) / cube_bb.size().x(), (pattern.print_size_y() + 4) / cube_bb.size().y(),
+                pattern.max_layer_z() / cube_bb.size().z());
+    arrangement::ArrangePolygons items;
+    {
+        arrangement::ArrangeParams ap;
+        ap.progressind = {}; // o padrão escreve no stdout
+        const Points bed = arrangement::get_shrink_bedpts(&full, ap);
+        for (size_t i = 0; i < speeds.size() * accels.size(); ++i) {
+            arrangement::ArrangePolygon p;
+            cube->instances.front()->get_arrange_polygon(&p);
+            p.bed_idx = 0;
+            items.push_back(std::move(p));
+        }
+        arrangement::arrange(items, bed, ap);
+    }
+    cube_bb = cube->raw_bounding_box();
+    cube->scale(pattern.handle_xy_size() / cube_bb.size().x(), pattern.handle_xy_size() / cube_bb.size().y(),
+                pattern.max_layer_z() / cube_bb.size().z());
+
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (items[i].bed_idx < 0)
+            throw std::runtime_error("the pressure advance pattern does not fit on the bed");
+        const size_t plate_index = size_t(items[i].bed_idx);
+        const double speed       = speeds[i % speeds.size()];
+        const double acceleration = accels[i / speeds.size()];
+        while (plates.size() <= plate_index)
+            plates.emplace_back();
+        ModelObject *object = i == 0 ? cube : plate_model(plate_index).add_object(*cube);
+        object->name = "pa_pattern_" + std::to_string(int(speed)) + "_" + std::to_string(int(acceleration));
+        if (speeds.size() > 1)
+            object->config.set_key_value("outer_wall_speed", new ConfigOptionFloat(speed));
+        if (accels.size() > 1)
+            object->config.set_key_value("outer_wall_acceleration", new ConfigOptionFloat(acceleration));
+        const Vec3d offset(unscale<double>(items[i].translation.x()), unscale<double>(items[i].translation.y()), 0);
+        object->instances.front()->set_offset(offset + pattern.handle_pos_offset());
+        object->ensure_on_bed();
+    }
+    pa_pattern = std::make_unique<CalibPressureAdvancePattern>(pattern);
+}
+
 void Engine::calibrate(const Calibration &c)
 {
     if (!m->bundle)
@@ -2369,6 +2483,15 @@ void Engine::calibrate(const Calibration &c)
     case Test::PressureAdvancePattern:
         require(c.start >= 0 && c.step >= 10 * EPSILON && c.end >= c.start + c.step,
                 _u8L("Please input valid values:\nStart PA: >= 0.0\nEnd PA: > Start PA\nPA step: >= 0.001"));
+        if (c.test == Test::PressureAdvancePattern) {
+            for (const std::vector<double> *values : {&c.speeds, &c.accelerations})
+                for (double v : *values)
+                    require(std::isfinite(v) && v > 0, "invalid speed or acceleration");
+            // A guarda de PA_Calibration_Dlg::on_start() contra as listas trocadas.
+            if (!c.speeds.empty() && !c.accelerations.empty())
+                require(*std::min_element(c.accelerations.begin(), c.accelerations.end()) > *std::max_element(c.speeds.begin(), c.speeds.end()),
+                        _u8L("Acceleration values must be greater than speed values.\nPlease verify the inputs."));
+        }
         break;
     case Test::FlowRate:
         require(c.flow_pass == 1 || c.flow_pass == 2, "invalid flow rate pass");
@@ -2395,8 +2518,6 @@ void Engine::calibrate(const Calibration &c)
         throw std::invalid_argument("invalid test model");
     if (c.test == Test::Cornering && (c.model < 0 || c.model > 2))
         throw std::invalid_argument("invalid test model");
-    if (c.test == Test::PressureAdvancePattern)
-        throw std::invalid_argument("not implemented");
 
     const char *file = nullptr;
     switch (c.test) {
@@ -2417,7 +2538,23 @@ void Engine::calibrate(const Calibration &c)
         file = c.model == 0 ? "input_shaping/ringing_tower.drc" : c.model == 1 ? "input_shaping/fast_tower_test.drc" : "cornering/SCV-V2.drc";
         break;
     }
-    load_model((calib / file).string());
+    if (file != nullptr) {
+        load_model((calib / file).string());
+    } else {
+        // PA padrão: ObjectList::load_shape_object("Cube"), a "alça" de cada padrão, que
+        // _calib_pa_pattern() redimensiona e copia.
+        m->reset_plates();
+        TriangleMesh mesh(its_make_cube(10, 10, 10));
+        const BoundingBoxf3 bb = mesh.bounding_box();
+        ModelObject *cube = m->model.add_object();
+        cube->name = "Cube";
+        cube->add_instance();
+        cube->add_volume(mesh)->name = "Cube";
+        cube->config.set_key_value("extruder", new ConfigOptionInt(1));
+        cube->invalidate_bounding_box();
+        cube->translate(-bb.center());
+        cube->ensure_on_bed();
+    }
     // Plater::new_project() pergunta o que fazer com as alterações dos perfis; aqui elas são
     // descartadas, senão os ajustes de um teste (ex.: modo vaso) passariam ao seguinte.
     for (PresetKind kind : {PresetKind::Process, PresetKind::Filament, PresetKind::Printer})
@@ -2521,7 +2658,8 @@ void Engine::calibrate(const Calibration &c)
         break;
     }
     case Test::PressureAdvanceTower:
-    case Test::PressureAdvanceLine: {
+    case Test::PressureAdvanceLine:
+    case Test::PressureAdvancePattern: {
         // Plater::calib_pa() e _calib_pa_tower().
         print.set_key_value("overhang_reverse", new ConfigOptionBool(false));
         print.set_key_value("precise_z_height", new ConfigOptionBool(false));
@@ -2529,6 +2667,12 @@ void Engine::calibrate(const Calibration &c)
         if (c.test == Test::PressureAdvanceLine) {
             params.mode = CalibMode::Calib_PA_Line;
             break;
+        }
+        if (c.test == Test::PressureAdvancePattern) {
+            params.mode = CalibMode::Calib_PA_Pattern;
+            m->calib    = params;
+            m->calib_pa_pattern(junction_deviation);
+            return;
         }
         params.mode = CalibMode::Calib_PA_Tower;
         print.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
@@ -2555,7 +2699,6 @@ void Engine::calibrate(const Calibration &c)
             cut_horizontal(model, 0, height, ModelObjectCutAttribute::KeepLower);
         break;
     }
-    case Test::PressureAdvancePattern: break;
     case Test::FlowRate:
         // Plater::calib_flowrate(); não usa os parâmetros do gerador.
         adjust_settings_for_flowrate_calib(bundle, model, m->build_volume().bounding_volume2d().center(), c.flow_linear, c.flow_pass,
@@ -3268,6 +3411,25 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     if (auto it = m->model.plates_custom_gcodes.find(m->model.curr_plate_index); it != m->model.plates_custom_gcodes.end())
         it->second.mode = m->layer_change_mode();
 
+    // Plater::_calib_pa_pattern_gen_gcode(): no teste de PA padrão, o G-code dos padrões ao lado
+    // de cada objeto da placa, por camada, toma o lugar das ações por altura só neste fatiamento.
+    const int                        plate_key = m->model.curr_plate_index;
+    std::optional<CustomGCode::Info> layer_actions;
+    if (m->pa_pattern) {
+        auto it = m->model.plates_custom_gcodes.find(plate_key);
+        layer_actions = it != m->model.plates_custom_gcodes.end() ? it->second : CustomGCode::Info();
+        CustomGCode::Info gcodes;
+        for (const ModelObject *object : m->model.objects) {
+            CustomGCode::Info info = m->pa_pattern->generate_custom_gcodes(config, m->bundle->is_bbl_vendor(), *object, Vec3d::Zero());
+            if (object == m->model.objects.front())
+                gcodes = std::move(info);
+            else
+                for (size_t i = 0; i < gcodes.gcodes.size() && i < info.gcodes.size(); ++i)
+                    gcodes.gcodes[i].extra += info.gcodes[i].extra;
+        }
+        m->model.plates_custom_gcodes[plate_key] = std::move(gcodes);
+    }
+
     Print &print = m->print;
     // Igual à GUI (Plater): firmware Bambu pula validações/ajustes feitos para Marlin.
     print.is_BBL_printer() = m->bundle->is_bbl_vendor();
@@ -3277,6 +3439,12 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     });
     print.set_calib_params(m->calib);
     print.apply(m->model, config);
+    if (layer_actions) {
+        if (layer_actions->gcodes.empty())
+            m->model.plates_custom_gcodes.erase(plate_key);
+        else
+            m->model.plates_custom_gcodes[plate_key] = std::move(*layer_actions);
+    }
     print.restart();
 
     StringObjectException warning;

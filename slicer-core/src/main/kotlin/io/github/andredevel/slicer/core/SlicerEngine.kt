@@ -201,7 +201,8 @@ class PaintMesh(override val positions: FloatArray, override val indices: IntArr
  * input shaping: [start] no de frequência, [start] a [end] no de amortecimento); [printNumbers] (PA
  * linha); [flowLinear] (YOLO), [flowPass] (1 ou 2) e [flowMonotonic] (padrão do topo) no fluxo;
  * [model] (0 torre de ringing, 1 torre rápida, 2 SCV-V2, só no cornering); [shaperType] e as
- * frequências no input shaping (no de amortecimento, só as de início).
+ * frequências no input shaping (no de amortecimento, só as de início); [speeds] (mm/s) e
+ * [accelerations] (mm/s²) no PA padrão, um padrão por combinação (vazias: as do perfil).
  */
 data class Calibration(
     val test: Test,
@@ -218,6 +219,8 @@ data class Calibration(
     val freqEndX: Double = 0.0,
     val freqStartY: Double = 0.0,
     val freqEndY: Double = 0.0,
+    val speeds: List<Double> = emptyList(),
+    val accelerations: List<Double> = emptyList(),
 ) {
     /** Na ordem de slicer::Calibration::Test. */
     enum class Test {
@@ -618,7 +621,7 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
         with(calibration) {
             val flags = intArrayOf(test.ordinal, if (printNumbers) 1 else 0, if (flowLinear) 1 else 0, flowPass, if (flowMonotonic) 1 else 0, model)
             val values = doubleArrayOf(start, end, step, freqStartX, freqEndX, freqStartY, freqEndY)
-            nativeCalibrate(handle, flags, values, shaperType, DoubleArray(0), DoubleArray(0))
+            nativeCalibrate(handle, flags, values, shaperType, speeds.toDoubleArray(), accelerations.toDoubleArray())
         }
     }
 

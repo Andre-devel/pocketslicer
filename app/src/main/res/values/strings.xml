@@ -417,6 +417,10 @@
     <string name="calib_pa_method">Method</string>
     <string name="calib_pa_tower">PA Tower</string>
     <string name="calib_pa_line">PA Line</string>
+    <string name="calib_pa_pattern">PA Pattern</string>
+    <string name="calib_accelerations">Accelerations</string>
+    <string name="calib_speeds">Speeds</string>
+    <string name="calib_pa_pattern_hint">Comma-separated lists, one pattern per combination. Empty: the profile\'s outer wall acceleration and the optimal speed for the test.</string>
     <string name="calib_extruder_type">Extruder type</string>
     <string name="calib_extruder_direct">Direct drive</string>
     <string name="calib_extruder_bowden">Bowden</string>

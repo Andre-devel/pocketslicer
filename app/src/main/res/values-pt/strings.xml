@@ -413,6 +413,10 @@
     <string name="calib_pa_method">Método</string>
     <string name="calib_pa_tower">Torre</string>
     <string name="calib_pa_line">Linhas</string>
+    <string name="calib_pa_pattern">Padrão</string>
+    <string name="calib_accelerations">Acelerações</string>
+    <string name="calib_speeds">Velocidades</string>
+    <string name="calib_pa_pattern_hint">Listas separadas por vírgula, um padrão por combinação. Vazias: a aceleração da parede externa do perfil e a velocidade ideal para o teste.</string>
     <string name="calib_extruder_type">Tipo de extrusora</string>
     <string name="calib_extruder_direct">Direct drive</string>
     <string name="calib_extruder_bowden">Bowden</string>

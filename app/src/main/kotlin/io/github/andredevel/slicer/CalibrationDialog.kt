@@ -81,6 +81,9 @@ fun CalibrationDialog(state: SlicerUiState, onDismiss: () -> Unit, onStart: (Cal
     var paMethod by rememberSaveable { mutableStateOf(Test.PRESSURE_ADVANCE_TOWER) }
     var bowden by rememberSaveable { mutableStateOf(false) }
     var printNumbers by rememberSaveable { mutableStateOf(true) }
+    // PA padrão: listas de números inteiros separados por vírgula, como no Orca.
+    var accelerations by rememberSaveable { mutableStateOf("") }
+    var speeds by rememberSaveable { mutableStateOf("") }
     var flowType by rememberSaveable { mutableStateOf(2) }
     var flowMonotonic by rememberSaveable { mutableStateOf(false) }
     var model by rememberSaveable { mutableStateOf(0) }
@@ -104,7 +107,8 @@ fun CalibrationDialog(state: SlicerUiState, onDismiss: () -> Unit, onStart: (Cal
             }
             Test.MAX_VOLUMETRIC_SPEED -> mapOf("start" to 5.0, "end" to 20.0, "step" to 0.5)
             Test.PRESSURE_ADVANCE_TOWER, Test.PRESSURE_ADVANCE_LINE, Test.PRESSURE_ADVANCE_PATTERN ->
-                mapOf("start" to 0.0, "end" to if (bowden) 1.0 else 0.1, "step" to if (bowden) 0.02 else 0.002)
+                if (paMethod == Test.PRESSURE_ADVANCE_PATTERN) mapOf("start" to 0.0, "end" to if (bowden) 1.0 else 0.08, "step" to if (bowden) 0.05 else 0.005)
+                else mapOf("start" to 0.0, "end" to if (bowden) 1.0 else 0.1, "step" to if (bowden) 0.02 else 0.002)
             Test.FLOW_RATE -> emptyMap()
             Test.RETRACTION -> mapOf("start" to 0.0, "end" to 2.0, "step" to 0.1)
             Test.CORNERING -> if (junctionDeviation) mapOf("start" to 0.0, "end" to 0.25) else mapOf("start" to 1.0, "end" to 15.0)
@@ -148,8 +152,8 @@ fun CalibrationDialog(state: SlicerUiState, onDismiss: () -> Unit, onStart: (Cal
                         Text(stringResource(R.string.calib_temperature_hint), style = MaterialTheme.typography.bodySmall)
                     }
                     Test.PRESSURE_ADVANCE_TOWER -> {
-                        val methods = listOf(Test.PRESSURE_ADVANCE_TOWER, Test.PRESSURE_ADVANCE_LINE)
-                        choice(R.string.calib_pa_method, listOf(R.string.calib_pa_tower, R.string.calib_pa_line), methods.indexOf(paMethod)) {
+                        val methods = listOf(Test.PRESSURE_ADVANCE_TOWER, Test.PRESSURE_ADVANCE_LINE, Test.PRESSURE_ADVANCE_PATTERN)
+                        choice(R.string.calib_pa_method, listOf(R.string.calib_pa_tower, R.string.calib_pa_line, R.string.calib_pa_pattern), methods.indexOf(paMethod)) {
                             paMethod = methods[it]; reset()
                         }
                         choice(R.string.calib_extruder_type, listOf(R.string.calib_extruder_direct, R.string.calib_extruder_bowden), if (bowden) 1 else 0) {
@@ -160,6 +164,16 @@ fun CalibrationDialog(state: SlicerUiState, onDismiss: () -> Unit, onStart: (Cal
                         number("step", R.string.calib_pa_step)
                         if (paMethod == Test.PRESSURE_ADVANCE_LINE) {
                             LabeledRow(stringResource(R.string.calib_print_numbers)) { Switch(printNumbers, { printNumbers = it }) }
+                        }
+                        if (paMethod == Test.PRESSURE_ADVANCE_PATTERN) {
+                            @Composable
+                            fun list(value: String, onChange: (String) -> Unit, @StringRes text: Int, unit: String) = FormField(
+                                value, { onChange(it.filter { c -> c.isDigit() || c == ',' }); invalid = false }, stringResource(text) + " ($unit)",
+                                monospace = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            )
+                            list(accelerations, { accelerations = it }, R.string.calib_accelerations, "mm/s²")
+                            list(speeds, { speeds = it }, R.string.calib_speeds, "mm/s")
+                            Text(stringResource(R.string.calib_pa_pattern_hint), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     Test.FLOW_RATE -> {
@@ -243,6 +257,7 @@ fun CalibrationDialog(state: SlicerUiState, onDismiss: () -> Unit, onStart: (Cal
                     model = model, shaperType = shaper.takeIf { it in shapers } ?: shapers.first(),
                     freqStartX = value("freqStartX"), freqEndX = value("freqEndX"),
                     freqStartY = y("freqStartY"), freqEndY = y("freqEndY"),
+                    speeds = numbers(speeds), accelerations = numbers(accelerations),
                 )
                 onDismiss()
                 onStart(calibration, name)
@@ -251,6 +266,9 @@ fun CalibrationDialog(state: SlicerUiState, onDismiss: () -> Unit, onStart: (Cal
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
+
+/** ParseStringValues() do Orca: os inteiros positivos de uma lista separada por vírgula. */
+private fun numbers(text: String): List<Double> = text.split(',').mapNotNull { it.trim().toIntOrNull()?.takeIf { n -> n > 0 }?.toDouble() }
 
 /** Número com vírgula ou ponto. */
 private fun parse(text: String?): Double? = text?.trim()?.replace(',', '.')?.toDoubleOrNull()?.takeIf { it.isFinite() }

@@ -1027,6 +1027,23 @@ class SlicerEngineTest {
         // PA linha: as linhas vêm do gerador, com os números.
         engine.calibrate(Calibration(Calibration.Test.PRESSURE_ADVANCE_LINE, start = 0.0, end = 0.1, step = 0.002, printNumbers = true))
         assertTrue(gcode("pa_line").count { it.startsWith("M900 K") } > 40)
+        // PA padrão: uma alça por combinação de velocidade e aceleração, cada uma com os 17 padrões
+        // (0 a 0,08 em 0,005) desenhados pelo gerador em cada camada dele.
+        engine.calibrate(Calibration(Calibration.Test.PRESSURE_ADVANCE_PATTERN, start = 0.0, end = 0.08, step = 0.005))
+        assertEquals(1, engine.objects().size)
+        val pattern = gcode("pa_pattern")
+        assertTrue(pattern.count { it.startsWith("; start pressure advance pattern for layer") } > 1)
+        assertTrue(pattern.filter { it.startsWith("M900 K") }.distinct().size >= 17)
+        engine.calibrate(
+            Calibration(Calibration.Test.PRESSURE_ADVANCE_PATTERN, start = 0.0, end = 0.08, step = 0.005, speeds = listOf(100.0, 200.0), accelerations = listOf(3000.0, 6000.0))
+        )
+        assertEquals(4, engine.objects().size)
+        val layers = gcode("pa_pattern_batch").count { it.startsWith("; start pressure advance pattern for layer") }
+        assertEquals(0, layers % 4)
+        assertTrue(engine.layerChanges().isEmpty())
+        assertTrue(runCatching {
+            engine.calibrate(Calibration(Calibration.Test.PRESSURE_ADVANCE_PATTERN, start = 0.0, end = 0.08, step = 0.005, speeds = listOf(5000.0), accelerations = listOf(3000.0)))
+        }.isFailure)
 
         // Retração de 0 a 2 mm: a altura segue a fórmula do Orca.
         engine.calibrate(Calibration(Calibration.Test.RETRACTION, start = 0.0, end = 2.0, step = 0.1))
