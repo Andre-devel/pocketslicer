@@ -595,6 +595,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setFilamentColor(filament: Int, color: String) = editFilaments { it.setFilamentColor(filament, color) }
 
+    /** Troca as cores dos filamentos ([colors], filamento -> "#RRGGBB") e fatia de novo. */
+    fun recolorAndSlice(colors: Map<Int, String>) {
+        viewModelScope.launch {
+            editFilaments { engine -> colors.forEach { (filament, color) -> engine.setFilamentColor(filament, color) } }.join()
+            slice()
+        }
+    }
+
     fun setObjectFilament(objectIndex: Int, filament: Int) = editFilaments { it.setObjectFilament(objectIndex, filament) }
 
     /** Purga da troca de [from] para [to] no extrusor [nozzle]. */

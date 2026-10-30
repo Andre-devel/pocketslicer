@@ -87,7 +87,11 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
     // Imprimindo ou pausada: só dá para enviar.
     val selectedBusy = selected?.let { state.printerStatus[it.id] }?.busy == true
     if (confirmPrint && selected != null) {
-        ConfirmPrint(selected, state, viewModel, { confirmPrint = false }) { mapping ->
+        val recolor = { colors: Map<Int, String> ->
+            viewModel.recolorAndSlice(colors)
+            onDismiss()
+        }
+        ConfirmPrint(selected, state, viewModel, { confirmPrint = false }, recolor) { mapping ->
             confirmPrint = false
             viewModel.sendGcode(selected, start = true, mapping = mapping)
         }
@@ -200,10 +204,15 @@ private sealed interface SlotsLoad {
 /**
  * Confirmação de "Enviar e imprimir": só libera depois de conferir mesa e filamento. Numa
  * impressora que mapeia filamentos ([SlicerViewModel.printerSlots]), mostra a posição de cada
- * filamento usado, já escolhida pela cor, e [onConfirm] recebe o mapeamento; senão, null.
+ * filamento usado, já escolhida pela cor, e [onConfirm] recebe o mapeamento; senão, null. Se a
+ * cor de um filamento difere da posição escolhida, [onRecolor] recebe as cores das posições
+ * (filamento -> "#RRGGBB") para fatiar de novo com elas.
  */
 @Composable
-private fun ConfirmPrint(host: PrinterHost, state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit, onConfirm: (List<Slot?>?) -> Unit) {
+private fun ConfirmPrint(
+    host: PrinterHost, state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit,
+    onRecolor: (Map<Int, String>) -> Unit, onConfirm: (List<Slot?>?) -> Unit,
+) {
     var bedClear by remember { mutableStateOf(false) }
     var filamentLoaded by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -251,6 +260,14 @@ private fun ConfirmPrint(host: PrinterHost, state: SlicerUiState, viewModel: Sli
                         }
                         for (slot in used.mapNotNull { l.slots.getOrNull(mapping[it]) }.distinct().filter { !it.loaded }) {
                             Banner(Tone.WARNING, stringResource(R.string.mapping_slot_empty, slotName(slot)), Modifier.fillMaxWidth())
+                        }
+                        // Cor do projeto diferente da carregada: a vista prévia e a purga não batem com a peça.
+                        val slotColors = used.mapNotNull { f ->
+                            l.slots.getOrNull(mapping[f])?.takeIf { it.loaded }?.color?.let { f to it.uppercase() }
+                        }.filter { (f, hex) -> colorDistance(colors.getOrNull(f), hex) > COLOR_SAME }.toMap()
+                        if (slotColors.isNotEmpty()) {
+                            Text(stringResource(R.string.mapping_colors_differ), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            AppButton(stringResource(R.string.mapping_use_printer_colors), { onRecolor(slotColors) }, style = ButtonStyle.TEXT)
                         }
                     }
                 }
@@ -317,6 +334,9 @@ private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?
         (best ?: fallback).also { taken += it }
     }
 }
+
+/** [colorDistance] abaixo disto: a mesma cor (arredondamento de 8 bits por canal). */
+private const val COLOR_SAME = 0.0005f
 
 /** Distância RGB ao quadrado; sem uma das cores, maior que qualquer distância real. */
 private fun colorDistance(rgba: FloatArray?, hex: String?): Float {

@@ -185,6 +185,8 @@
     <string name="mapping_fixed_nozzles">Nesta impressora cada filamento usa o bico do mesmo número, alimentado pela posição indicada. Para usar outra posição, mude a ordem dos filamentos no projeto.</string>
     <string name="mapping_no_slot">Nenhuma posição alimenta o bico do filamento %1$d.</string>
     <string name="check_mapping">Cada filamento está na posição indicada</string>
+    <string name="mapping_colors_differ">As cores do projeto são diferentes das dos filamentos na impressora: a vista prévia e a purga não batem com a peça real.</string>
+    <string name="mapping_use_printer_colors">Usar as cores da impressora e fatiar de novo</string>
     <string name="toolhead_n">Cabeça %1$d</string>
     <string name="slot_empty">sem filamento</string>
     <string name="cfs_slot">Slot %1$s</string>

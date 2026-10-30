@@ -189,6 +189,8 @@
     <string name="mapping_fixed_nozzles">On this printer each filament uses the nozzle with its number, fed by the slot shown. To use another slot, change the order of the filaments in the project.</string>
     <string name="mapping_no_slot">No slot feeds the nozzle of filament %1$d.</string>
     <string name="check_mapping">Each filament is where shown</string>
+    <string name="mapping_colors_differ">The project colors differ from the filaments on the printer, so the preview and the purge don\'t match the real part.</string>
+    <string name="mapping_use_printer_colors">Use the printer\'s colors and slice again</string>
     <string name="toolhead_n">Toolhead %1$d</string>
     <string name="slot_empty">no filament</string>
     <string name="cfs_slot">Slot %1$s</string>
