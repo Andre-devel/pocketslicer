@@ -21,7 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
-import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +48,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -62,7 +63,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
-import io.github.andredevel.slicer.update.Release
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -87,6 +87,7 @@ import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.blockTouches
 import io.github.andredevel.slicer.ui.theme.MonoStyles
 import io.github.andredevel.slicer.ui.theme.PocketTheme
+import io.github.andredevel.slicer.update.Release
 import kotlin.math.roundToInt
 
 /** Destinos da navegação principal. [shortLabel]: na barra inferior do celular, mais estreita. */
@@ -306,6 +307,8 @@ private fun Workspace(
     // Barras e legenda da pré-visualização; recomeçam com cada fatiamento.
     var previewSettings by remember(state.preview) { mutableStateOf(PreviewSettings()) }
     var sending by rememberSaveable { mutableStateOf(false) }
+    // Impressora do envio minimizado: o andamento fica sobre o viewport até o diálogo reabrir.
+    var minimizedSend by rememberSaveable { mutableStateOf<String?>(null) }
     val send = { sending = true }
     // Camada (a partir de 0) em que o usuário está pondo uma pausa ou troca de filamento.
     var addingLayerChange by remember(state.preview) { mutableStateOf<Int?>(null) }
@@ -335,6 +338,16 @@ private fun Workspace(
                 }
             } else {
                 PrepareOverlay(state, viewModel, pickers, compact = !wide, viewPicker)
+            }
+            val minimized = minimizedSend
+            if (!sending && minimized != null && state.send != SendState.Idle) {
+                MinimizedSend(
+                    state.send, state.printers.find { it.id == minimized }?.name.orEmpty(),
+                    onOpen = { sending = true },
+                    onClose = { minimizedSend = null; viewModel.clearSendState() },
+                    // Abaixo das vistas da câmera (Inicial, De cima, Frontal).
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 72.dp, start = 16.dp, end = 16.dp),
+                )
             }
         }
     }
@@ -378,7 +391,13 @@ private fun Workspace(
             }
         }
     }
-    if (sending) SendDialog(state, viewModel, onAddPrinter = { sending = false; onAddPrinter() }) { sending = false }
+    if (sending) {
+        SendDialog(
+            state, viewModel, minimizedSend,
+            onAddPrinter = { sending = false; onAddPrinter() },
+            onMinimize = { minimizedSend = it; sending = false },
+        ) { sending = false; minimizedSend = null }
+    }
 }
 
 @Composable

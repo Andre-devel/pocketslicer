@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--port", type=int, default=7125)
     parser.add_argument("--api-key", help="exige o cabeçalho X-Api-Key com este valor")
     parser.add_argument("--state", default="standby", help="print_stats.state informado")
+    parser.add_argument("--slow", type=float, default=0, help="KB/s ao receber o upload, para ver o andamento no app")
     parser.add_argument("--u1", help="filamento de cada cabeça, TIPO:RRGGBB separados por vírgula")
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
@@ -134,7 +135,14 @@ def main():
                 self.reply(404, {"error": {"code": 404, "message": "Not Found"}})
                 return
             length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length)
+            if args.slow > 0:
+                chunk = 8192
+                body = b""
+                while len(body) < length:
+                    body += self.rfile.read(min(chunk, length - len(body)))
+                    time.sleep(chunk / (args.slow * 1024))
+            else:
+                body = self.rfile.read(length)
             head = f"Content-Type: {self.headers['Content-Type']}\r\n\r\n".encode()
             message = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(head + body)
             fields, upload = {}, None

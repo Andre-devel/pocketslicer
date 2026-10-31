@@ -121,6 +121,7 @@
     <string name="send_started">Print started on %1$s.</string>
     <string name="send_error_busy">%1$s is busy (%2$s). Wait for it to finish before starting another print.</string>
     <string name="close">Close</string>
+    <string name="minimize">Minimize</string>
     <string name="add_printer">Add printer</string>
     <string name="edit_printer">Edit printer</string>
     <string name="kind_moonraker" translatable="false">Klipper (Moonraker)</string>

@@ -2,6 +2,7 @@ package io.github.andredevel.slicer
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,17 +13,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,11 +41,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -50,30 +54,40 @@ import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.send.BAMBU_EXTERNAL
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
-import io.github.andredevel.slicer.send.SendException
 import io.github.andredevel.slicer.send.QIDI_EXTERNAL
+import io.github.andredevel.slicer.send.SendException
 import io.github.andredevel.slicer.send.Slot
 import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.Banner
 import io.github.andredevel.slicer.ui.components.ButtonStyle
+import io.github.andredevel.slicer.ui.components.FloatingCard
 import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.SelectField
 import io.github.andredevel.slicer.ui.components.SelectableCard
 import io.github.andredevel.slicer.ui.components.Tag
 import io.github.andredevel.slicer.ui.components.Tone
+import io.github.andredevel.slicer.ui.theme.MonoStyles
 
 /**
  * Enviar o G-code fatiado para uma impressora salva; "Enviar e imprimir" pede confirmação antes
- * de iniciar. Sem impressoras, leva ao cadastro ([onAddPrinter]).
+ * de iniciar. Sem impressoras, leva ao cadastro ([onAddPrinter]). Durante o envio, [onMinimize]
+ * fecha o diálogo sem cancelar, com o id da impressora escolhida; [printer] a escolhe ao reabrir.
  */
 @Composable
-fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: () -> Unit, onDismiss: () -> Unit) {
+fun SendDialog(
+    state: SlicerUiState,
+    viewModel: SlicerViewModel,
+    printer: String?,
+    onAddPrinter: () -> Unit,
+    onMinimize: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val working = state.send is SendState.Working
     // Só vem escolhida a impressora cadastrada com o perfil do fatiamento: outra receberia um
     // G-code feito para outra máquina.
     val preset = viewModel.printerPreset()
-    var selectedId by remember { mutableStateOf(state.printers.find { it.preset == preset }?.id) }
+    var selectedId by remember { mutableStateOf(printer ?: state.printers.find { it.preset == preset }?.id) }
     // A pré-escolhida pode estar abaixo da parte visível da lista: rola até ela ao abrir.
     val preselected = remember { BringIntoViewRequester() }
     val preselectedId = remember { selectedId }
@@ -112,6 +126,9 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
                     Column(Modifier.weight(1f)) {
                         Text(stringResource(R.string.send_title), style = MaterialTheme.typography.titleLarge)
                         Text(sendSubtitle(state, viewModel, preset), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (working && selectedId != null) {
+                        AppIconButton(R.drawable.ic_close_fullscreen, stringResource(R.string.minimize), { onMinimize(selectedId!!) })
                     }
                     AppIconButton(R.drawable.ic_close, stringResource(R.string.close), close, enabled = !working)
                 }
@@ -181,6 +198,48 @@ fun SendDialog(state: SlicerUiState, viewModel: SlicerViewModel, onAddPrinter: (
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Envio minimizado, sobre o viewport: etapa e andamento; tocar reabre o diálogo ([onOpen]).
+ * Terminado, mostra o resultado até ser fechado ([onClose]).
+ */
+@Composable
+fun MinimizedSend(send: SendState, printer: String, onOpen: () -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    FloatingCard(modifier.widthIn(max = 420.dp)) {
+        Row(
+            Modifier.clickable(onClick = onOpen).padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val (icon, tint) = when (send) {
+                is SendState.Done -> R.drawable.ic_check_circle to scheme.tertiary
+                is SendState.Failed -> R.drawable.ic_error to scheme.error
+                else -> R.drawable.ic_upload to scheme.primary
+            }
+            Icon(painterResource(icon), null, Modifier.size(20.dp), tint = tint)
+            Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val text = when (send) {
+                    is SendState.Working -> "$printer · ${stringResource(send.text)}"
+                    is SendState.Done -> stringResource(send.text, send.printer)
+                    is SendState.Failed -> send.message
+                    SendState.Idle -> printer
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    (send as? SendState.Working)?.progress?.let { Text("${(it * 100).toInt()}%", style = MonoStyles.small) }
+                }
+                if (send is SendState.Working) {
+                    val progress = send.progress
+                    if (progress == null) LinearProgressIndicator(Modifier.width(200.dp))
+                    else LinearProgressIndicator(progress = { progress }, modifier = Modifier.width(200.dp))
+                }
+            }
+            if (send is SendState.Working) Box(Modifier.size(8.dp))
+            else AppIconButton(R.drawable.ic_close, stringResource(R.string.close), onClose)
         }
     }
 }

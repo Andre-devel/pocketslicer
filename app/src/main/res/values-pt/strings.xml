@@ -120,6 +120,7 @@
     <string name="send_started">Impressão iniciada em %1$s.</string>
     <string name="send_error_busy">%1$s está ocupada (%2$s). Espere terminar antes de iniciar outra impressão.</string>
     <string name="close">Fechar</string>
+    <string name="minimize">Minimizar</string>
     <string name="add_printer">Adicionar impressora</string>
     <string name="edit_printer">Editar impressora</string>
     <string name="printer_name">Nome</string>
