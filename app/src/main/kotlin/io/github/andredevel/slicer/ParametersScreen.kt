@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -177,27 +178,33 @@ fun ParametersScreen(
                         scope.launch { listState.animateScrollToItem(position) }
                     }
                 }
-                LazyColumn(
-                    Modifier.weight(1f).fillMaxHeight(),
-                    state = listState,
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-                ) {
-                    for (category in categories) {
-                        item(key = "category-${filter.kind}-${category.name}") {
-                            SectionLabel(category.name, Modifier.padding(top = 12.dp))
-                        }
-                        itemsIndexed(category.defs, key = { _, def -> "option-${filter.kind}-${def.key}" }) { index, def ->
-                            // Grupo da aba do Orca ("Print temperature"...) acima da primeira opção dele.
-                            GroupTitle(category.defs, index, MaterialTheme.typography.titleSmall, 16.dp)
-                            val saved = choice.values.saved[def.key]?.takeIf { def.key in choice.values.dirty }
-                            OptionRow(
-                                def, choice.values.values[def.key], saved, filter.advanced, enabled,
-                                onReset = { saved?.let { viewModel.setOption(filter.kind, def.key, it) } },
-                                fallback = choice.values.fallback[def.key],
-                            ) {
-                                viewModel.setOption(filter.kind, def.key, it)
+                // No tablet, linhas densas numa coluna estreita: o campo fica perto do nome.
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    LazyColumn(
+                        Modifier.fillMaxHeight().then(if (wide) Modifier.widthIn(max = LIST_MAX_WIDTH) else Modifier.fillMaxWidth()),
+                        state = listState,
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                    ) {
+                        for (category in categories) {
+                            item(key = "category-${filter.kind}-${category.name}") {
+                                SectionLabel(category.name, Modifier.padding(top = 12.dp))
                             }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            itemsIndexed(category.defs, key = { _, def -> "option-${filter.kind}-${def.key}" }) { index, def ->
+                                // Grupo da aba do Orca ("Print temperature"...) acima da primeira opção dele.
+                                GroupTitle(category.defs, index, if (wide) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall, if (wide) 10.dp else 16.dp)
+                                val saved = choice.values.saved[def.key]?.takeIf { def.key in choice.values.dirty }
+                                CompositionLocalProvider(LocalFieldHeight provides if (wide) DENSE_FIELD_HEIGHT else LocalFieldHeight.current) {
+                                    OptionRow(
+                                        def, choice.values.values[def.key], saved, filter.advanced, enabled,
+                                        onReset = { saved?.let { viewModel.setOption(filter.kind, def.key, it) } },
+                                        fallback = choice.values.fallback[def.key],
+                                        dense = wide,
+                                    ) {
+                                        viewModel.setOption(filter.kind, def.key, it)
+                                    }
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
                         }
                     }
                 }
@@ -393,7 +400,7 @@ internal fun OptionRow(
                 )
             }
             if (advanced) Text(def.key, style = MonoStyles.small, color = MaterialTheme.colorScheme.outline)
-            if (saved != null && !dense) {
+            if (saved != null) {
                 Text(
                     stringResource(R.string.profile_value, if (saved == NIL) stringResource(R.string.override_off) else displayValue(def, saved)),
                     style = MaterialTheme.typography.bodySmall,
@@ -481,6 +488,7 @@ private const val NIL = "nil"
 private val NUMERIC_TYPES = setOf(OptionType.INT, OptionType.FLOAT, OptionType.PERCENT, OptionType.FLOAT_OR_PERCENT)
 private val EDITOR_WIDTH = 180.dp
 private val DENSE_EDITOR_WIDTH = 116.dp
+private val LIST_MAX_WIDTH = 560.dp
 private const val WIDE_DP = 840
 
 /** Título do grupo da aba do Orca ("Print temperature"...) acima da primeira opção dele em [defs]. */
