@@ -3,6 +3,7 @@ package io.github.andredevel.slicer
 import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.compose.foundation.background
@@ -49,6 +50,9 @@ fun CameraView(camera: Camera, modifier: Modifier = Modifier) {
         AndroidView(
             factory = { context ->
                 WebView(context).apply {
+                    // O AndroidView usa WRAP_CONTENT, e então o WebView dá à página a altura do
+                    // conteúdo: 0 com o vídeo em posição absoluta (tela preta no tablet).
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                     setBackgroundColor(android.graphics.Color.BLACK)
                     settings.javaScriptEnabled = true
                     settings.mediaPlaybackRequiresUserGesture = false
