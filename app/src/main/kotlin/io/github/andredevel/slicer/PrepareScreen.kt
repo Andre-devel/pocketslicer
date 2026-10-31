@@ -534,6 +534,7 @@ private fun SelectedObject(state: SlicerUiState, viewModel: SlicerViewModel) {
     }
     SectionLabel(stringResource(R.string.object_title)) {
         if (index != null) {
+            AppIconButton(R.drawable.ic_build, stringResource(R.string.repair), { viewModel.repair(index) }, enabled = state.editable)
             AppIconButton(R.drawable.ic_content_copy, stringResource(R.string.duplicate), { viewModel.duplicate(index) }, enabled = state.editable)
             AppIconButton(
                 R.drawable.ic_delete, stringResource(R.string.delete), { viewModel.remove(index) },

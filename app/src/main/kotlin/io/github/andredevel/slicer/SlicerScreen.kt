@@ -489,6 +489,14 @@ private fun Viewport(
                         },
                     )
                     DropdownMenuItem(
+                        text = { Text(stringResource(R.string.repair)) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_build), null) },
+                        onClick = {
+                            menu = null
+                            viewModel.repair(objectIndex)
+                        },
+                    )
+                    DropdownMenuItem(
                         text = { Text(stringResource(R.string.delete)) },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_delete), null) },
                         onClick = {

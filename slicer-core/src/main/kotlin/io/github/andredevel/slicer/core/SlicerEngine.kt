@@ -181,6 +181,9 @@ data class Brush(
     enum class Tool { CIRCLE, SPHERE, SMART_FILL, TRIANGLE, BUCKET_FILL, HEIGHT_RANGE }
 }
 
+/** [repaired]: alguma malha estava aberta e foi fechada; [paintRemoved]: o objeto tinha pintura. */
+data class RepairResult(val repaired: Boolean, val paintRemoved: Boolean)
+
 /**
  * "Vista em corte" do gizmo de pintura, na mesa: o lado com [normal]·p > [offset] fica escondido
  * e não é pintado.
@@ -424,6 +427,15 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     suspend fun duplicate(objectIndex: Int) = call { nativeDuplicate(handle, objectIndex) }
 
     suspend fun remove(objectIndex: Int) = call { nativeRemove(handle, objectIndex) }
+
+    /**
+     * "Consertar modelo" do Orca: separa as peças do objeto em partes, descarta as sem volume e
+     * fecha as malhas abertas (CGAL). As pinturas do objeto são apagadas antes.
+     */
+    suspend fun repair(objectIndex: Int): RepairResult = call {
+        val bits = nativeRepair(handle, objectIndex)
+        RepairResult(repaired = bits and 1 != 0, paintRemoved = bits and 2 != 0)
+    }
 
     /** Arranjo automático de todos os objetos na mesa. */
     suspend fun arrange() = call { nativeArrange(handle) }
@@ -780,6 +792,7 @@ private external fun nativeExportGcode3mf(handle: Long, gcodePath: String, path:
 private external fun nativeGcodeThumbnailSizes(handle: Long): IntArray
 private external fun nativeLoadGcode(handle: Long, path: String): DoubleArray
 private external fun nativeDuplicate(handle: Long, objectIndex: Int)
+private external fun nativeRepair(handle: Long, objectIndex: Int): Int
 private external fun nativeRemove(handle: Long, objectIndex: Int)
 private external fun nativeArrange(handle: Long)
 private external fun nativeObjects(handle: Long): Array<ObjectMesh>

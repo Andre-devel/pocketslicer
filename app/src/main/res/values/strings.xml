@@ -73,6 +73,11 @@
     <string name="view_front">Front</string>
     <string name="arrange">Arrange</string>
     <string name="duplicate">Duplicate</string>
+    <string name="repair">Repair mesh</string>
+    <string name="busy_repairing">Repairing mesh…</string>
+    <string name="repair_done">Mesh repaired.</string>
+    <string name="repair_nothing">The mesh had no holes to fix.</string>
+    <string name="repair_paint_removed">The painting on the object was removed, as in OrcaSlicer.</string>
     <string name="delete">Delete</string>
     <plurals name="object_count">
         <item quantity="one">%d object on the bed</item>

@@ -317,6 +317,10 @@ public:
     // Cópia do objeto, ao fim da lista; rearranja todos como em add_model().
     void duplicate(size_t object);
     void remove(size_t object);
+    // "Consertar modelo" do Orca (CGAL): separa as peças em partes, descarta as sem volume
+    // e fecha as malhas abertas. Como no Orca sem "keep_painting", apaga as pinturas do
+    // objeto antes. Retorna {alguma malha foi consertada, havia pintura apagada}.
+    std::pair<bool, bool> repair(size_t object);
     // Arranjo automático de todos os objetos na mesa (libnest2d).
     void arrange();
     std::vector<ObjectMesh> objects() const;

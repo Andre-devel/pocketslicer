@@ -172,6 +172,9 @@ Creality, Box da QIDI).
      para Android; malha com a tolerância padrão do Orca (0,003 mm, 0,5°, sem separar compostos).
      O APK foi de 50,1 para 67,7 MB. O OpenVDB já era compilado (suporte em árvore); o oco é só
      de SLA no Orca e o reparo de malha dele usa CGAL, então não havia o que reativar.
+   - Feito (2026-10-31): "Reparar malha" (chave inglesa no objeto selecionado e no menu do toque
+     longo), o "Consertar modelo" do Orca com CGAL: separa as peças, descarta as sem volume e
+     fecha as malhas abertas; apaga a pintura do objeto, como o Orca sem "keep_painting".
 6. Ferramentas de calibração reaproveitando os geradores do Orca.
    - Feito (2026-10-30): Arquivo > Calibração, com os testes do menu Calibração do Orca e os
      padrões dos diálogos dele: temperatura, vazão máxima, avanço de pressão (torre e linhas),

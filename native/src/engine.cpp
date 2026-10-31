@@ -35,6 +35,7 @@
 #include "libslic3r/GCode/Thumbnails.hpp"
 #include "libslic3r/I18N.hpp"
 #include "libslic3r/LocalesUtils.hpp"
+#include "libslic3r/MeshBoolean.hpp"
 #include "libslic3r/format.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -1344,6 +1345,85 @@ void Engine::duplicate(size_t object)
     Model copy;
     copy.add_object(m->object(object));
     m->add(std::move(copy), false);
+}
+
+namespace {
+
+// is_not_3dimensional_part() de slic3r/Utils/FixModelByCgal.cpp.
+bool is_not_3dimensional_part(const TriangleMesh &mesh)
+{
+    if (mesh.its.indices.empty())
+        return true;
+    indexed_triangle_set tmp = mesh.its;
+    its_remove_degenerate_faces(tmp, true);
+    if (tmp.indices.empty())
+        return true;
+    const Vec3d  size    = mesh.bounding_box().size();
+    const double min_dim = size.minCoeff();
+    const double max_dim = size.maxCoeff();
+    if (min_dim <= EPSILON)
+        return true;
+    const double volume      = std::abs(its_volume(mesh.its));
+    const double bbox_volume = size.x() * size.y() * size.z();
+    if (volume <= EPSILON)
+        return true;
+    if (min_dim / max_dim <= 1e-6)
+        return true;
+    return bbox_volume > 0.0 && volume / bbox_volume <= 1e-6;
+}
+
+} // namespace
+
+std::pair<bool, bool> Engine::repair(size_t object)
+{
+    ModelObject &o = m->object(object);
+    // Plater::clear_before_change_mesh().
+    bool paint_removed = false;
+    for (ModelVolume *v : o.volumes) {
+        paint_removed |= !v->supported_facets.empty() || !v->seam_facets.empty() || !v->mmu_segmentation_facets.empty() ||
+                         !v->fuzzy_skin_facets.empty();
+        v->supported_facets.reset();
+        v->seam_facets.reset();
+        v->mmu_segmentation_facets.reset();
+        v->fuzzy_skin_facets.reset();
+    }
+    // fix_model_with_cgal_gui() com volume_idx = -1.
+    bool repaired = false;
+    for (size_t i = 0; i < o.volumes.size(); ++i) {
+        size_t parts = 1;
+        if (o.volumes[i]->is_splittable())
+            parts = o.volumes[i]->split(1, false);
+        size_t end = std::min(i + parts - 1, o.volumes.size() - 1);
+        size_t removed = 0;
+        for (size_t idx = end + 1; idx > i; --idx)
+            if (is_not_3dimensional_part(o.volumes[idx - 1]->mesh())) {
+                o.delete_volume(idx - 1);
+                ++removed;
+                end = end > 0 ? end - 1 : 0;
+            }
+        if (removed >= parts) {
+            i = end;
+            continue;
+        }
+        for (size_t p = i; p <= end && p < o.volumes.size(); ++p) {
+            ModelVolume *v    = o.volumes[p];
+            TriangleMesh mesh = v->mesh();
+            if (its_num_open_edges(mesh.its) == 0)
+                continue;
+            std::string error;
+            if (!MeshBoolean::cgal::repair(mesh, nullptr, &error))
+                throw std::runtime_error(error.empty() ? _u8L("Repair failed") : error);
+            v->set_mesh(std::move(mesh));
+            v->calculate_convex_hull();
+            v->invalidate_convex_hull_2d();
+            v->set_new_unique_id();
+            repaired = true;
+        }
+        i = end;
+    }
+    o.invalidate_bounding_box();
+    o.ensure_on_bed();
+    return {repaired, paint_removed};
 }
 
 void Engine::remove(size_t object)

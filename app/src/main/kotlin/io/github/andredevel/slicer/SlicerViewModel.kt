@@ -748,6 +748,16 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         _state.value.scene?.meshes?.let { it + it[objectIndex] }
     }
 
+    /** "Consertar modelo" do Orca ([SlicerEngine.repair]); o objeto continua selecionado. */
+    fun repair(objectIndex: Int) = editScene(keepSelection = true) { engine ->
+        _state.update { it.copy(busy = R.string.busy_repairing) }
+        val result = engine.repair(objectIndex)
+        val text = app.getString(if (result.repaired) R.string.repair_done else R.string.repair_nothing) +
+            if (result.paintRemoved) " " + app.getString(R.string.repair_paint_removed) else ""
+        _state.update { it.copy(message = UserMessage(text, success = true)) }
+        engine.objects()
+    }
+
     fun remove(objectIndex: Int) = editScene { engine ->
         engine.remove(objectIndex)
         val meshes = _state.value.scene?.meshes?.filterIndexed { i, _ -> i != objectIndex }
@@ -1326,9 +1336,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /**
      * Altera a cena no motor; [edit] devolve as malhas novas, ou null se só posições mudaram.
      * [modifies]: há o que salvar no projeto; ![samePlate]: outra placa na mesa, e o G-code,
-     * que era da anterior, é descartado.
+     * que era da anterior, é descartado. [keepSelection]: a seleção fica mesmo com malhas novas.
      */
-    private fun editScene(modifies: Boolean = true, samePlate: Boolean = true, edit: suspend (SlicerEngine) -> List<ObjectMesh>?) = launchEngine(null) { engine ->
+    private fun editScene(
+        modifies: Boolean = true, samePlate: Boolean = true, keepSelection: Boolean = false, edit: suspend (SlicerEngine) -> List<ObjectMesh>?,
+    ) = launchEngine(null) { engine ->
         var meshes: List<ObjectMesh>? = null
         try {
             meshes = edit(engine)
@@ -1336,7 +1348,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             else _state.update { it.copy(slice = SliceState.Idle, dirty = it.dirty || modifies) }
         } finally {
             // Também em caso de erro: descarta a pré-visualização do viewport.
-            refreshScene(engine, meshes)
+            refreshScene(engine, meshes, keepSelection)
         }
     }
 

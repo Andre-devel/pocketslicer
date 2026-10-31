@@ -111,6 +111,20 @@ class SlicerEngineTest {
         assertEquals(128f, offset[1], 0.01f)
     }
 
+    // cube20_hole.stl: o cube20 sem um triângulo (malha aberta), como "Consertar modelo" do Orca.
+    @Test
+    fun repairClosesOpenMesh() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20_hole.stl"))
+        assertEquals(11, engine.objects().single().indices.size / 3)
+        assertEquals(RepairResult(repaired = true, paintRemoved = false), engine.repair(0))
+        assertTrue(engine.objects().single().indices.size / 3 >= 12)
+        // Já fechada: nada a fazer.
+        assertEquals(RepairResult(repaired = false, paintRemoved = false), engine.repair(0))
+        assertTrue(engine.slice(File(work, "repaired.gcode")) { _, _ -> }.filamentMm3 > 0)
+    }
+
     // screw.step: exemplo que acompanha o OpenCASCADE (data/step), malhado como no Orca.
     @Test
     fun stepModelIsMeshedAndSliced() = runBlocking {

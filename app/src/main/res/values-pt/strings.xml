@@ -72,6 +72,11 @@
     <string name="view_front">Frontal</string>
     <string name="arrange">Arranjar</string>
     <string name="duplicate">Duplicar</string>
+    <string name="repair">Reparar malha</string>
+    <string name="busy_repairing">Reparando malha…</string>
+    <string name="repair_done">Malha reparada.</string>
+    <string name="repair_nothing">A malha não tinha buracos para corrigir.</string>
+    <string name="repair_paint_removed">A pintura do objeto foi apagada, como no OrcaSlicer.</string>
     <string name="delete">Excluir</string>
     <plurals name="object_count">
         <item quantity="one">%d objeto na mesa</item>

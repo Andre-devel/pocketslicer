@@ -348,6 +348,16 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeDuplicate(JNIEnv *env
     guarded(env, [&] { engine(handle)->duplicate(size_t(object)); });
 }
 
+// Bit 0: alguma malha consertada; bit 1: pintura apagada.
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRepair(JNIEnv *env, jclass, jlong handle, jint object)
+{
+    return guarded(env, [&] {
+        const auto [repaired, paint_removed] = engine(handle)->repair(size_t(object));
+        return jint((repaired ? 1 : 0) | (paint_removed ? 2 : 0));
+    });
+}
+
 JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemove(JNIEnv *env, jclass, jlong handle, jint object)
 {
