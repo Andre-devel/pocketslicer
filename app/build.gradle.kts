@@ -42,6 +42,11 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release")
+            // R8: o código Kotlin/Compose cai de ~24 MB. As classes usadas pelo JNI ficam em
+            // slicer-core/consumer-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             ndk {
                 abiFilters.clear()
                 abiFilters += "arm64-v8a"

@@ -538,7 +538,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Abre pelo tipo do arquivo: projeto 3MF (substitui objetos e perfis), G-code (direto
-     * na pré-visualização) ou modelo STL/OBJ (acrescentado como em [openModel]).
+     * na pré-visualização) ou modelo STL/OBJ/STEP (acrescentado como em [openModel]).
      */
     fun open(uri: Uri) = launchEngine(R.string.busy_opening) { engine -> openFile(engine, uri, displayName(uri)) }
 
@@ -945,7 +945,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         engine.addPart(objectIndex, type, shape)
     }
 
-    /** Peça com a malha do arquivo (STL, OBJ, 3MF), na posição relativa que tinha nele; fica selecionada. */
+    /** Peça com a malha do arquivo (STL, OBJ, STEP, 3MF), na posição relativa que tinha nele; fica selecionada. */
     fun addPartFromFile(objectIndex: Int, type: Part.Type, uri: Uri) = editParts(objectIndex, type) { engine ->
         val dir = File(app.cacheDir, "part").apply { deleteRecursively(); mkdirs() }
         // libslic3r detecta o formato pela extensão, então o nome original é mantido.

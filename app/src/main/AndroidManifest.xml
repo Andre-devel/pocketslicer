@@ -45,6 +45,9 @@
                 <data android:mimeType="model/3mf" />
                 <data android:mimeType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
                 <data android:mimeType="model/obj" />
+                <data android:mimeType="model/step" />
+                <data android:mimeType="application/step" />
+                <data android:mimeType="application/x-step" />
                 <data android:mimeType="text/x-gcode" />
                 <data android:mimeType="text/x.gcode" />
                 <data android:mimeType="application/x-gcode" />
@@ -59,6 +62,9 @@
                 <data android:mimeType="model/3mf" />
                 <data android:mimeType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
                 <data android:mimeType="model/obj" />
+                <data android:mimeType="model/step" />
+                <data android:mimeType="application/step" />
+                <data android:mimeType="application/x-step" />
                 <data android:mimeType="text/x-gcode" />
                 <data android:mimeType="text/x.gcode" />
                 <data android:mimeType="application/x-gcode" />

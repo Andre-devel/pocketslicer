@@ -184,6 +184,10 @@ Creality, Box da QIDI).
      quando não cabem), com o G-code dos padrões gerado a cada fatiamento para os objetos da
      placa, sem aparecer nas ações por altura. Falta: conferir uma impressão real.
 7. Play Asset Delivery para perfis sob demanda; ABI x86_64 para emulador.
+   - Não se aplica (2026-10-31): Play Asset Delivery só existe para apps da Google Play, e o
+     app é distribuído pelo GitHub; baixar os perfis da internet quebraria o uso offline. O
+     x86_64 já vai no build debug (slicer-core), que é o do emulador.
+   - Feito (2026-10-31): R8 no release (minificação e recursos), APK de 67,7 para 46,1 MB.
 
 ## Cadência de atualização do OrcaSlicer
 A cada release maior do Orca: branch `upgrade/orca-vX.Y`, mover submódulo, reaplicar patches, rodar paridade; merge só com paridade verde.

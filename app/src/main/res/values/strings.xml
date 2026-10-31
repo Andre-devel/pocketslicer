@@ -14,7 +14,7 @@
     <string name="busy_saving">Saving G-code…</string>
     <string name="busy_saving_project">Saving project…</string>
     <string name="busy_opening">Opening file…</string>
-    <string name="open_file">Open (3MF, G-code, STL, OBJ)…</string>
+    <string name="open_file">Open (3MF, G-code, STL, OBJ, STEP)…</string>
     <string name="save_project">Save project</string>
     <string name="tool_move">Move</string>
     <string name="tool_rotate">Rotate</string>
@@ -181,7 +181,7 @@
     <string name="decrease">Decrease</string>
     <string name="delete_user_preset">Delete user preset</string>
     <string name="different_profile">Different profile</string>
-    <string name="empty_text">Open an STL, OBJ or 3MF project. A G-code file opens straight in the preview. You can also use \"Open with\" from other apps.</string>
+    <string name="empty_text">Open an STL, OBJ, STEP or 3MF project. A G-code file opens straight in the preview. You can also use \"Open with\" from other apps.</string>
     <string name="empty_title">No model on the bed</string>
     <string name="empty_plate_title">Plate %1$d is empty</string>
     <string name="empty_plate_text">Add a model, or move objects here from another plate (long press on the object).</string>
@@ -401,7 +401,7 @@
     <string name="part_position_hint">Position relative to the object center.</string>
     <string name="delete_part">Delete part</string>
     <string name="back_to_object">Back to the object</string>
-    <string name="part_from_file">From file (STL, OBJ, 3MF)…</string>
+    <string name="part_from_file">From file (STL, OBJ, STEP, 3MF)…</string>
     <string name="calibration_menu">Calibration…</string>
     <string name="calibration">Calibration</string>
     <string name="calibration_test">Test</string>

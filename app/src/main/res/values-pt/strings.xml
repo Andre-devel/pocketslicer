@@ -13,7 +13,7 @@
     <string name="busy_saving">Salvando G-code…</string>
     <string name="busy_saving_project">Salvando projeto…</string>
     <string name="busy_opening">Abrindo arquivo…</string>
-    <string name="open_file">Abrir (3MF, G-code, STL, OBJ)…</string>
+    <string name="open_file">Abrir (3MF, G-code, STL, OBJ, STEP)…</string>
     <string name="save_project">Salvar projeto</string>
     <string name="tool_move">Mover</string>
     <string name="tool_rotate">Girar</string>
@@ -178,7 +178,7 @@
     <string name="decrease">Diminuir</string>
     <string name="delete_user_preset">Excluir preset do usuário</string>
     <string name="different_profile">Perfil diferente</string>
-    <string name="empty_text">Abra um STL, OBJ ou projeto 3MF. Um G-code abre direto na visualização. Você também pode usar \"Abrir com\" em outros apps.</string>
+    <string name="empty_text">Abra um STL, OBJ, STEP ou projeto 3MF. Um G-code abre direto na visualização. Você também pode usar \"Abrir com\" em outros apps.</string>
     <string name="empty_title">Nenhum modelo na mesa</string>
     <string name="empty_plate_title">A placa %1$d está vazia</string>
     <string name="empty_plate_text">Adicione um modelo ou traga objetos de outra placa (toque longo no objeto).</string>
@@ -397,7 +397,7 @@
     <string name="part_position_hint">Posição em relação ao centro do objeto.</string>
     <string name="delete_part">Excluir peça</string>
     <string name="back_to_object">Voltar ao objeto</string>
-    <string name="part_from_file">De arquivo (STL, OBJ, 3MF)…</string>
+    <string name="part_from_file">De arquivo (STL, OBJ, STEP, 3MF)…</string>
     <string name="calibration_menu">Calibração…</string>
     <string name="calibration">Calibração</string>
     <string name="calibration_test">Teste</string>
