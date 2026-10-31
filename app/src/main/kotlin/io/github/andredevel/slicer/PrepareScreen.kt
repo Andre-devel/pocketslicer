@@ -415,7 +415,7 @@ private fun SliceProgress(slice: SliceState.Running, plate: Int, modifier: Modif
     }
 }
 
-/** Painel lateral de Preparar: perfis ativos, o objeto selecionado e os parâmetros do processo. */
+/** Painel lateral de Preparar: perfis ativos e o objeto selecionado ou, sem seleção, os parâmetros do processo. */
 @Composable
 fun PreparePanel(state: SlicerUiState, viewModel: SlicerViewModel, openParameters: (PresetKind) -> Unit) {
     Column(Modifier.fillMaxSize()) {
@@ -426,8 +426,12 @@ fun PreparePanel(state: SlicerUiState, viewModel: SlicerViewModel, openParameter
             ProfileSummary(state, viewModel, openParameters)
             HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
             SelectedObject(state, viewModel)
-            HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            ProcessParametersSection(state, viewModel, openParameters)
+            // Com um objeto selecionado, as abas dele já mostram as páginas do processo (como no
+            // Creality Print); repetir os parâmetros do processo embaixo confunde.
+            if (state.scene?.selected == null) {
+                HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                ProcessParametersSection(state, viewModel, openParameters)
+            }
         }
         Box(Modifier.padding(16.dp)) {
             if (state.anyOutside) {
