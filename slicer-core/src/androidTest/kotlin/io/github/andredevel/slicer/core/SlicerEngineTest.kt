@@ -52,6 +52,42 @@ class SlicerEngineTest {
         assertTrue(engine.presets(PresetKind.FILAMENT).all { "@BBL X1" !in it })
     }
 
+    // Como no Bambu Studio, trocar de impressora (mesmo de fabricante) mantém a altura de camada,
+    // as alterações do processo e o tipo de cada filamento do projeto.
+    @Test
+    fun switchingPrinterKeepsProjectChoices() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.setOption(PresetKind.PROCESS, "wall_loops", "5")
+        engine.setFilamentPreset(0, "Bambu PETG HF @BBL A1")
+
+        engine.select(PresetKind.PRINTER, "Bambu Lab X1 Carbon 0.4 nozzle")
+        assertEquals("0.20mm Standard @BBL X1C", engine.selected(PresetKind.PROCESS))
+        assertEquals("5", engine.values(PresetKind.PROCESS).values["wall_loops"])
+        assertEquals("Bambu PETG HF @BBL X1C", engine.filamentPresets()[0])
+
+        engine.loadVendor("CrealityPrint/Creality")
+        engine.select(PresetKind.PRINTER, "Creality K2 0.4 nozzle")
+        assertEquals("0.2", engine.values(PresetKind.PROCESS).values["layer_height"])
+        assertEquals("5", engine.values(PresetKind.PROCESS).values["wall_loops"])
+        assertEquals(listOf("PETG"), engine.filamentTypes().take(1))
+    }
+
+    // O processo de um projeto aberto é escolha do criador, mesmo sendo o padrão da impressora:
+    // no bico 0.2 vai para a altura mais próxima (0.14), não para o padrão dele (0.10).
+    @Test
+    fun projectProcessIsKeptOnPrinterSwitch() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        val project = File(work, "a1.3mf")
+        engine.saveProject(project, Thumbnail(8, 8, ByteArray(8 * 8 * 4)))
+        engine.openProject(project)
+
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.2 nozzle")
+        assertEquals("0.14mm Extra Draft @BBL A1 0.2 nozzle", engine.selected(PresetKind.PROCESS))
+    }
+
     @Test
     fun modelIsCenteredOnBed() = runBlocking {
         engine.loadVendor("BBL")

@@ -8,7 +8,9 @@
 #include <queue>
 #include <regex>
 #include <set>
+#include <tuple>
 
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/nowide/fstream.hpp>
 #include <boost/log/core.hpp>
@@ -65,6 +67,11 @@ struct Engine::Impl {
     AppConfig                     app_config;
     std::unique_ptr<PresetBundle> bundle;
     std::string                   vendor; // de bundle
+    // O processo foi escolhido (num projeto aberto ou pelo usuário), não só o padrão da impressora.
+    bool                          process_chosen = false;
+    // Altura de camada que o processo escolhido tinha, enquanto as trocas de impressora o
+    // substituem pelo mais próximo: passar por um bico 0.2 não faz o 0.4 seguinte perder os 0.2.
+    std::optional<double>         wanted_layer_height;
     Model                         model;
     Print                         print;
     GCodeProcessorResult          result; // do último slice()
@@ -217,6 +224,96 @@ struct Engine::Impl {
         if (filaments != nullptr && !filaments->values.empty() &&
             compatible(bundle->filaments.find_preset(filaments->values.front())))
             select_filament(filaments->values.front());
+    }
+
+    // Escolhas do projeto que a troca de impressora mantém, como no Bambu Studio: a altura de
+    // camada (vai para o processo da impressora nova de altura mais próxima, de preferência o de
+    // mesmo nome), as alterações não salvas do processo e o tipo de cada filamento. O padrão de
+    // uma impressora, sem alterações, passa ao padrão da outra.
+    struct Choices
+    {
+        bool                                             keep_process = false;
+        std::string                                      process;
+        double                                           layer_height = 0.;
+        DynamicPrintConfig                               process_edits;
+        std::vector<std::pair<std::string, std::string>> filaments; // nome e tipo
+    };
+
+    // "0.20mm Standard @BBL A1" -> "0.20mm Standard"; "Bambu PLA Basic @BBL A1" -> "Bambu PLA Basic".
+    static std::string base_name(const std::string &name) { return name.substr(0, name.find(" @")); }
+
+    static std::string filament_type(const Preset &preset)
+    {
+        const auto *type = preset.config.option<ConfigOptionStrings>("filament_type");
+        return type != nullptr && !type->values.empty() ? type->values.front() : std::string();
+    }
+
+    Choices choices() const
+    {
+        Choices                 out;
+        const PresetCollection &prints = bundle->prints;
+        out.process      = prints.get_selected_preset_name();
+        out.layer_height = wanted_layer_height.value_or(prints.get_edited_preset().config.opt_float("layer_height"));
+        out.process_edits.apply_only(prints.get_edited_preset().config, prints.current_dirty_options());
+        for (const char *key : {"compatible_printers", "compatible_printers_condition", "inherits"})
+            out.process_edits.erase(key);
+        out.keep_process = process_chosen || !out.process_edits.empty() ||
+                           out.process != bundle->printers.get_selected_preset().config.opt_string("default_print_profile");
+        for (const std::string &name : bundle->filament_presets)
+            if (const Preset *preset = bundle->filaments.find_preset(name))
+                out.filaments.emplace_back(name, filament_type(*preset));
+        return out;
+    }
+
+    // Depois de select_printer_defaults(): troca os padrões da impressora pelo que [choices] pede.
+    void restore(const Choices &choices)
+    {
+        PresetCollection &prints   = bundle->prints;
+        const std::string selected = prints.get_selected_preset_name();
+        const Preset     *process  = nullptr;
+        std::tuple<long, bool, bool> best{};
+        for (const Preset &preset : prints) {
+            if (!choices.keep_process)
+                break;
+            if (preset.is_default || !preset.is_visible || !preset.is_compatible)
+                continue;
+            // Menor diferença de altura; no empate, o de mesmo nome e depois o padrão da impressora.
+            const std::tuple<long, bool, bool> rank{std::labs(std::lround(preset.config.opt_float("layer_height") * 1000.) - std::lround(choices.layer_height * 1000.)),
+                                                    base_name(preset.name) != base_name(choices.process), preset.name != selected};
+            if (process == nullptr || rank < best)
+                process = &preset, best = rank;
+        }
+        if (process != nullptr && process->name != selected)
+            prints.select_preset_by_name(process->name, true);
+        if (choices.keep_process)
+            wanted_layer_height = choices.layer_height;
+        DynamicPrintConfig &config = prints.get_edited_preset().config;
+        for (const std::string &key : choices.process_edits.keys())
+            if (config.has(key))
+                config.set_key_value(key, choices.process_edits.option(key)->clone());
+
+        // Cada filamento: o de mesmo nome para a impressora nova, o padrão dela, um genérico ou
+        // outro qualquer, sempre do mesmo tipo (PLA, PETG...); sem nenhum, fica o padrão.
+        const size_t count = std::min(choices.filaments.size(), bundle->filament_presets.size());
+        for (size_t i = 0; i < count; ++i) {
+            const auto &[name, type] = choices.filaments[i];
+            const Preset *pick       = nullptr;
+            int           best_rank  = 0;
+            for (const Preset &preset : bundle->filaments) {
+                if (preset.is_default || !preset.is_compatible || filament_type(preset) != type)
+                    continue;
+                const int rank = base_name(preset.name) == base_name(name)         ? 0
+                                 : preset.name == bundle->filament_presets[i]     ? 1
+                                 : boost::starts_with(preset.name, "Generic")     ? 2
+                                                                                  : 3;
+                if (pick == nullptr || rank < best_rank)
+                    pick = &preset, best_rank = rank;
+            }
+            if (pick != nullptr)
+                bundle->set_filament_preset(i, pick->name);
+        }
+        if (!bundle->filament_presets.empty())
+            select_filament(bundle->filament_presets.front());
     }
 
     ModelObject &object(size_t index);
@@ -454,8 +551,11 @@ void Engine::load_vendor(const std::string &vendor)
     const fs::path index = m->vendor_index(vendor);
     // Cores dos filamentos do projeto: o bundle novo começa com os do perfil da impressora.
     std::vector<std::string> colors;
-    if (m->bundle)
-        colors = m->bundle->project_config.option<ConfigOptionStrings>("filament_colour")->values;
+    std::optional<Impl::Choices> choices;
+    if (m->bundle) {
+        colors  = m->bundle->project_config.option<ConfigOptionStrings>("filament_colour")->values;
+        choices = m->choices();
+    }
 
     // PresetBundle carrega todo fabricante presente em <data_dir>/system. Como na
     // GUI do Orca, só entram os "instalados": aqui, o escolhido e a biblioteca de
@@ -510,6 +610,8 @@ void Engine::load_vendor(const std::string &vendor)
             multi->values = colors;
         m->calc_flush_volumes(std::nullopt);
     }
+    if (choices)
+        m->restore(*choices);
 }
 
 std::vector<std::string> Engine::presets(PresetKind kind) const
@@ -563,7 +665,8 @@ void Engine::select(PresetKind kind, const std::string &name)
         throw std::invalid_argument("preset not available: " + name);
 
     switch (kind) {
-    case PresetKind::Printer:
+    case PresetKind::Printer: {
+        const Impl::Choices choices = m->choices();
         collection.select_preset_by_name(name, true);
         m->bundle->update_multi_material_filament_presets();
         m->sync_filament_colors();
@@ -571,6 +674,7 @@ void Engine::select(PresetKind kind, const std::string &name)
         m->bundle->update_compatible(PresetSelectCompatibleType::Always);
         // ...e prefere os padrões declarados pela impressora.
         m->select_printer_defaults();
+        m->restore(choices);
         // Tipo de mesa padrão da impressora, como o Plater da GUI faz (a validação
         // recusa filamentos sem temperatura para a mesa escolhida).
         m->bundle->project_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(m->default_bed_type()));
@@ -587,11 +691,14 @@ void Engine::select(PresetKind kind, const std::string &name)
         }
         m->place_on_bed();
         break;
+    }
     case PresetKind::Filament:
         m->select_filament(name);
         break;
     case PresetKind::Process:
         collection.select_preset_by_name(name, true);
+        m->process_chosen = true;
+        m->wanted_layer_height.reset();
         // Filamentos podem depender do processo (compatible_prints).
         m->bundle->update_compatible(PresetSelectCompatibleType::Never, PresetSelectCompatibleType::Always);
         break;
@@ -1096,6 +1203,8 @@ std::string Engine::open_project(const std::string &path)
     if (!project_presets.empty())
         m->bundle->load_project_embedded_presets(project_presets, ForwardCompatibilitySubstitutionRule::EnableSilent);
     m->bundle->load_config_model(path, std::move(config), version);
+    m->process_chosen = true;
+    m->wanted_layer_height.reset();
     for (Preset &filament : m->bundle->filaments)
         filament.is_visible = true;
 
@@ -3346,6 +3455,8 @@ void Engine::set_option(PresetKind kind, const std::string &key, const std::stri
         throw std::invalid_argument(format(_u8L("Invalid value provided for parameter %1%: %2%"), i18n::translate(def->label), value));
     }
     collection.get_edited_preset().config = std::move(config);
+    if (key == "layer_height")
+        m->wanted_layer_height.reset();
 }
 
 void Engine::discard_changes(PresetKind kind)
