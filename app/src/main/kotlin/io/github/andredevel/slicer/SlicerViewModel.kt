@@ -34,6 +34,7 @@ import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.Scene
 import io.github.andredevel.slicer.render.StrokeLock
 import io.github.andredevel.slicer.render.Tool
+import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.Connection
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
@@ -1136,6 +1137,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
      * falha com [SendException].
      */
     suspend fun printerSlots(host: PrinterHost): List<Slot> = uploader(host.kind, app.assets).slots(host)
+
+    /** Câmera de [host] (null se ela não tem uma que o app mostre); falha com [SendException]. */
+    suspend fun printerCamera(host: PrinterHost): Camera? = uploader(host.kind, app.assets).camera(host)
 
     /**
      * Envia o G-code fatiado para [host]; com [start], também inicia a impressão, com a posição

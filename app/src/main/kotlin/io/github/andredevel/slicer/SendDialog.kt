@@ -147,7 +147,10 @@ fun SendDialog(
                         ) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 PrinterLabel(host)
-                                state.printerStatus[host.id]?.let { PrinterStatusDot(it) }
+                                state.printerStatus[host.id]?.let {
+                                    PrinterStatusDot(it)
+                                    HumidityWarning(it)
+                                }
                                 if (host.preset != null && host.preset == preset) {
                                     Tag(stringResource(R.string.slice_profile), container = MaterialTheme.colorScheme.surfaceContainerHighest, content = MaterialTheme.colorScheme.onSurface)
                                 }
@@ -386,7 +389,7 @@ private fun MappingRow(filament: Int, color: FloatArray?, name: String?, slots: 
 
 /** Cor do filamento carregado na posição; cinza se vazia ou sem cor informada. */
 @Composable
-private fun SlotSwatch(slot: Slot?) {
+internal fun SlotSwatch(slot: Slot?) {
     Box(
         Modifier.size(12.dp)
             .background(slot?.color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.outline, CircleShape)
@@ -396,7 +399,7 @@ private fun SlotSwatch(slot: Slot?) {
 
 /** "Cabeça 2" na U1, "Slot 1A" (caixa e posição) no CFS da Creality, "Box 1, posição 3" na QIDI. */
 @Composable
-private fun slotName(slot: Slot): String = when {
+internal fun slotName(slot: Slot): String = when {
     slot.cfsBox != null -> stringResource(R.string.cfs_slot, "${slot.cfsBox}${'A' + slot.cfsSlot}")
     slot.qidiSlot == QIDI_EXTERNAL -> stringResource(R.string.external_spool)
     slot.qidiSlot != null -> stringResource(R.string.qidi_box_slot, slot.qidiSlot / 4 + 1, slot.qidiSlot % 4 + 1)

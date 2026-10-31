@@ -121,12 +121,48 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
             // IDLE, FINISH e FAILED (a última falhou; a impressora está livre).
             else -> PrinterStatus.State.IDLE
         }
+        val active = state != PrinterStatus.State.IDLE
         return PrinterStatus(
             state,
-            progress = print.optInt("mc_percent", -1).takeIf { print.has("mc_percent") && it >= 0 && state != PrinterStatus.State.IDLE }?.let { it / 100f },
-            file = print.optString("subtask_name").takeIf { it.isNotEmpty() && state != PrinterStatus.State.IDLE },
+            progress = print.optInt("mc_percent", -1).takeIf { print.has("mc_percent") && it >= 0 && active }?.let { it / 100f },
+            file = print.optString("subtask_name").takeIf { it.isNotEmpty() && active },
             raw = raw,
+            temperatures = listOfNotNull(
+                temperature(print, "nozzle_temper", "nozzle_target_temper", Temperature.Source.NOZZLE),
+                temperature(print, "bed_temper", "bed_target_temper", Temperature.Source.BED),
+                // A A1 e a P1 não têm sensor na câmara e mandam 0.
+                temperature(print, "chamber_temper", null, Temperature.Source.CHAMBER)?.takeIf { it.current > 0 },
+            ),
+            layer = print.optInt("layer_num", -1).takeIf { it > 0 && active },
+            layers = print.optInt("total_layer_num", -1).takeIf { it > 0 && active },
+            remaining = print.optInt("mc_remaining_time", -1).takeIf { it >= 0 && active }?.let { it * 60L },
+            boxes = amsBoxes(print),
         )
+    }
+
+    private fun temperature(print: JSONObject, current: String, target: String?, source: Temperature.Source): Temperature? {
+        val value = print.optDouble(current).takeIf { !it.isNaN() } ?: return null
+        return Temperature(source, value.toFloat(), target?.let { print.optDouble(it).takeIf { t -> !t.isNaN() }?.toFloat() })
+    }
+
+    /**
+     * Unidades do AMS com sensor, como o Bambu Studio (DevFilaSystem): `humidity_raw` é a umidade
+     * em % (AMS 2 Pro, AMS HT); `humidity`, o nível 1 a 5, só no AMS (tipo 1 nos bits 0 a 3 de
+     * `info`). O AMS lite não tem sensor e fica de fora.
+     */
+    private fun amsBoxes(print: JSONObject): List<FilamentBox> {
+        val units = print.optJSONObject("ams")?.optJSONArray("ams") ?: return emptyList()
+        return (0 until units.length()).mapNotNull { u ->
+            val unit = units.optJSONObject(u) ?: return@mapNotNull null
+            val type = unit.optString("info").toLongOrNull(16)?.let { (it and 0xF).toInt() }
+            val percent = unit.optString("humidity_raw").toIntOrNull()?.takeIf { it >= 0 }
+            val level = unit.optString("humidity").toIntOrNull()?.takeIf { it in 1..5 && type == AMS_TYPE }
+            if (percent == null && level == null) return@mapNotNull null
+            val id = unit.optString("id").toIntOrNull() ?: u
+            // 128+ é o AMS HT.
+            val name = if (id >= 128) "AMS HT ${id - 127}" else "AMS ${id + 1}"
+            FilamentBox(name, humidity = percent, humidityLevel = level.takeIf { percent == null }, temperature = unit.optString("temp").toFloatOrNull())
+        }
     }
 
     /**
@@ -343,6 +379,8 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
         const val REPORT_TIMEOUT_MS = 15_000L
         /** tray_now do carretel externo (sem AMS). */
         const val EXTERNAL_TRAY = 254
+        /** Tipo AMS (o primeiro, com nível de umidade) nos bits 0 a 3 do `info` de uma unidade. */
+        const val AMS_TYPE = 1
         val BUSY_STATES = setOf("RUNNING", "PAUSE", "PREPARE", "SLICING")
         val START_STATES = setOf("PREPARE", "RUNNING", "SLICING")
         const val USER = "bblp"

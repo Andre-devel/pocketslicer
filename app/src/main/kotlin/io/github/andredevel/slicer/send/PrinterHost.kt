@@ -54,17 +54,65 @@ interface Uploader {
 
     /** Estado atual da impressora; falha com [SendException]. */
     suspend fun status(host: PrinterHost): PrinterStatus
+
+    /** Câmera da impressora, null se ela não tem (ou o app não sabe mostrar); falha com [SendException]. */
+    suspend fun camera(host: PrinterHost): Camera? = null
 }
 
 /**
  * Estado ao vivo de uma impressora ([Uploader.status]). [progress] de 0 a 1 e [file] quando há
- * impressão; [raw]: o estado como a impressora o informa ("printing", "RUNNING"...).
+ * impressão; [raw]: o estado como a impressora o informa ("printing", "RUNNING"...). Quando a
+ * impressora informa: [temperatures], [layer] de [layers], [elapsed] e [remaining] em segundos
+ * (só durante a impressão) e as caixas de filamento ([boxes]).
  */
-data class PrinterStatus(val state: State, val progress: Float? = null, val file: String? = null, val raw: String? = null) {
+data class PrinterStatus(
+    val state: State,
+    val progress: Float? = null,
+    val file: String? = null,
+    val raw: String? = null,
+    val temperatures: List<Temperature> = emptyList(),
+    val layer: Int? = null,
+    val layers: Int? = null,
+    val elapsed: Long? = null,
+    val remaining: Long? = null,
+    val boxes: List<FilamentBox> = emptyList(),
+) {
     enum class State { IDLE, PRINTING, PAUSED, ERROR, OFFLINE }
 
     /** Imprimindo ou pausada: dá para enviar, não para iniciar outra impressão. */
     val busy get() = state == State.PRINTING || state == State.PAUSED
+}
+
+/** Temperatura em °C de um aquecedor ou sensor; [index] separa os bicos (0 = o primeiro); [target] 0 = desligado. */
+data class Temperature(val source: Source, val current: Float, val target: Float? = null, val index: Int = 0) {
+    enum class Source { NOZZLE, BED, CHAMBER }
+}
+
+/**
+ * Caixa de filamento (CFS, AMS) com sensor: [humidity] em %, ou só o nível [humidityLevel] do AMS
+ * da Bambu (1 úmido a 5 seco, como o Bambu Studio o mostra); [temperature] em °C.
+ */
+data class FilamentBox(val name: String, val humidity: Int? = null, val humidityLevel: Int? = null, val temperature: Float? = null) {
+    /** Úmida a ponto de avisar: [HUMID_PERCENT] ou mais, ou nível 1 e 2 (60% ou mais no Bambu Studio). */
+    val humid get() = humidity?.let { it >= HUMID_PERCENT } ?: humidityLevel?.let { it in 1..2 } ?: false
+}
+
+/** Umidade da caixa de filamento a partir da qual o app avisa. */
+const val HUMID_PERCENT = 60
+
+/** Como mostrar a câmera de uma impressora ([Uploader.camera]). */
+sealed interface Camera {
+    /**
+     * Imagem pela URL: [url] é um fluxo MJPEG, ou com [snapshot] uma foto a recarregar; [rotation]
+     * em graus e os espelhamentos como o Moonraker informa.
+     */
+    data class Image(
+        val url: String, val snapshot: Boolean = false, val rotation: Int = 0,
+        val flipHorizontal: Boolean = false, val flipVertical: Boolean = false,
+    ) : Camera
+
+    /** WebRTC da Creality (K2): oferta em base64 por POST em [signalingUrl] (`:8000/call/webrtc_local`). */
+    data class CrealityWebRtc(val signalingUrl: String) : Camera
 }
 
 /**

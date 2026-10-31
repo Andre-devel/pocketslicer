@@ -14,6 +14,7 @@ import java.io.File
 import java.io.IOException
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Moonraker (API do Klipper), como `src/slic3r/Utils/Moonraker.cpp` do Orca: o G-code vai para
@@ -39,6 +40,15 @@ object MoonrakerUploader : Uploader {
     private const val MOONRAKER_PORT = 7125
 
     private const val METADATA_RETRIES = 5
+
+    /** Bicos que [status] lê (a U1 tem quatro cabeças). */
+    private val EXTRUDERS = listOf("extruder", "extruder1", "extruder2", "extruder3")
+    /** Sensor da câmara: da Creality (K2), da QIDI (aquecedor) e um nome comum. */
+    private val CHAMBERS = listOf("temperature_sensor chamber_temp", "heater_generic chamber", "temperature_sensor chamber")
+    private val STATUS_OBJECTS = listOf("print_stats", "virtual_sdcard", "heater_bed", "box") + EXTRUDERS + CHAMBERS
+
+    /** Sinalização WebRTC da câmera da Creality K2 (`/call/webrtc_local`). */
+    private const val CREALITY_WEBRTC_PORT = 8000
 
     private const val CREALITY_CONNECT_MS = 3_000
     private const val CREALITY_READ_MS = 5_000
@@ -351,12 +361,17 @@ object MoonrakerUploader : Uploader {
         if (status.busy) throw SendException(R.string.send_error_busy, host.name, status.raw.orEmpty())
     }
 
-    /** `print_stats` (estado e arquivo) e `virtual_sdcard.progress` (posição no arquivo). */
+    /**
+     * `print_stats` (estado, arquivo, tempo) e `virtual_sdcard` (posição no arquivo), com as
+     * temperaturas, a camada e as caixas CFS da Creality (`box`). Objetos que o Klipper não tem
+     * voltam vazios, então a mesma consulta serve para todas.
+     */
     private suspend fun status(api: URL, host: PrinterHost): PrinterStatus {
-        val response = Http.get(api.resolve("/printer/objects/query?print_stats&virtual_sdcard"), headers(host))
+        val response = Http.get(api.resolve("/printer/objects/query?" + STATUS_OBJECTS.joinToString("&") { URLEncoder.encode(it, "UTF-8") }), headers(host))
         check(response, host)
         val objects = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")
         val stats = objects?.optJSONObject("print_stats")
+        val sdcard = objects?.optJSONObject("virtual_sdcard")
         val raw = stats?.optString("state").orEmpty()
         val state = when (raw) {
             "printing" -> PrinterStatus.State.PRINTING
@@ -366,12 +381,110 @@ object MoonrakerUploader : Uploader {
             else -> PrinterStatus.State.IDLE
         }
         val active = state == PrinterStatus.State.PRINTING || state == PrinterStatus.State.PAUSED
+        val file = stats?.optString("filename")?.takeIf { active && it.isNotEmpty() }
+        val progress = sdcard?.optDouble("progress")?.takeIf { active && !it.isNaN() }?.toFloat()
+        // A Q2 deixa print_duration em 0 (2026-10-30).
+        val elapsed = stats?.optDouble("print_duration")?.takeIf { active && it > 0 }?.toLong()
+        // SET_PRINT_STATS_INFO (Orca, Klipper comum); a Creality conta no virtual_sdcard.
+        val info = stats?.optJSONObject("info")
+        val layer = positive(info, "current_layer") ?: positive(sdcard, "layer")
+        val layers = positive(info, "total_layer") ?: positive(sdcard, "layer_count")
+        val estimate = file?.let { estimatedTime(api, host, it) }
+            ?: sdcard?.optJSONObject("cur_print_data")?.optJSONObject("metadata")?.optDouble("estimated_time")?.takeIf { it > 0 }
+        // Como o Fluidd: a estimativa do fatiador menos o tempo já impresso; sem ela, ou já passado
+        // dela (a K2 imprimiu a calibração de fluxo em 1,6x o estimado), pelo progresso no arquivo.
+        val remaining = when {
+            !active || elapsed == null -> null
+            estimate != null && estimate > elapsed -> (estimate - elapsed).toLong()
+            progress != null && progress >= 0.05f -> (elapsed / progress - elapsed).toLong()
+            else -> null
+        }
         return PrinterStatus(
-            state,
-            progress = objects?.optJSONObject("virtual_sdcard")?.optDouble("progress")?.takeIf { active && !it.isNaN() }?.toFloat(),
-            file = stats?.optString("filename")?.takeIf { active && it.isNotEmpty() },
-            raw = raw,
+            state, progress = progress, file = file, raw = raw,
+            temperatures = temperatures(objects), layer = layer?.takeIf { active }, layers = layers?.takeIf { active },
+            elapsed = elapsed, remaining = remaining, boxes = crealityBoxes(objects?.optJSONObject("box")),
         )
+    }
+
+    private fun positive(json: JSONObject?, key: String) = json?.optInt(key, -1)?.takeIf { it > 0 }
+
+    private fun temperatures(objects: JSONObject?): List<Temperature> {
+        if (objects == null) return emptyList()
+        val list = mutableListOf<Temperature>()
+        fun add(name: String, source: Temperature.Source, index: Int = 0) {
+            val heater = objects.optJSONObject(name) ?: return
+            val current = heater.optDouble("temperature").takeIf { !it.isNaN() } ?: return
+            val target = heater.optDouble("target").takeIf { !it.isNaN() }
+            list += Temperature(source, current.toFloat(), target?.toFloat(), index)
+        }
+        EXTRUDERS.forEachIndexed { i, name -> add(name, Temperature.Source.NOZZLE, i) }
+        add("heater_bed", Temperature.Source.BED)
+        CHAMBERS.firstOrNull { objects.optJSONObject(it)?.has("temperature") == true }?.let { add(it, Temperature.Source.CHAMBER) }
+        return list
+    }
+
+    /** Caixas CFS ligadas (`box.T1`..`T4` com `state` "connect"): umidade e temperatura dentro delas. */
+    private fun crealityBoxes(box: JSONObject?): List<FilamentBox> {
+        if (box == null) return emptyList()
+        return (1..4).mapNotNull { n ->
+            val unit = box.optJSONObject("T$n")?.takeIf { it.optString("state") == "connect" } ?: return@mapNotNull null
+            FilamentBox(
+                "${unit.optString("type").takeIf { it.isNotEmpty() && it != "None" } ?: "CFS"} $n",
+                humidity = unit.optString("dry_and_humidity").toDoubleOrNull()?.toInt(),
+                temperature = unit.optString("temperature").toFloatOrNull(),
+            )
+        }
+    }
+
+    /**
+     * `estimated_time` que o Moonraker leu do arquivo [file] (s), guardado por arquivo; null se o
+     * cabeçalho não for de um fatiador que ele conhece (o "PocketSlicer" da Creality).
+     */
+    private suspend fun estimatedTime(api: URL, host: PrinterHost, file: String): Double? {
+        val key = host.id + "/" + file
+        estimates[key]?.let { return it.takeIf { it > 0 } }
+        val response = Http.get(api.resolve("/server/files/metadata?filename=" + URLEncoder.encode(file, "UTF-8")), headers(host))
+        val time = if (response.code in 200..299) jsonOrNull(response.body)?.optJSONObject("result")?.optDouble("estimated_time")?.takeIf { !it.isNaN() } else null
+        estimates[key] = time ?: 0.0
+        return time?.takeIf { it > 0 }
+    }
+
+    private val estimates = ConcurrentHashMap<String, Double>()
+
+    /**
+     * A primeira câmera ligada do Moonraker (`/server/webcams/list`), com o caminho relativo
+     * resolvido no endereço da impressora (o nginx da porta 80, como no Fluidd). Sem câmera
+     * cadastrada, a da Creality K2, que só fala WebRTC na porta 8000.
+     */
+    override suspend fun camera(host: PrinterHost): Camera? {
+        val api = api(host)
+        val response = Http.get(api.resolve("/server/webcams/list"), headers(host))
+        val webcams = if (response.code in 200..299) jsonOrNull(response.body)?.optJSONObject("result")?.optJSONArray("webcams") else null
+        for (i in 0 until (webcams?.length() ?: 0)) {
+            val cam = webcams!!.getJSONObject(i)
+            if (!cam.optBoolean("enabled", true)) continue
+            val service = cam.optString("service")
+            val stream = cam.optString("stream_url").takeIf { it.isNotEmpty() }
+            val snapshot = cam.optString("snapshot_url").takeIf { it.isNotEmpty() }
+            // O mjpegstreamer-adaptive do Fluidd/Mainsail recarrega a foto; os outros serviços (WebRTC, HLS) também caem nela.
+            val (url, still) = when {
+                service == "mjpegstreamer" && stream != null -> stream to false
+                snapshot != null -> snapshot to true
+                stream != null -> stream to false
+                else -> continue
+            }
+            return Camera.Image(
+                URL(URL(api.protocol, api.host, ""), url).toString(), still, cam.optInt("rotation"),
+                cam.optBoolean("flip_horizontal"), cam.optBoolean("flip_vertical"),
+            )
+        }
+        val signaling = URL(api.protocol, api.host, CREALITY_WEBRTC_PORT, "/call/webrtc_local")
+        val creality = try {
+            Http.get(signaling, emptyMap()).code in 200..299
+        } catch (e: SendException) {
+            false
+        }
+        return if (creality) Camera.CrealityWebRtc(signaling.toString()) else null
     }
 
     private fun jsonOrNull(body: String): JSONObject? = try {

@@ -79,22 +79,29 @@ import kotlinx.coroutines.launch
 @Composable
 fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier, startNew: Boolean = false) {
     val wide = LocalConfiguration.current.screenWidthDp >= WIDE_DP
-    // Impressora em edição (salva ou nova); com [startNew] um cadastro novo, senão na tela larga
-    // a primeira da lista.
+    // Impressora em edição (salva ou nova), com [startNew] um cadastro novo; senão a impressora
+    // salva cujo estado aparece ([showing], na tela larga a primeira da lista).
     var editing by remember(startNew) {
-        mutableStateOf(if (startNew) newHost(viewModel) else if (wide) state.printers.firstOrNull() ?: newHost(viewModel) else null)
+        mutableStateOf(if (startNew) newHost(viewModel) else if (wide && state.printers.isEmpty()) newHost(viewModel) else null)
     }
+    var showing by remember(startNew) { mutableStateOf(if (!startNew && wide) state.printers.firstOrNull()?.id else null) }
     val edit = { host: PrinterHost? ->
         // O resultado do último teste não vale para outra impressora.
         viewModel.cancelSend()
         viewModel.clearSendState()
         editing = host
     }
+    val show = { host: PrinterHost ->
+        edit(null)
+        showing = host.id
+    }
     val pick = { found: FoundPrinter ->
         val host = newHost(viewModel)
+        showing = null
         edit(host.copy(name = found.name, kind = found.kind ?: host.kind, address = found.address))
     }
     val edited = editing
+    val shown = state.printers.find { it.id == showing }
     var deleting by remember { mutableStateOf<PrinterHost?>(null) }
     WatchPrinterStatus(state.printers, viewModel)
     val form = @Composable { host: PrinterHost, formModifier: Modifier ->
@@ -104,10 +111,19 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
             onSave = {
                 viewModel.savePrinter(it)
                 viewModel.clearSendState()
-                editing = if (wide) it else null
+                editing = null
+                showing = it.id
             },
             onDelete = { deleting = host },
-            onClose = if (wide) null else ({ edit(null) }),
+            // Volta ao estado da impressora; na tela larga só quando ela já estava salva.
+            onClose = if (!wide) ({ edit(null) }) else if (shown != null) ({ edit(null) }) else null,
+        )
+    }
+    val detail = @Composable { host: PrinterHost, detailModifier: Modifier ->
+        PrinterDetail(
+            host, state.printerStatus[host.id], viewModel, detailModifier,
+            onEdit = { edit(host) },
+            onClose = if (wide) null else ({ showing = null }),
         )
     }
 
@@ -121,7 +137,9 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
                 TextButton(onClick = {
                     deleting = null
                     viewModel.deletePrinter(host.id)
-                    edit(if (wide) state.printers.firstOrNull { it.id != host.id } ?: newHost(viewModel) else null)
+                    val next = if (wide) state.printers.firstOrNull { it.id != host.id } else null
+                    showing = next?.id
+                    edit(if (wide && next == null) newHost(viewModel) else null)
                 }) {
                     Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
                 }
@@ -134,10 +152,14 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
         form(edited, modifier)
         return
     }
+    if (!wide && shown != null) {
+        detail(shown, modifier)
+        return
+    }
     Row(modifier) {
         Column(Modifier.then(if (wide) Modifier.width(300.dp) else Modifier.weight(1f)).fillMaxHeight()) {
             ScreenHeader(stringResource(R.string.printers)) {
-                AppButton(stringResource(R.string.add), { edit(newHost(viewModel)) }, style = ButtonStyle.TONAL, icon = R.drawable.ic_add)
+                AppButton(stringResource(R.string.add), { showing = null; edit(newHost(viewModel)) }, style = ButtonStyle.TONAL, icon = R.drawable.ic_add)
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (state.printers.isEmpty()) {
@@ -149,11 +171,14 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
                     )
                 }
                 for (host in state.printers) {
-                    SelectableCard(selected = host.id == edited?.id, onClick = { edit(host) }) {
+                    SelectableCard(selected = host.id == (edited?.id ?: shown?.id), onClick = { show(host) }) {
                         Icon(painterResource(R.drawable.ic_print), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             PrinterLabel(host)
-                            state.printerStatus[host.id]?.let { PrinterStatusDot(it) }
+                            state.printerStatus[host.id]?.let {
+                                PrinterStatusDot(it)
+                                HumidityWarning(it)
+                            }
                         }
                     }
                 }
@@ -162,7 +187,11 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
         }
         if (wide) {
             ColumnDivider()
-            form(edited ?: newHost(viewModel), Modifier.weight(1f).fillMaxHeight())
+            when {
+                edited != null -> form(edited, Modifier.weight(1f).fillMaxHeight())
+                shown != null -> detail(shown, Modifier.weight(1f).fillMaxHeight())
+                else -> form(newHost(viewModel), Modifier.weight(1f).fillMaxHeight())
+            }
             ColumnDivider()
             Column(Modifier.width(300.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface)) {
                 NetworkScan(state.printers, pick, Modifier.verticalScroll(rememberScrollState()))
