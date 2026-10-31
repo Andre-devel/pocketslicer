@@ -27,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.andredevel.slicer.core.HeightRange
+import io.github.andredevel.slicer.core.OptionDef
 import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SettingsTarget
@@ -51,6 +53,7 @@ import io.github.andredevel.slicer.ui.components.ButtonStyle
 import io.github.andredevel.slicer.ui.components.FormField
 import io.github.andredevel.slicer.ui.components.IconTab
 import io.github.andredevel.slicer.ui.components.IconTabs
+import io.github.andredevel.slicer.ui.components.LocalFieldHeight
 import io.github.andredevel.slicer.ui.components.NavigationRow
 import io.github.andredevel.slicer.ui.components.NumberField
 import io.github.andredevel.slicer.ui.components.SectionLabel
@@ -62,19 +65,30 @@ import java.util.Locale
 import kotlin.math.roundToLong
 
 /**
- * Configuração própria do objeto selecionado, como na lista de objetos do Orca: opções do
- * objeto inteiro e faixas de altura, cada uma com as suas. Tocar abre o editor.
+ * Configuração própria do objeto selecionado, como o modo Objeto do Creality Print: as páginas
+ * do processo em abas logo no painel, e as faixas de altura (tocar abre o editor delas).
  */
 @Composable
 fun ObjectSettingsSection(state: SlicerUiState, viewModel: SlicerViewModel, objectIndex: Int, objectHeight: Float) {
     val settings = state.objectSettings.getOrNull(objectIndex) ?: ObjectSettings()
     var editing by remember(objectIndex) { mutableStateOf<SettingsTarget?>(null) }
+    val target = SettingsTarget(objectIndex)
+    var query by rememberSaveable(target) { mutableStateOf("") }
+    var advanced by rememberSaveable(target) { mutableStateOf(false) }
+    var page by rememberSaveable(target) { mutableStateOf("") }
+    val pages = settingsPages(state, target, query, advanced, page)
 
     SectionLabel(stringResource(R.string.object_settings), Modifier.padding(top = 8.dp))
-    NavigationRow(
-        R.drawable.ic_tune, stringResource(R.string.settings_whole_object), changedSummary(settings.values),
-        { editing = SettingsTarget(objectIndex) }, enabled = state.editable,
-    )
+    Text(stringResource(R.string.settings_object_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    PageControls(pages, query, { query = it }, advanced, { advanced = it }, { page = it }, stacked = true)
+    CompositionLocalProvider(LocalFieldHeight provides DENSE_FIELD_HEIGHT) {
+        Column {
+            if (pages.pages.isEmpty()) {
+                Text(stringResource(R.string.settings_no_match), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))
+            }
+            pages.shown.forEachIndexed { index, def -> PageOption(state, viewModel, target, pages, index, def, dense = true) }
+        }
+    }
     settings.ranges.forEachIndexed { index, range ->
         Row(verticalAlignment = Alignment.CenterVertically) {
             NavigationRow(
@@ -274,28 +288,13 @@ internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, ta
     val settings = state.objectSettings.getOrNull(target.objectIndex) ?: ObjectSettings()
     val range = if (target.kind == SettingsTarget.Kind.RANGE) settings.ranges.getOrNull(target.index) else null
     val part = if (target.kind == SettingsTarget.Kind.VOLUME) state.scene?.parts?.getOrNull(target.objectIndex)?.getOrNull(target.index) else null
-    val values = when (target.kind) {
-        SettingsTarget.Kind.OBJECT -> settings.values
-        SettingsTarget.Kind.RANGE -> range?.values.orEmpty()
-        SettingsTarget.Kind.VOLUME -> settings.parts.getOrNull(target.index).orEmpty()
-    }
-    val process = state.presets[PresetKind.PROCESS]?.values?.values.orEmpty()
-    val allowed = state.settingsKeys[target.kind].orEmpty()
-    val defs = state.optionDefs[PresetKind.PROCESS].orEmpty().filter { it.key in allowed && it.key in process }
     var query by rememberSaveable(target) { mutableStateOf("") }
     var advanced by rememberSaveable(target) { mutableStateOf(false) }
     var page by rememberSaveable(target) { mutableStateOf("") }
-    val trimmed = query.trim()
-    // No básico, o que a GUI do Orca mostra no modo simples; as alteradas sempre aparecem.
-    val pages = defs.filter { def ->
-        if (trimmed.isNotEmpty()) listOf(def.label, def.key, def.tooltip).any { it.contains(trimmed, ignoreCase = true) }
-        else def.key in values || advanced || (def.simple && def.group.isNotEmpty())
-    }.groupBy { it.page.ifEmpty { OTHERS_PAGE } }.toList()
-    val selected = pages.indexOfFirst { it.first == page }.takeIf { it >= 0 } ?: 0
-    val shown = pages.getOrNull(selected)?.second.orEmpty()
+    val pages = settingsPages(state, target, query, advanced, page)
     // Uma posição de rolagem por aba, como em Parâmetros.
     val listStates = remember(target) { mutableMapOf<String, LazyListState>() }
-    val listState = listStates.getOrPut(pages.getOrNull(selected)?.first.orEmpty()) { LazyListState() }
+    val listState = listStates.getOrPut(pages.pages.getOrNull(pages.selected)?.first.orEmpty()) { LazyListState() }
     val enabled = state.editable
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -319,24 +318,8 @@ internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, ta
                     }
                     IconButton(onClick = onDismiss) { Icon(painterResource(R.drawable.ic_close), stringResource(R.string.close)) }
                 }
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FormField(
-                            query, { query = it }, stringResource(R.string.search_parameters), Modifier.weight(1f),
-                            trailingIcon = {
-                                if (query.isEmpty()) Icon(painterResource(R.drawable.ic_search), null)
-                                else IconButton(onClick = { query = "" }) { Icon(painterResource(R.drawable.ic_close), stringResource(R.string.clear)) }
-                            },
-                        )
-                        SegmentedTabs(
-                            listOf(Segment(stringResource(R.string.basic)), Segment(stringResource(R.string.advanced))),
-                            if (advanced) 1 else 0, { advanced = it == 1 }, Modifier.widthIn(max = 220.dp), check = false, compact = true,
-                        )
-                    }
-                    IconTabs(
-                        pages.map { (key, list) -> IconTab(pageIcon(key), list.first { it.category.isNotEmpty() || it === list.last() }.category.ifEmpty { stringResource(R.string.category_general) }, list.count { it.key in values }) },
-                        selected, { page = pages[it].first }, Modifier.fillMaxWidth(),
-                    )
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    PageControls(pages, query, { query = it }, advanced, { advanced = it }, { page = it }, stacked = false)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp)) {
@@ -359,31 +342,125 @@ internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, ta
                             }
                         }
                     }
-                    if (pages.isEmpty()) {
+                    if (pages.pages.isEmpty()) {
                         item(key = "empty") {
                             Text(stringResource(R.string.settings_no_match), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 16.dp))
                         }
                     }
-                    itemsIndexed(shown, key = { _, def -> "option-${def.key}" }) { index, def ->
-                        // Grupo da página do Orca ("Layer height"...) acima da primeira opção dele.
-                        if (def.group.isNotEmpty() && def.group != shown.getOrNull(index - 1)?.group) {
-                            Text(
-                                def.group, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = if (index == 0) 8.dp else 16.dp, bottom = 2.dp),
-                            )
-                        }
-                        val own = values[def.key]
-                        OptionRow(
-                            def, own ?: process[def.key], process[def.key].takeIf { own != null }, advanced, enabled,
-                            onReset = { viewModel.eraseSetting(target, def.key) },
-                            savedLabel = R.string.process_value,
-                        ) { viewModel.setSetting(target, def.key, it) }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    itemsIndexed(pages.shown, key = { _, def -> "option-${def.key}" }) { index, def ->
+                        PageOption(state, viewModel, target, pages, index, def, dense = false)
                     }
                 }
             }
         }
     }
+}
+
+/** Opções de um alvo divididas nas páginas do processo; [shown]: as da aba escolhida. */
+private class SettingsPages(
+    val pages: List<Pair<String, List<OptionDef>>>,
+    val selected: Int,
+    val values: Map<String, String>,
+    val process: Map<String, String>,
+) {
+    val shown: List<OptionDef> get() = pages.getOrNull(selected)?.second.orEmpty()
+}
+
+/**
+ * Páginas de [target]: no básico, o que a GUI do Orca mostra no modo simples (as alteradas
+ * sempre aparecem); numa busca, as que casam com ela. [page] é a aba escolhida.
+ */
+private fun settingsPages(state: SlicerUiState, target: SettingsTarget, query: String, advanced: Boolean, page: String): SettingsPages {
+    val settings = state.objectSettings.getOrNull(target.objectIndex) ?: ObjectSettings()
+    val values = when (target.kind) {
+        SettingsTarget.Kind.OBJECT -> settings.values
+        SettingsTarget.Kind.RANGE -> settings.ranges.getOrNull(target.index)?.values.orEmpty()
+        SettingsTarget.Kind.VOLUME -> settings.parts.getOrNull(target.index).orEmpty()
+    }
+    val process = state.presets[PresetKind.PROCESS]?.values?.values.orEmpty()
+    val allowed = state.settingsKeys[target.kind].orEmpty()
+    val trimmed = query.trim()
+    val pages = state.optionDefs[PresetKind.PROCESS].orEmpty().filter { it.key in allowed && it.key in process }.filter { def ->
+        if (trimmed.isNotEmpty()) listOf(def.label, def.key, def.tooltip).any { it.contains(trimmed, ignoreCase = true) }
+        else def.key in values || advanced || (def.simple && def.group.isNotEmpty())
+    }.groupBy { it.page.ifEmpty { OTHERS_PAGE } }.toList()
+    return SettingsPages(pages, pages.indexOfFirst { it.first == page }.takeIf { it >= 0 } ?: 0, values, process)
+}
+
+/** Busca, Básico/Avançado e as abas; [stacked]: um embaixo do outro (painel estreito). */
+@Composable
+private fun PageControls(
+    pages: SettingsPages,
+    query: String,
+    onQuery: (String) -> Unit,
+    advanced: Boolean,
+    onAdvanced: (Boolean) -> Unit,
+    onPage: (String) -> Unit,
+    stacked: Boolean,
+) {
+    val search = @Composable { modifier: Modifier ->
+        FormField(
+            query, onQuery, stringResource(R.string.search_parameters), modifier,
+            trailingIcon = {
+                if (query.isEmpty()) Icon(painterResource(R.drawable.ic_search), null)
+                else IconButton(onClick = { onQuery("") }) { Icon(painterResource(R.drawable.ic_close), stringResource(R.string.clear)) }
+            },
+        )
+    }
+    val mode = @Composable { modifier: Modifier ->
+        SegmentedTabs(
+            listOf(Segment(stringResource(R.string.basic)), Segment(stringResource(R.string.advanced))),
+            if (advanced) 1 else 0, { onAdvanced(it == 1) }, modifier, check = false, compact = true,
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (stacked) {
+            mode(Modifier.fillMaxWidth())
+            search(Modifier.fillMaxWidth())
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                search(Modifier.weight(1f))
+                mode(Modifier.widthIn(max = 220.dp))
+            }
+        }
+        val general = stringResource(R.string.category_general)
+        IconTabs(
+            pages.pages.map { (key, list) ->
+                // Rótulo traduzido da página; as opções sem página vêm depois das dela.
+                IconTab(pageIcon(key), list.firstOrNull { it.category.isNotEmpty() }?.category ?: general, list.count { it.key in pages.values })
+            },
+            pages.selected, { onPage(pages.pages[it].first) }, Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/** Opção [index] da aba: título do grupo do Orca acima da primeira do grupo, e o editor. */
+@Composable
+private fun PageOption(
+    state: SlicerUiState,
+    viewModel: SlicerViewModel,
+    target: SettingsTarget,
+    pages: SettingsPages,
+    index: Int,
+    def: OptionDef,
+    dense: Boolean,
+) {
+    val shown = pages.shown
+    if (def.group.isNotEmpty() && def.group != shown.getOrNull(index - 1)?.group) {
+        Text(
+            def.group, style = if (dense) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = if (index == 0) 8.dp else if (dense) 10.dp else 16.dp, bottom = 2.dp),
+        )
+    }
+    val own = pages.values[def.key]
+    OptionRow(
+        def, own ?: pages.process[def.key], pages.process[def.key].takeIf { own != null }, advanced = false, enabled = state.editable,
+        onReset = { viewModel.eraseSetting(target, def.key) },
+        dense = dense,
+        savedLabel = R.string.process_value,
+    ) { viewModel.setSetting(target, def.key, it) }
+    if (!dense) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 /** Página do Orca que recebe também as opções sem página (fora da GUI do Orca). */

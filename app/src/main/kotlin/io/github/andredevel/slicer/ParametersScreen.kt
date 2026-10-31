@@ -560,5 +560,5 @@ fun ProcessParametersSection(state: SlicerUiState, viewModel: SlicerViewModel, o
     }
 }
 
-private val DENSE_FIELD_HEIGHT = 34.dp
+internal val DENSE_FIELD_HEIGHT = 34.dp
 
