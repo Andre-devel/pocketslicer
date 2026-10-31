@@ -77,10 +77,13 @@ import kotlinx.coroutines.launch
  * larga, as três colunas lado a lado; na estreita, a lista e o formulário por cima dela.
  */
 @Composable
-fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier) {
+fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier, startNew: Boolean = false) {
     val wide = LocalConfiguration.current.screenWidthDp >= WIDE_DP
-    // Impressora em edição (salva ou nova); na tela larga começa pela primeira da lista.
-    var editing by remember { mutableStateOf(if (wide) state.printers.firstOrNull() ?: newHost(viewModel) else null) }
+    // Impressora em edição (salva ou nova); com [startNew] um cadastro novo, senão na tela larga
+    // a primeira da lista.
+    var editing by remember(startNew) {
+        mutableStateOf(if (startNew) newHost(viewModel) else if (wide) state.printers.firstOrNull() ?: newHost(viewModel) else null)
+    }
     val edit = { host: PrinterHost? ->
         // O resultado do último teste não vale para outra impressora.
         viewModel.cancelSend()

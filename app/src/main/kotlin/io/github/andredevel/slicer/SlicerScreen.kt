@@ -159,8 +159,11 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
     // conforme a pré-visualização do ViewModel.
     var page by rememberSaveable { mutableStateOf<Destination?>(null) }
     var filter by rememberSaveable(stateSaver = ParameterFilterSaver) { mutableStateOf(ParameterFilter()) }
+    // Impressoras aberta por "Adicionar impressora" (envio): começa num cadastro novo.
+    var addingPrinter by rememberSaveable { mutableStateOf(false) }
     val current = page ?: if (state.previewVisible) Destination.PREVIEW else Destination.PREPARE
     val navigate = { destination: Destination ->
+        addingPrinter = false
         when (destination) {
             Destination.PREPARE, Destination.PREVIEW -> {
                 page = null
@@ -207,11 +210,11 @@ fun SlicerScreen(viewModel: SlicerViewModel = viewModel()) {
                 VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
             Box(Modifier.weight(1f).fillMaxHeight()) {
-                Workspace(state, viewModel, pickers, openParameters, onAddPrinter = { page = Destination.PRINTERS })
+                Workspace(state, viewModel, pickers, openParameters, onAddPrinter = { addingPrinter = true; page = Destination.PRINTERS })
                 val overlay = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).blockTouches()
                 when (page) {
                     Destination.PARAMETERS -> ParametersScreen(state, viewModel, filter, { filter = it }, overlay)
-                    Destination.PRINTERS -> PrintersScreen(state, viewModel, overlay)
+                    Destination.PRINTERS -> PrintersScreen(state, viewModel, overlay, startNew = addingPrinter)
                     Destination.SETTINGS -> SettingsScreen(state, viewModel, overlay)
                     else -> {}
                 }
