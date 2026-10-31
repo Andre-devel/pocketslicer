@@ -9,12 +9,17 @@ define o print_stats.state inicial. No emulador, o endereço do PC é
 
 --u1 TIPO:RRGGBB,,... simula a Snapmaker U1: o objeto print_task_config com o filamento de cada
 cabeça (vazio = sem filamento), GET /server/files/metadata e POST /printer/gcode/script, que
-registra o SDCARD_PRINT_FILE_WITH_PARAMETERS recebido e inicia como /printer/print/start.
+registra o SDCARD_PRINT_FILE_WITH_PARAMETERS recebido e inicia como /printer/print/start. Também
+a câmera de fábrica: GET /server/files/camera/monitor.jpg (uma imagem com a hora, precisa do
+Pillow) só responde até 30 s depois do último camera.start_monitor no WebSocket /websocket.
 
 Uso: scripts/fake-moonraker.py [--port 7125] [--api-key CHAVE] [--state standby]
      [--u1 PLA:FF0000,PETG:000000,,] [pasta]
 """
 import argparse
+import base64
+import hashlib
+import io
 import email.parser
 import email.policy
 import json
@@ -37,7 +42,7 @@ def main():
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
-    state = {"print_stats": args.state, "filename": "", "started": None}
+    state = {"print_stats": args.state, "filename": "", "started": None, "monitor": 0}
 
     def status():
         """print_stats e virtual_sdcard; a impressão "termina" em 300 s."""
@@ -95,10 +100,65 @@ def main():
                 return False
             return True
 
+        def websocket(self):
+            """JSON-RPC pelo WebSocket; só camera.start_monitor (u1-moonraker repeater.py) responde."""
+            accept = base64.b64encode(hashlib.sha1((self.headers["Sec-WebSocket-Key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+            # O navegador só aceita o 101 em HTTP/1.1.
+            self.protocol_version = "HTTP/1.1"
+            self.send_response(101)
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.end_headers()
+            self.wfile.flush()
+            sock = self.rfile
+            while True:
+                head = sock.read(2)
+                if len(head) < 2:
+                    return
+                opcode, length = head[0] & 15, head[1] & 127
+                if length == 126:
+                    length = int.from_bytes(sock.read(2), "big")
+                elif length == 127:
+                    length = int.from_bytes(sock.read(8), "big")
+                mask = sock.read(4) if head[1] & 128 else b"\0\0\0\0"
+                payload = bytes(b ^ mask[i % 4] for i, b in enumerate(sock.read(length)))
+                if opcode == 8:
+                    return
+                if opcode != 1:
+                    continue
+                request = json.loads(payload)
+                if request.get("method") == "camera.start_monitor":
+                    state["monitor"] = time.time()
+                    print(f"camera.start_monitor {request.get('params')}", file=sys.stderr)
+                answer = json.dumps({"jsonrpc": "2.0", "result": {"state": "success"}, "id": request.get("id")}).encode()
+                header = bytes([0x81, len(answer)]) if len(answer) < 126 else bytes([0x81, 126]) + len(answer).to_bytes(2, "big")
+                self.wfile.write(header + answer)
+                self.wfile.flush()
+
+        def monitor_jpg(self):
+            from PIL import Image, ImageDraw
+            image = Image.new("RGB", (640, 360), (40, 90, 140))
+            ImageDraw.Draw(image).text((20, 20), "U1 falsa " + time.strftime("%H:%M:%S"), fill=(255, 255, 255))
+            data = io.BytesIO()
+            image.save(data, "JPEG")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data.getvalue())))
+            self.end_headers()
+            self.wfile.write(data.getvalue())
+
         def do_GET(self):
             if not self.authorized():
                 return
-            if self.path == "/server/info":
+            if self.path == "/websocket" and args.u1 is not None:
+                self.websocket()
+            elif self.path.startswith("/server/files/camera/monitor.jpg") and args.u1 is not None:
+                if time.time() - state["monitor"] < 30:
+                    self.monitor_jpg()
+                else:
+                    self.reply(404, {"error": {"code": 404, "message": "File does not exist"}})
+            elif self.path == "/server/info":
                 self.reply(200, {"result": {"klippy_connected": True, "klippy_state": "ready",
                                             "moonraker_version": "v0.9.3-fake"}})
             elif self.path.startswith("/server/files/metadata?") and args.u1 is not None:

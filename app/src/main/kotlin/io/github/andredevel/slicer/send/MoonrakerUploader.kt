@@ -454,7 +454,10 @@ object MoonrakerUploader : Uploader {
     /**
      * A primeira câmera ligada do Moonraker (`/server/webcams/list`), com o caminho relativo
      * resolvido no endereço da impressora (o nginx da porta 80, como no Fluidd). Sem câmera
-     * cadastrada, a da Creality K2, que só fala WebRTC na porta 8000.
+     * cadastrada: na Snapmaker U1 de fábrica, a foto que ela grava em `camera/monitor.jpg`
+     * enquanto recebe `camera.start_monitor` pelo WebSocket do Moonraker (u1-moonraker
+     * components/repeater.py; o pedido não existe por HTTP); senão a da Creality K2, que só fala
+     * WebRTC na porta 8000.
      */
     override suspend fun camera(host: PrinterHost): Camera? {
         val api = api(host)
@@ -477,6 +480,11 @@ object MoonrakerUploader : Uploader {
                 URL(URL(api.protocol, api.host, ""), url).toString(), still, cam.optInt("rotation"),
                 cam.optBoolean("flip_horizontal"), cam.optBoolean("flip_vertical"),
             )
+        }
+        if (u1Slots(api, host) != null) {
+            // java.net.URL não aceita o esquema ws.
+            val socket = (if (api.protocol == "https") "wss://" else "ws://") + api.authority + "/websocket"
+            return Camera.Image(api.resolve("/server/files/camera/monitor.jpg").toString(), snapshot = true, monitorSocket = socket)
         }
         val signaling = URL(api.protocol, api.host, CREALITY_WEBRTC_PORT, "/call/webrtc_local")
         val creality = try {

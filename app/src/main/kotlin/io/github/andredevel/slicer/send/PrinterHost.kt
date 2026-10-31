@@ -104,11 +104,13 @@ const val HUMID_PERCENT = 60
 sealed interface Camera {
     /**
      * Imagem pela URL: [url] é um fluxo MJPEG, ou com [snapshot] uma foto a recarregar; [rotation]
-     * em graus e os espelhamentos como o Moonraker informa.
+     * em graus e os espelhamentos como o Moonraker informa. [monitorSocket]: WebSocket do Moonraker
+     * da Snapmaker U1, onde `camera.start_monitor` mantém a foto atualizada.
      */
     data class Image(
         val url: String, val snapshot: Boolean = false, val rotation: Int = 0,
         val flipHorizontal: Boolean = false, val flipVertical: Boolean = false,
+        val monitorSocket: String? = null,
     ) : Camera
 
     /** WebRTC da Creality (K2): oferta em base64 por POST em [signalingUrl] (`:8000/call/webrtc_local`). */

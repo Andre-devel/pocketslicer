@@ -102,7 +102,7 @@ private fun page(camera: Camera): String {
     val config = when (camera) {
         is Camera.Image -> JSONObject()
             .put("type", "image").put("url", camera.url).put("snapshot", camera.snapshot)
-            .put("transform", transform(camera))
+            .put("transform", transform(camera)).put("monitor", camera.monitorSocket ?: JSONObject.NULL)
         is Camera.CrealityWebRtc -> JSONObject().put("type", "webrtc").put("url", camera.signalingUrl)
     }
     return PAGE.replace("/*CONFIG*/", config.toString())
@@ -131,15 +131,31 @@ if (c.type === 'image') {
   img.hidden = false;
   img.style.transform = c.transform;
   let shown = false;
+  let errors = 0;
   img.onload = () => {
+    errors = 0;
     if (!shown) { shown = true; Camera.playing(); }
     if (c.snapshot) setTimeout(load, 1000);
   };
-  img.onerror = () => fail('HTTP');
+  // A foto da U1 só existe depois do primeiro camera.start_monitor: tenta de novo por um tempo.
+  img.onerror = () => {
+    if (!c.snapshot || ++errors >= 10) { shown = false; fail('HTTP'); }
+    if (c.snapshot) setTimeout(load, 1000);
+  };
   const load = () => { img.src = c.snapshot ? c.url + (c.url.includes('?') ? '&' : '?') + 't=' + Date.now() : c.url; };
+  if (c.monitor) monitor();
   load();
 } else {
   start().catch(e => fail(e && e.message || e));
+}
+// Snapmaker U1: a câmera para quando ninguém pede, então camera.start_monitor vai a cada 10 s
+// (como o guia do SimplyPrint), reabrindo o WebSocket se ele cair.
+function monitor() {
+  const socket = new WebSocket(c.monitor);
+  let timer = null;
+  const send = () => socket.send(JSON.stringify({ jsonrpc: '2.0', method: 'camera.start_monitor', params: { domain: 'lan', interval: 0 }, id: Date.now() }));
+  socket.onopen = () => { send(); timer = setInterval(send, 10000); };
+  socket.onclose = () => { clearInterval(timer); setTimeout(monitor, 5000); };
 }
 async function start() {
   const pc = new RTCPeerConnection();
