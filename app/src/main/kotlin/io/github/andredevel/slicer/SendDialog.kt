@@ -314,16 +314,25 @@ private fun ConfirmPrint(
 private fun MappingRow(filament: Int, color: FloatArray?, name: String?, slots: List<Slot>, slot: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
     FilamentLabel(filament, color, name, Modifier.padding(top = 4.dp))
     Row(Modifier.padding(start = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(
-            Modifier.size(12.dp)
-                .background(slots.getOrNull(slot)?.color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.outline, CircleShape)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-        )
+        SlotSwatch(slots.getOrNull(slot))
         val labels = slots.map { s ->
             listOf(slotName(s), if (s.loaded) s.type else stringResource(R.string.slot_empty)).filterNotNull().joinToString(" · ")
         }
-        SelectField(slot.toString(), slots.indices.map { it.toString() }, { onSelect(it.toInt()) }, Modifier.weight(1f), labels = labels, enabled = enabled)
+        SelectField(
+            slot.toString(), slots.indices.map { it.toString() }, { onSelect(it.toInt()) }, Modifier.weight(1f),
+            labels = labels, enabled = enabled, leading = { SlotSwatch(slots[it]) },
+        )
     }
+}
+
+/** Cor do filamento carregado na posição; cinza se vazia ou sem cor informada. */
+@Composable
+private fun SlotSwatch(slot: Slot?) {
+    Box(
+        Modifier.size(12.dp)
+            .background(slot?.color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.outline, CircleShape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+    )
 }
 
 /** "Cabeça 2" na U1, "Slot 1A" (caixa e posição) no CFS da Creality, "Box 1, posição 3" na QIDI. */

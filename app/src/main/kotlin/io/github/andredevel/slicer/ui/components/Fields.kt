@@ -257,6 +257,7 @@ fun SelectField(
     labels: List<String> = options,
     enabled: Boolean = true,
     prefix: String? = null,
+    leading: (@Composable (index: Int) -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val shown = options.indexOf(value).takeIf { it >= 0 }?.let(labels::getOrNull) ?: value.orEmpty()
@@ -310,6 +311,7 @@ fun SelectField(
                             color = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
                         )
                     },
+                    leadingIcon = leading?.let { { it(index) } },
                     trailingIcon = if (selected) ({ Icon(painterResource(R.drawable.ic_check), null, tint = MaterialTheme.colorScheme.primary) }) else null,
                     onClick = {
                         expanded = false
