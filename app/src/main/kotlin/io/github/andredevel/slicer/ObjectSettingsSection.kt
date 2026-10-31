@@ -16,7 +16,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.andredevel.slicer.core.HeightRange
-import io.github.andredevel.slicer.core.OptionDef
 import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SettingsTarget
@@ -49,9 +49,13 @@ import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.ButtonStyle
 import io.github.andredevel.slicer.ui.components.FormField
+import io.github.andredevel.slicer.ui.components.IconTab
+import io.github.andredevel.slicer.ui.components.IconTabs
 import io.github.andredevel.slicer.ui.components.NavigationRow
 import io.github.andredevel.slicer.ui.components.NumberField
 import io.github.andredevel.slicer.ui.components.SectionLabel
+import io.github.andredevel.slicer.ui.components.Segment
+import io.github.andredevel.slicer.ui.components.SegmentedTabs
 import io.github.andredevel.slicer.ui.components.SelectField
 import io.github.andredevel.slicer.ui.theme.MonoStyles
 import java.util.Locale
@@ -261,8 +265,9 @@ private fun mm(value: Double): String =
     String.format(Locale.getDefault(), "%.2f", value).trimEnd('0').trimEnd(',', '.')
 
 /**
- * Editor das opções de [target]: as alteradas, com o valor do processo ao lado (↺ volta a ele),
- * e a busca para acrescentar outra. Numa faixa, também os limites.
+ * Editor das opções de [target], como o modo Objeto do Creality Print: uma aba com ícone por
+ * página do processo e as opções dela com o valor que vale ali. Mudar um valor o substitui só
+ * no alvo; ↺ volta ao do processo. Numa faixa, também os limites.
  */
 @Composable
 internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, target: SettingsTarget, onDismiss: () -> Unit) {
@@ -277,12 +282,20 @@ internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, ta
     val process = state.presets[PresetKind.PROCESS]?.values?.values.orEmpty()
     val allowed = state.settingsKeys[target.kind].orEmpty()
     val defs = state.optionDefs[PresetKind.PROCESS].orEmpty().filter { it.key in allowed && it.key in process }
-    val changed = defs.filter { it.key in values }
     var query by rememberSaveable(target) { mutableStateOf("") }
+    var advanced by rememberSaveable(target) { mutableStateOf(false) }
+    var page by rememberSaveable(target) { mutableStateOf("") }
     val trimmed = query.trim()
-    val candidates = defs.filter { it.key !in values }.filter { def ->
-        if (trimmed.isEmpty()) def.simple else listOf(def.label, def.key).any { it.contains(trimmed, ignoreCase = true) }
-    }
+    // No básico, o que a GUI do Orca mostra no modo simples; as alteradas sempre aparecem.
+    val pages = defs.filter { def ->
+        if (trimmed.isNotEmpty()) listOf(def.label, def.key, def.tooltip).any { it.contains(trimmed, ignoreCase = true) }
+        else def.key in values || advanced || (def.simple && def.group.isNotEmpty())
+    }.groupBy { it.page.ifEmpty { OTHERS_PAGE } }.toList()
+    val selected = pages.indexOfFirst { it.first == page }.takeIf { it >= 0 } ?: 0
+    val shown = pages.getOrNull(selected)?.second.orEmpty()
+    // Uma posição de rolagem por aba, como em Parâmetros.
+    val listStates = remember(target) { mutableMapOf<String, LazyListState>() }
+    val listState = listStates.getOrPut(pages.getOrNull(selected)?.first.orEmpty()) { LazyListState() }
     val enabled = state.editable
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -306,7 +319,27 @@ internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, ta
                     }
                     IconButton(onClick = onDismiss) { Icon(painterResource(R.drawable.ic_close), stringResource(R.string.close)) }
                 }
-                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FormField(
+                            query, { query = it }, stringResource(R.string.search_parameters), Modifier.weight(1f),
+                            trailingIcon = {
+                                if (query.isEmpty()) Icon(painterResource(R.drawable.ic_search), null)
+                                else IconButton(onClick = { query = "" }) { Icon(painterResource(R.drawable.ic_close), stringResource(R.string.clear)) }
+                            },
+                        )
+                        SegmentedTabs(
+                            listOf(Segment(stringResource(R.string.basic)), Segment(stringResource(R.string.advanced))),
+                            if (advanced) 1 else 0, { advanced = it == 1 }, Modifier.widthIn(max = 220.dp), check = false, compact = true,
+                        )
+                    }
+                    IconTabs(
+                        pages.map { (key, list) -> IconTab(pageIcon(key), list.first { it.category.isNotEmpty() || it === list.last() }.category.ifEmpty { stringResource(R.string.category_general) }, list.count { it.key in values }) },
+                        selected, { page = pages[it].first }, Modifier.fillMaxWidth(),
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp)) {
                     item(key = "hint") {
                         Text(
                             stringResource(
@@ -326,39 +359,26 @@ internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, ta
                             }
                         }
                     }
-                    if (changed.isEmpty()) {
+                    if (pages.isEmpty()) {
                         item(key = "empty") {
-                            Text(stringResource(R.string.settings_empty), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 16.dp))
+                            Text(stringResource(R.string.settings_no_match), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 16.dp))
                         }
                     }
-                    items(changed, key = { "changed-${it.key}" }) { def ->
+                    itemsIndexed(shown, key = { _, def -> "option-${def.key}" }) { index, def ->
+                        // Grupo da página do Orca ("Layer height"...) acima da primeira opção dele.
+                        if (def.group.isNotEmpty() && def.group != shown.getOrNull(index - 1)?.group) {
+                            Text(
+                                def.group, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = if (index == 0) 8.dp else 16.dp, bottom = 2.dp),
+                            )
+                        }
+                        val own = values[def.key]
                         OptionRow(
-                            def, values[def.key], process[def.key], advanced = false, enabled = enabled,
+                            def, own ?: process[def.key], process[def.key].takeIf { own != null }, advanced, enabled,
                             onReset = { viewModel.eraseSetting(target, def.key) },
+                            savedLabel = R.string.process_value,
                         ) { viewModel.setSetting(target, def.key, it) }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    }
-                    item(key = "add") {
-                        SectionLabel(stringResource(R.string.settings_add_option), Modifier.padding(top = 20.dp, bottom = 8.dp))
-                        FormField(
-                            query, { query = it }, stringResource(R.string.search_parameters), Modifier.fillMaxWidth(),
-                            trailingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
-                        )
-                        if (trimmed.isEmpty()) {
-                            Text(
-                                stringResource(R.string.settings_suggested), style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp),
-                            )
-                        } else if (candidates.isEmpty()) {
-                            Text(stringResource(R.string.settings_no_match), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp))
-                        }
-                    }
-                    items(candidates, key = { "candidate-${it.key}" }) { def ->
-                        CandidateRow(def, enabled) {
-                            // Começa no valor do processo; o usuário muda em seguida.
-                            process[def.key]?.let { value -> viewModel.setSetting(target, def.key, value) }
-                            query = ""
-                        }
                     }
                 }
             }
@@ -366,20 +386,18 @@ internal fun SettingsEditor(state: SlicerUiState, viewModel: SlicerViewModel, ta
     }
 }
 
-@Composable
-private fun CandidateRow(def: OptionDef, enabled: Boolean, onAdd: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(enabled = enabled, onClick = onAdd).padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(def.label, style = MaterialTheme.typography.bodyMedium)
-            if (def.category.isNotEmpty()) {
-                Text(def.category, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Icon(painterResource(R.drawable.ic_add), stringResource(R.string.add), tint = MaterialTheme.colorScheme.primary)
-    }
+/** Página do Orca que recebe também as opções sem página (fora da GUI do Orca). */
+private const val OTHERS_PAGE = "Others"
+
+/** Ícone da página do processo no Orca ([OptionDef.page]). */
+private fun pageIcon(page: String) = when (page) {
+    "Quality" -> R.drawable.ic_diamond
+    "Strength" -> R.drawable.ic_fitness_center
+    "Speed" -> R.drawable.ic_speed
+    "Support" -> R.drawable.ic_foundation
+    "Multimaterial" -> R.drawable.ic_palette
+    OTHERS_PAGE -> R.drawable.ic_more_horiz
+    else -> R.drawable.ic_tune
 }
 
 /** Limites da faixa; um valor que inverte a faixa ou cruza outra ([others]) não é aplicado. */

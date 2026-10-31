@@ -368,10 +368,8 @@
     <string name="height_range_hint">Applies to the layers between these heights, measured from the object base.</string>
     <string name="height_range_error_order">The start must be below the end.</string>
     <string name="height_range_error_overlap">Overlaps the range %1$s.</string>
-    <string name="settings_object_hint">These values replace the process ones for this object only.</string>
-    <string name="settings_empty">No parameter changed: everything follows the process.</string>
-    <string name="settings_add_option">Add parameter</string>
-    <string name="settings_suggested">Common parameters</string>
+    <string name="settings_object_hint">A value changed here replaces the process one for this object only; ↺ goes back to it.</string>
+    <string name="process_value">Process: %1$s</string>
     <string name="settings_no_match">No parameter found.</string>
     <string name="delete_height_range">Delete range</string>
     <!-- Peças do objeto: modificadores, volumes negativos e de suporte -->
@@ -393,7 +391,7 @@
     <string name="part_shape_disc">Disc</string>
     <string name="part_shape_torus">Torus</string>
     <string name="part_settings">Part settings</string>
-    <string name="settings_part_hint">These values replace the process ones inside this part only.</string>
+    <string name="settings_part_hint">A value changed here replaces the process one inside this part only; ↺ goes back to it.</string>
     <string name="part_hint_negative">Removes material from the object where it overlaps it.</string>
     <string name="part_hint_support_blocker">No support is generated inside it.</string>
     <string name="part_hint_support_enforcer">With support on, support is always generated inside it.</string>

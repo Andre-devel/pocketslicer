@@ -3270,6 +3270,7 @@ std::string Engine::options_json(PresetKind kind) const
             {"key", key},
             {"label", label},
             {"category", i18n::translate(place != nullptr ? place->page : def->category)},
+            {"page", place != nullptr ? place->page : def->category},
             {"group", place != nullptr ? i18n::translate(place->group) : std::string()},
             {"tooltip", i18n::translate(def->tooltip)},
             {"sidetext", i18n::translate(def->sidetext)},

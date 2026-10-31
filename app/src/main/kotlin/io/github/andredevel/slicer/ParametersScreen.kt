@@ -2,6 +2,7 @@ package io.github.andredevel.slicer
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -367,7 +368,7 @@ private fun DirtyDot() = Box(Modifier.size(7.dp).background(MaterialTheme.colorS
 /**
  * Uma opção: rótulo (tocar mostra a dica), chave do Orca no modo avançado e o editor conforme
  * o tipo; [onCommit] recebe o valor no formato do Orca. [saved]: valor no preset salvo quando a
- * opção foi alterada, mostrado com ↺ ([onReset]) para voltar a ele.
+ * opção foi alterada, mostrado com ↺ ([onReset]) para voltar a ele; [savedLabel] diz de onde ele vem.
  */
 @Composable
 internal fun OptionRow(
@@ -379,6 +380,7 @@ internal fun OptionRow(
     onReset: () -> Unit,
     fallback: String? = null,
     dense: Boolean = false,
+    @StringRes savedLabel: Int = R.string.profile_value,
     onCommit: (String) -> Unit,
 ) {
     val dirty = saved != null
@@ -410,7 +412,7 @@ internal fun OptionRow(
             if (advanced) Text(def.key, style = MonoStyles.small, color = MaterialTheme.colorScheme.outline)
             if (saved != null) {
                 Text(
-                    stringResource(R.string.profile_value, if (saved == NIL) stringResource(R.string.override_off) else displayValue(def, saved)),
+                    stringResource(savedLabel, if (saved == NIL) stringResource(R.string.override_off) else displayValue(def, saved)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,

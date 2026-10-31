@@ -248,6 +248,8 @@ data class OptionDef(
     val key: String,
     val label: String,
     val category: String,
+    /** [category] sem tradução ("Quality", "Support"...), para escolher o ícone da página. */
+    val page: String,
     /** Grupo dentro da página ([category]) na aba do Orca; vazio se a GUI do Orca não mostra a opção. */
     val group: String,
     val tooltip: String,
@@ -724,6 +726,7 @@ private fun parseOptions(json: String): List<OptionDef> {
             key = o.getString("key"),
             label = o.getString("label"),
             category = o.getString("category"),
+            page = o.getString("page"),
             group = o.getString("group"),
             tooltip = o.getString("tooltip"),
             sidetext = o.getString("sidetext"),

@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -85,6 +87,40 @@ fun SegmentedTabs(
                     overflow = TextOverflow.Ellipsis,
                 )
                 segment.count?.takeIf { it > 0 }?.let { CountBadge(it) }
+            }
+        }
+    }
+}
+
+/** Aba de [IconTabs]: ícone, rótulo curto e, opcionalmente, um contador. */
+data class IconTab(@DrawableRes val icon: Int, val label: String, val count: Int? = null)
+
+/**
+ * Abas com ícone sobre o rótulo, como as páginas do processo no Creality Print/Orca
+ * (Qualidade, Resistência, Velocidade...); sem espaço para todas, rolam na horizontal.
+ */
+@Composable
+fun IconTabs(tabs: List<IconTab>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        tabs.forEachIndexed { index, tab ->
+            val isSelected = index == selected
+            val color = if (isSelected) scheme.primary else scheme.onSurfaceVariant
+            Column(
+                Modifier
+                    .widthIn(min = 64.dp)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(if (isSelected) scheme.primaryContainer else Color.Transparent)
+                    .selectable(isSelected, role = Role.Tab) { if (!isSelected) onSelect(index) }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Box {
+                    Icon(painterResource(tab.icon), null, Modifier.padding(horizontal = 10.dp).size(22.dp), tint = color)
+                    tab.count?.takeIf { it > 0 }?.let { CountBadge(it, Modifier.align(Alignment.TopEnd)) }
+                }
+                Text(tab.label, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
             }
         }
     }

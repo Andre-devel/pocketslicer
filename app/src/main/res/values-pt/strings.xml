@@ -364,10 +364,8 @@
     <string name="height_range_hint">Vale para as camadas entre essas alturas, medidas desde a base do objeto.</string>
     <string name="height_range_error_order">O início deve ficar abaixo do fim.</string>
     <string name="height_range_error_overlap">Cruza a faixa %1$s.</string>
-    <string name="settings_object_hint">Estes valores substituem os do processo só neste objeto.</string>
-    <string name="settings_empty">Nenhum parâmetro alterado: tudo segue o processo.</string>
-    <string name="settings_add_option">Acrescentar parâmetro</string>
-    <string name="settings_suggested">Parâmetros comuns</string>
+    <string name="settings_object_hint">Um valor alterado aqui substitui o do processo só neste objeto; ↺ volta a ele.</string>
+    <string name="process_value">Processo: %1$s</string>
     <string name="settings_no_match">Nenhum parâmetro encontrado.</string>
     <string name="delete_height_range">Excluir faixa</string>
     <!-- Peças do objeto: modificadores, volumes negativos e de suporte -->
@@ -389,7 +387,7 @@
     <string name="part_shape_disc">Disco</string>
     <string name="part_shape_torus">Toro</string>
     <string name="part_settings">Configuração da peça</string>
-    <string name="settings_part_hint">Estes valores substituem os do processo só dentro desta peça.</string>
+    <string name="settings_part_hint">Um valor alterado aqui substitui o do processo só dentro desta peça; ↺ volta a ele.</string>
     <string name="part_hint_negative">Tira material do objeto onde se sobrepõe a ele.</string>
     <string name="part_hint_support_blocker">Nenhum suporte é gerado dentro dela.</string>
     <string name="part_hint_support_enforcer">Com o suporte ligado, sempre gera suporte dentro dela.</string>
