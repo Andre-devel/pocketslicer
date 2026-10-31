@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -43,6 +44,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -189,6 +192,7 @@ fun ParametersScreen(
                             OptionRow(
                                 def, choice.values.values[def.key], saved, filter.advanced, enabled,
                                 onReset = { saved?.let { viewModel.setOption(filter.kind, def.key, it) } },
+                                fallback = choice.values.fallback[def.key],
                             ) {
                                 viewModel.setOption(filter.kind, def.key, it)
                             }
@@ -362,9 +366,16 @@ internal fun OptionRow(
     advanced: Boolean,
     enabled: Boolean,
     onReset: () -> Unit,
+    fallback: String? = null,
     onCommit: (String) -> Unit,
 ) {
     val dirty = saved != null
+    // Substituição do filamento (como a caixa da página Setting Overrides do Orca): desligada, o
+    // valor é "nil" e o editor mostra, apagado, o valor da impressora/processo que vale no lugar.
+    val override = def.nullable && fallback != null
+    val overridden = !override || value != NIL
+    @Suppress("NAME_SHADOWING")
+    val value = if (overridden) value else fallback
     var showTooltip by remember { mutableStateOf(false) }
     // Vetores com mais de um valor (vários extrusores) são editados como texto.
     val single = value != null && !(def.vector && ',' in value)
@@ -379,7 +390,7 @@ internal fun OptionRow(
             if (advanced) Text(def.key, style = MonoStyles.small, color = MaterialTheme.colorScheme.outline)
             if (saved != null) {
                 Text(
-                    stringResource(R.string.profile_value, displayValue(def, saved)),
+                    stringResource(R.string.profile_value, if (saved == NIL) stringResource(R.string.override_off) else displayValue(def, saved)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -407,7 +418,18 @@ internal fun OptionRow(
     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         label(Modifier.weight(1f))
         reset()
+        if (override) {
+            val description = stringResource(R.string.override_option, def.label)
+            Checkbox(
+                checked = overridden,
+                onCheckedChange = { onCommit(if (it) fallback!! else NIL) },
+                enabled = enabled,
+                modifier = Modifier.semantics { contentDescription = description },
+            )
+        }
         val editor = Modifier.width(EDITOR_WIDTH)
+        @Suppress("NAME_SHADOWING")
+        val enabled = enabled && overridden
         when {
             def.type == OptionType.BOOL -> Switch(checked = value == "1", onCheckedChange = { onCommit(if (it) "1" else "0") }, enabled = enabled)
             def.type == OptionType.ENUM && def.enumValues.isNotEmpty() -> SelectField(
@@ -440,6 +462,8 @@ private fun displayValue(def: OptionDef, value: String): String = when {
     else -> value
 }.replace('\n', ' ')
 
+/** Valor de uma opção que aceita nulo quando não substitui nada. */
+private const val NIL = "nil"
 private val NUMERIC_TYPES = setOf(OptionType.INT, OptionType.FLOAT, OptionType.PERCENT, OptionType.FLOAT_OR_PERCENT)
 private val EDITOR_WIDTH = 180.dp
 private const val WIDE_DP = 840

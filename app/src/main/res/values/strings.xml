@@ -244,6 +244,8 @@
     <string name="settings">Settings</string>
     <string name="settings_short">Settings</string>
     <string name="profile_value">Profile: %1$s</string>
+    <string name="override_option">Override %1$s</string>
+    <string name="override_off">Not overridden</string>
     <string name="reset_option">Restore the profile value</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>

@@ -3277,6 +3277,7 @@ std::string Engine::options_json(PresetKind kind) const
             {"vector", (int(def->type) & int(coVectorType)) != 0},
             {"mode", int(def->mode)},
             {"multiline", def->multiline || def->is_code},
+            {"nullable", def->nullable},
             {"enum_values", def->enum_values},
             {"enum_labels", translated(def->enum_labels)},
         };
@@ -3304,7 +3305,29 @@ std::string Engine::values_json(PresetKind kind) const
     for (const std::string &key : dirty)
         if (saved_config.has(key))
             saved[key] = saved_config.opt_serialize(key);
-    return nlohmann::json{{"values", values}, {"dirty", dirty}, {"saved", saved}}.dump();
+    // Substituições do filamento ("nil" = não substitui): o valor que vale no lugar, da opção sem
+    // o prefixo "filament_" na impressora ou no processo, como a página Setting Overrides do Orca.
+    nlohmann::json fallback = nlohmann::json::object();
+    const std::string prefix = "filament_";
+    if (kind == PresetKind::Filament)
+        for (const std::string &key : option_keys(kind)) {
+            const ConfigOptionDef *def = editable_def(key);
+            if (def == nullptr || !def->nullable || key.rfind(prefix, 0) != 0)
+                continue;
+            const std::string base = key.substr(prefix.size());
+            for (PresetKind source : {PresetKind::Printer, PresetKind::Process}) {
+                const DynamicPrintConfig &other = m->collection(source).get_edited_preset().config;
+                if (const auto *vector = dynamic_cast<const ConfigOptionVectorBase *>(other.option(base)); vector != nullptr && vector->size() > 0) {
+                    fallback[key] = vector->vserialize().front();
+                    break;
+                }
+                if (const ConfigOption *option = other.option(base); option != nullptr) {
+                    fallback[key] = option->serialize();
+                    break;
+                }
+            }
+        }
+    return nlohmann::json{{"values", values}, {"dirty", dirty}, {"saved", saved}, {"fallback", fallback}}.dump();
 }
 
 void Engine::set_option(PresetKind kind, const std::string &key, const std::string &value)

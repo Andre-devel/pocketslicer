@@ -256,6 +256,8 @@ data class OptionDef(
     val vector: Boolean,
     val simple: Boolean,
     val multiline: Boolean,
+    /** Aceita "nil" (substituição do filamento desligada: vale o valor da impressora/processo). */
+    val nullable: Boolean,
     val enumValues: List<String>,
     val enumLabels: List<String>,
     val min: Double?,
@@ -265,8 +267,14 @@ data class OptionDef(
 /**
  * Valores (serializados como no Orca) do preset em edição, as chaves alteradas desde o salvo e,
  * para elas, o valor no preset salvo ([saved]; passar a [SlicerEngine.setOption] restaura).
+ * [fallback]: para as opções que aceitam "nil", o valor que vale quando não há substituição.
  */
-data class PresetValues(val values: Map<String, String>, val dirty: Set<String>, val saved: Map<String, String> = emptyMap())
+data class PresetValues(
+    val values: Map<String, String>,
+    val dirty: Set<String>,
+    val saved: Map<String, String> = emptyMap(),
+    val fallback: Map<String, String> = emptyMap(),
+)
 
 fun interface SliceProgressListener {
     fun onProgress(percent: Int, text: String)
@@ -318,6 +326,7 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
             values = values.keys().asSequence().associateWith(values::getString),
             dirty = json.getJSONArray("dirty").strings().toSet(),
             saved = json.getJSONObject("saved").let { saved -> saved.keys().asSequence().associateWith(saved::getString) },
+            fallback = json.getJSONObject("fallback").let { fallback -> fallback.keys().asSequence().associateWith(fallback::getString) },
         )
     }
 
@@ -722,6 +731,7 @@ private fun parseOptions(json: String): List<OptionDef> {
             vector = o.getBoolean("vector"),
             simple = o.getInt("mode") == 0,
             multiline = o.getBoolean("multiline"),
+            nullable = o.optBoolean("nullable"),
             enumValues = o.getJSONArray("enum_values").strings(),
             enumLabels = o.getJSONArray("enum_labels").strings(),
             min = o.optDouble("min").takeUnless { it.isNaN() },

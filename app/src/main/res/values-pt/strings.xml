@@ -240,6 +240,8 @@
     <string name="settings">Configurações</string>
     <string name="settings_short">Ajustes</string>
     <string name="profile_value">Perfil: %1$s</string>
+    <string name="override_option">Substituir %1$s</string>
+    <string name="override_off">Sem substituição</string>
     <string name="reset_option">Voltar ao valor do perfil</string>
     <string name="yes">Sim</string>
     <string name="no">Não</string>
