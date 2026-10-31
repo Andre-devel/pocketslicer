@@ -312,9 +312,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private val setup = launchEngine(R.string.busy_installing_profiles) { engine ->
             applyLanguage(engine)
             val vendors = engine.vendors()
-            val vendor = if (DEFAULT_VENDOR in vendors) DEFAULT_VENDOR else vendors.first()
+            val last = withContext(Dispatchers.IO) { settings.lastProfile }
+            val vendor = last?.vendor?.takeIf { it in vendors } ?: if (DEFAULT_VENDOR in vendors) DEFAULT_VENDOR else vendors.first()
             _state.update { it.copy(vendors = PresetChoice(vendors)) }
             loadVendor(engine, vendor)
+            if (last != null && last.vendor == vendor) restoreProfile(engine, last)
         }
 
     init {
@@ -1226,11 +1228,34 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /**
+     * Volta aos perfis de [last] (os que ainda existem): impressora, processo e o filamento de cada
+     * filamento que o projeto novo já tem. Como a troca de impressora, sem marcar o projeto alterado.
+     */
+    private suspend fun restoreProfile(engine: SlicerEngine, last: LastProfile) {
+        runCatching { if (last.printer in engine.presets(PresetKind.PRINTER)) engine.select(PresetKind.PRINTER, last.printer) }
+        runCatching { if (last.process in engine.presets(PresetKind.PROCESS)) engine.select(PresetKind.PROCESS, last.process) }
+        val available = engine.presets(PresetKind.FILAMENT).toSet()
+        last.filaments.take(engine.filamentPresets().size).forEachIndexed { index, name ->
+            if (name in available) runCatching { engine.setFilamentPreset(index, name) }
+        }
+        refreshPresets(engine)
+        refreshScene(engine)
+    }
+
     private suspend fun refreshPresets(engine: SlicerEngine) {
         val presets = PresetKind.entries.associateWith {
             PresetChoice(engine.presets(it), engine.selected(it), engine.userPresets(it).toSet(), engine.values(it))
         }
         val filaments = engine.filamentPresets()
+        // Perfis em uso, para abrir com eles da próxima vez.
+        val vendor = _state.value.vendors.selected
+        val printer = presets[PresetKind.PRINTER]?.selected
+        val process = presets[PresetKind.PROCESS]?.selected
+        if (vendor != null && printer != null && process != null) {
+            val last = LastProfile(vendor, printer, process, filaments)
+            withContext(Dispatchers.IO) { if (settings.lastProfile != last) settings.lastProfile = last }
+        }
         val filamentTypes = engine.filamentTypes()
         val limits = engine.filamentLimits()
         val flush = engine.flushVolumes()

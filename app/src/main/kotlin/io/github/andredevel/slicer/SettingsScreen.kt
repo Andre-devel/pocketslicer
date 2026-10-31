@@ -29,6 +29,8 @@ import io.github.andredevel.slicer.ui.components.SelectField
 import java.text.NumberFormat
 import java.util.Currency
 import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Preferências do app em SharedPreferences. [currency]: código ISO 4217; null segue o idioma. */
 class SettingsStore(private val prefs: SharedPreferences) {
@@ -50,6 +52,27 @@ class SettingsStore(private val prefs: SharedPreferences) {
         get() = prefs.getInt(KEY_UI_SCALE, 0).takeIf { it in UI_SCALES }
         set(value) = prefs.edit().apply { if (value == null) remove(KEY_UI_SCALE) else putInt(KEY_UI_SCALE, value) }.apply()
 
+    /**
+     * Perfis em uso quando o app fechou (fabricante, impressora, processo e o filamento de cada
+     * filamento do projeto), restaurados ao abrir; null antes da primeira escolha.
+     */
+    var lastProfile: LastProfile?
+        get() = prefs.getString(KEY_LAST_PROFILE, null)?.let { text ->
+            runCatching {
+                val json = JSONObject(text)
+                val filaments = json.getJSONArray("filaments")
+                LastProfile(json.getString("vendor"), json.getString("printer"), json.getString("process"), List(filaments.length()) { filaments.getString(it) })
+            }.getOrNull()
+        }
+        set(value) = prefs.edit().apply {
+            if (value == null) remove(KEY_LAST_PROFILE)
+            else putString(
+                KEY_LAST_PROFILE,
+                JSONObject().put("vendor", value.vendor).put("printer", value.printer).put("process", value.process)
+                    .put("filaments", JSONArray(value.filaments)).toString(),
+            )
+        }.apply()
+
     /** Última procura automática por versão nova (System.currentTimeMillis). */
     var lastUpdateCheck: Long
         get() = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0)
@@ -61,8 +84,12 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_THEME = "theme"
         const val KEY_UI_SCALE = "ui_scale"
         const val KEY_LAST_UPDATE_CHECK = "last_update_check"
+        const val KEY_LAST_PROFILE = "last_profile"
     }
 }
+
+/** Perfis em uso, guardados por [SettingsStore.lastProfile]. */
+data class LastProfile(val vendor: String, val printer: String, val process: String, val filaments: List<String>)
 
 /** Tema claro ou escuro, ou o do sistema. */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
