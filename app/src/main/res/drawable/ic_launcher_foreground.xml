@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bico depositando camadas de um objeto fatiado. Dentro da zona segura (círculo de raio 33). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Bico: bloco aquecedor e ponta. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,27h16a2,2 0,0 1,2,2v8a2,2 0,0 1,-2,2h-16a2,2 0,0 1,-2,-2v-8a2,2 0,0 1,2,-2z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,40h12l-4,6h-4z" />
+    <!-- Camada sendo impressa. -->
+    <path
+        android:fillAlpha="0.6"
+        android:fillColor="#FFFFFF"
+        android:pathData="M49.5,50h9a2.5,2.5 0,0 1,0,5h-9a2.5,2.5 0,0 1,0,-5z" />
+    <!-- Camadas já impressas. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M43.5,57h21a2.5,2.5 0,0 1,0,5h-21a2.5,2.5 0,0 1,0,-5z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M37.5,64h33a2.5,2.5 0,0 1,0,5h-33a2.5,2.5 0,0 1,0,-5z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34.5,71h39a2.5,2.5 0,0 1,0,5h-39a2.5,2.5 0,0 1,0,-5z" />
+</vector>
