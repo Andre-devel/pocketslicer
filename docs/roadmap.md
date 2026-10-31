@@ -166,7 +166,7 @@ Creality, Box da QIDI).
      (0,1 a 8 mm, em todas as peças) e lacunas; vista em corte e "Apagar tudo". O objeto aparece
      nas cores dos filamentos ao pintar e depois. Conferido com o Orca 2.4.2 desktop: o 3MF pintado
      no app fatia lá igual (1710 e 238 mm de cada filamento, as mesmas trocas). As travas
-     "Vertical"/"Horizontal" do arraste do Orca não foram feitas.
+     "Vertical"/"Horizontal" do arraste (2026-10-31) são "Direção do traço" no painel.
 5. Reativar OpenVDB (hollowing, reparo) e OCCT (STEP) se o tamanho do APK permitir.
    - Feito (2026-10-31): importação de STEP (.step/.stp) com o OpenCASCADE 7.6 do Orca, compilado
      para Android; malha com a tolerância padrão do Orca (0,003 mm, 0,5°, sem separar compostos).
