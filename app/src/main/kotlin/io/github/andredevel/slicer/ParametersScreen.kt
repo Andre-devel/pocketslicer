@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -116,7 +116,10 @@ fun ParametersScreen(
     val defs = state.optionDefs[filter.kind].orEmpty()
     val general = stringResource(R.string.category_general)
     val categories = remember(defs, filter.advanced, query, general) { categories(defs, filter.advanced, query, general) }
-    val listState = rememberLazyListState()
+    // Uma posição de rolagem por aba: com uma só, a aba nova abria na posição da anterior
+    // (muitas vezes já no fim da lista, onde arrastar para cima não faz nada).
+    val listStates = remember { mutableMapOf<PresetKind, LazyListState>() }
+    val listState = listStates.getOrPut(filter.kind) { LazyListState() }
     val scope = rememberCoroutineScope()
 
     Row(modifier) {
