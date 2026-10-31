@@ -34,20 +34,25 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.core.OptionDef
 import io.github.andredevel.slicer.core.OptionType
@@ -60,6 +65,7 @@ import io.github.andredevel.slicer.ui.components.CommitField
 import io.github.andredevel.slicer.ui.components.CountBadge
 import io.github.andredevel.slicer.ui.components.FormField
 import io.github.andredevel.slicer.ui.components.InfoCard
+import io.github.andredevel.slicer.ui.components.LocalFieldHeight
 import io.github.andredevel.slicer.ui.components.ScreenHeader
 import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.Segment
@@ -81,6 +87,14 @@ private val KIND_LABELS = listOf(
 /** Categoria do PrintConfigDef e as opções visíveis dela. */
 private class Category(val name: String, val defs: List<OptionDef>)
 
+/** Páginas com as opções de [defs] que o modo ([advanced]) e a busca ([query]) mostram. */
+private fun categories(defs: List<OptionDef>, advanced: Boolean, query: String, general: String): List<Category> =
+    defs.filter { def ->
+        // No básico, só o que a GUI do Orca mostra (opções sem grupo ficam no avançado).
+        if (query.isEmpty()) advanced || (def.simple && def.group.isNotEmpty())
+        else listOf(def.label, def.key, def.tooltip).any { it.contains(query, ignoreCase = true) }
+    }.groupBy { it.category.ifEmpty { general } }.map { (name, list) -> Category(name, list) }
+
 /**
  * Parâmetros (RF-11/RF-12): perfil ativo, preset em edição e as opções dele. No modo básico,
  * as opções do modo simples da GUI do Orca; no avançado ou numa busca, todas, agrupadas pela
@@ -100,13 +114,7 @@ fun ParametersScreen(
     val query = filter.query.trim()
     val defs = state.optionDefs[filter.kind].orEmpty()
     val general = stringResource(R.string.category_general)
-    val categories = remember(defs, filter.advanced, query, general) {
-        defs.filter { def ->
-            // No básico, só o que a GUI do Orca mostra (opções sem grupo ficam no avançado).
-            if (query.isEmpty()) filter.advanced || (def.simple && def.group.isNotEmpty())
-            else listOf(def.label, def.key, def.tooltip).any { it.contains(query, ignoreCase = true) }
-        }.groupBy { it.category.ifEmpty { general } }.map { (name, list) -> Category(name, list) }
-    }
+    val categories = remember(defs, filter.advanced, query, general) { categories(defs, filter.advanced, query, general) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -180,14 +188,7 @@ fun ParametersScreen(
                         }
                         itemsIndexed(category.defs, key = { _, def -> "option-${filter.kind}-${def.key}" }) { index, def ->
                             // Grupo da aba do Orca ("Print temperature"...) acima da primeira opção dele.
-                            if (def.group.isNotEmpty() && def.group != category.defs.getOrNull(index - 1)?.group) {
-                                Text(
-                                    def.group,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = if (index == 0) 0.dp else 16.dp, bottom = 2.dp),
-                                )
-                            }
+                            GroupTitle(category.defs, index, MaterialTheme.typography.titleSmall, 16.dp)
                             val saved = choice.values.saved[def.key]?.takeIf { def.key in choice.values.dirty }
                             OptionRow(
                                 def, choice.values.values[def.key], saved, filter.advanced, enabled,
@@ -367,6 +368,7 @@ internal fun OptionRow(
     enabled: Boolean,
     onReset: () -> Unit,
     fallback: String? = null,
+    dense: Boolean = false,
     onCommit: (String) -> Unit,
 ) {
     val dirty = saved != null
@@ -382,13 +384,16 @@ internal fun OptionRow(
     // Listas de texto com um só valor curto (o tipo do filamento) cabem numa linha.
     val multiline = def.multiline || (def.type == OptionType.STRING && def.vector && value != null && (';' in value || '\n' in value))
     val label = @Composable { modifier: Modifier ->
-        Column(modifier.clickable(enabled = def.tooltip.isNotEmpty()) { showTooltip = !showTooltip }.padding(vertical = 6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier.clickable(enabled = def.tooltip.isNotEmpty()) { showTooltip = !showTooltip }.padding(vertical = if (dense) 2.dp else 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 8.dp)) {
                 if (dirty) DirtyDot()
-                Text(def.label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = MaterialTheme.typography.labelLarge.fontWeight))
+                Text(
+                    def.label,
+                    style = if (dense) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium.copy(fontWeight = MaterialTheme.typography.labelLarge.fontWeight),
+                )
             }
             if (advanced) Text(def.key, style = MonoStyles.small, color = MaterialTheme.colorScheme.outline)
-            if (saved != null) {
+            if (saved != null && !dense) {
                 Text(
                     stringResource(R.string.profile_value, if (saved == NIL) stringResource(R.string.override_off) else displayValue(def, saved)),
                     style = MaterialTheme.typography.bodySmall,
@@ -415,7 +420,11 @@ internal fun OptionRow(
         }
         return
     }
-    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = if (dense) 40.dp else 52.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 12.dp),
+    ) {
         label(Modifier.weight(1f))
         reset()
         if (override) {
@@ -427,11 +436,16 @@ internal fun OptionRow(
                 modifier = Modifier.semantics { contentDescription = description },
             )
         }
-        val editor = Modifier.width(EDITOR_WIDTH)
+        val editor = Modifier.width(if (dense) DENSE_EDITOR_WIDTH else EDITOR_WIDTH)
         @Suppress("NAME_SHADOWING")
         val enabled = enabled && overridden
         when {
-            def.type == OptionType.BOOL -> Switch(checked = value == "1", onCheckedChange = { onCommit(if (it) "1" else "0") }, enabled = enabled)
+            def.type == OptionType.BOOL -> Switch(
+                checked = value == "1",
+                onCheckedChange = { onCommit(if (it) "1" else "0") },
+                enabled = enabled,
+                modifier = if (dense) Modifier.scale(0.8f) else Modifier,
+            )
             def.type == OptionType.ENUM && def.enumValues.isNotEmpty() -> SelectField(
                 value, def.enumValues, onCommit, editor,
                 labels = if (def.enumLabels.size == def.enumValues.size) def.enumLabels else def.enumValues, enabled = enabled,
@@ -466,4 +480,66 @@ private fun displayValue(def: OptionDef, value: String): String = when {
 private const val NIL = "nil"
 private val NUMERIC_TYPES = setOf(OptionType.INT, OptionType.FLOAT, OptionType.PERCENT, OptionType.FLOAT_OR_PERCENT)
 private val EDITOR_WIDTH = 180.dp
+private val DENSE_EDITOR_WIDTH = 116.dp
 private const val WIDE_DP = 840
+
+/** Título do grupo da aba do Orca ("Print temperature"...) acima da primeira opção dele em [defs]. */
+@Composable
+private fun GroupTitle(defs: List<OptionDef>, index: Int, style: TextStyle, spacing: Dp) {
+    val def = defs[index]
+    if (def.group.isNotEmpty() && def.group != defs.getOrNull(index - 1)?.group) {
+        Text(
+            def.group,
+            style = style,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = if (index == 0) 0.dp else spacing, bottom = 2.dp),
+        )
+    }
+}
+
+/**
+ * Parâmetros do processo no painel lateral do Preparar, como a barra lateral do Orca: uma página
+ * por vez, linhas densas com o editor ao lado do nome. A tela Parâmetros continua com a lista toda.
+ */
+@Composable
+fun ProcessParametersSection(state: SlicerUiState, viewModel: SlicerViewModel, openParameters: (PresetKind) -> Unit) {
+    val kind = PresetKind.PROCESS
+    val enabled = state.busy == null && state.slice !is SliceState.Running
+    val choice = state.presets[kind] ?: PresetChoice()
+    val defs = state.optionDefs[kind].orEmpty()
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    var page by rememberSaveable { mutableStateOf("") }
+    val general = stringResource(R.string.category_general)
+    val categories = remember(defs, advanced, general) { categories(defs, advanced, "", general) }
+    // A página escolhida; a primeira se ela não existe no modo atual.
+    val category = categories.find { it.name == page } ?: categories.firstOrNull()
+
+    SectionLabel(stringResource(R.string.process_parameters)) {
+        AppIconButton(R.drawable.ic_open_in_full, stringResource(R.string.all_parameters), { openParameters(kind) })
+    }
+    SegmentedTabs(
+        listOf(Segment(stringResource(R.string.basic)), Segment(stringResource(R.string.advanced))),
+        if (advanced) 1 else 0,
+        { advanced = it == 1 },
+        Modifier.fillMaxWidth(),
+        compact = true,
+    )
+    CompositionLocalProvider(LocalFieldHeight provides DENSE_FIELD_HEIGHT) {
+        SelectField(category?.name, categories.map { it.name }, { page = it }, Modifier.fillMaxWidth(), enabled = categories.isNotEmpty())
+        Column {
+            category?.defs?.forEachIndexed { index, def ->
+                GroupTitle(category.defs, index, MaterialTheme.typography.labelLarge, 10.dp)
+                val saved = choice.values.saved[def.key]?.takeIf { def.key in choice.values.dirty }
+                OptionRow(
+                    def, choice.values.values[def.key], saved, advanced = false, enabled = enabled,
+                    onReset = { saved?.let { viewModel.setOption(kind, def.key, it) } },
+                    fallback = choice.values.fallback[def.key],
+                    dense = true,
+                ) { viewModel.setOption(kind, def.key, it) }
+            }
+        }
+    }
+}
+
+private val DENSE_FIELD_HEIGHT = 34.dp
+

@@ -246,6 +246,8 @@
     <string name="profile_value">Profile: %1$s</string>
     <string name="override_option">Override %1$s</string>
     <string name="override_off">Not overridden</string>
+    <string name="process_parameters">Process parameters</string>
+    <string name="all_parameters">All parameters</string>
     <string name="reset_option">Restore the profile value</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
