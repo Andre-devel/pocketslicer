@@ -68,12 +68,14 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.andredevel.slicer.core.ClipPlane
+import io.github.andredevel.slicer.core.Brush
 import io.github.andredevel.slicer.core.PaintKind
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.Thumbnail
 import io.github.andredevel.slicer.render.CameraView
 import io.github.andredevel.slicer.render.PaintOverlay
 import io.github.andredevel.slicer.render.PreviewSettings
+import io.github.andredevel.slicer.render.StrokeLock
 import io.github.andredevel.slicer.render.ViewportListener
 import io.github.andredevel.slicer.render.ViewportView
 import io.github.andredevel.slicer.ui.components.AppMark
@@ -463,6 +465,11 @@ private fun Viewport(
                 it.dark = dark
                 it.setScene(state.scene)
                 it.tool = state.tool
+                it.strokeLock = state.strokeLock.takeIf {
+                    // Mesma ferramenta que PaintPanel e SlicerViewModel.paint() usam.
+                    state.painting?.kind == PaintKind.COLOR && state.gapArea == null &&
+                        (state.brush.tool.takeIf { t -> t in PaintKind.COLOR.tools } ?: Brush.Tool.CIRCLE).lockable
+                } ?: StrokeLock.NONE
                 it.setPaint(state.painting?.let { p -> PaintOverlay(
                     p.objectIndex, p.mesh, p.highlightAngle, p.gaps, p.clipRatio, p.clipDirection,
                     state.scene?.filamentColors.takeIf { p.kind == PaintKind.COLOR },

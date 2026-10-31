@@ -56,6 +56,10 @@
     <string name="paint_height">Altura</string>
     <string name="paint_height_range">Faixa de altura</string>
     <string name="paint_edge_detection">Detecção de bordas</string>
+    <string name="paint_stroke_lock">Direção do traço</string>
+    <string name="paint_lock_free">Livre</string>
+    <string name="paint_lock_vertical">Vertical</string>
+    <string name="paint_lock_horizontal">Horizontal</string>
     <string name="paint_triangle_hint">Pinta só o triângulo tocado.</string>
     <string name="paint_section_view">Vista em corte</string>
     <string name="paint_reset_direction">Redefinir direção</string>

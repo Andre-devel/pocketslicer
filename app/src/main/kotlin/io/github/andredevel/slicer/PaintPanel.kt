@@ -29,6 +29,7 @@ import io.github.andredevel.slicer.core.PaintKind
 import io.github.andredevel.slicer.core.PaintState
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.core.SettingsTarget
+import io.github.andredevel.slicer.render.StrokeLock
 import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
@@ -49,6 +50,9 @@ internal val PaintKind.tools get() = when (this) {
     PaintKind.SEAM -> listOf(Brush.Tool.CIRCLE, Brush.Tool.SPHERE)
     PaintKind.COLOR -> listOf(Brush.Tool.CIRCLE, Brush.Tool.SPHERE, Brush.Tool.TRIANGLE, Brush.Tool.BUCKET_FILL, Brush.Tool.HEIGHT_RANGE)
 }
+
+/** Pincéis da pintura de cor com as travas "Vertical"/"Horizontal" ([StrokeLock]), como no Orca. */
+internal val Brush.Tool.lockable get() = this == Brush.Tool.CIRCLE || this == Brush.Tool.SPHERE || this == Brush.Tool.TRIANGLE
 
 /** Pinturas com "Preencher lacunas". */
 internal val PaintKind.hasGapFill get() = this == PaintKind.SUPPORT || this == PaintKind.COLOR
@@ -182,6 +186,18 @@ fun PaintPanel(state: SlicerUiState, viewModel: SlicerViewModel, painting: Paint
         ValueSlider(stringResource(R.string.paint_size), String.format(Locale.ROOT, "%.1f mm", brush.radius), brush.radius.toFloat(), 0.4f..8f) {
             viewModel.setBrush(brush.copy(radius = (it * 10).roundToInt() / 10.0))
         }
+    }
+    if (color && gapArea == null && tool.lockable) {
+        val locks = listOf(StrokeLock.NONE to R.string.paint_lock_free, StrokeLock.VERTICAL to R.string.paint_lock_vertical, StrokeLock.HORIZONTAL to R.string.paint_lock_horizontal)
+        Text(stringResource(R.string.paint_stroke_lock), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SegmentedTabs(
+            locks.map { Segment(stringResource(it.second)) },
+            locks.indexOfFirst { it.first == state.strokeLock },
+            { viewModel.setStrokeLock(locks[it].first) },
+            Modifier.fillMaxWidth(),
+            check = false,
+            compact = true,
+        )
     }
     if (support) {
         if (gapArea == null) {

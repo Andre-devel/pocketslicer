@@ -57,6 +57,10 @@
     <string name="paint_height">Height</string>
     <string name="paint_height_range">Height range</string>
     <string name="paint_edge_detection">Edge detection</string>
+    <string name="paint_stroke_lock">Stroke direction</string>
+    <string name="paint_lock_free">Free</string>
+    <string name="paint_lock_vertical">Vertical</string>
+    <string name="paint_lock_horizontal">Horizontal</string>
     <string name="paint_triangle_hint">Paints only the triangle you tap.</string>
     <string name="paint_section_view">Section view</string>
     <string name="paint_reset_direction">Reset direction</string>

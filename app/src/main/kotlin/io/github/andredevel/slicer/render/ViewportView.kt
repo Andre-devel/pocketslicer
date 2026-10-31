@@ -26,6 +26,12 @@ enum class Tool(val paintKind: PaintKind? = null) {
     PAINT_FUZZY_SKIN(PaintKind.FUZZY_SKIN), PAINT_COLOR(PaintKind.COLOR)
 }
 
+/**
+ * "Vertical"/"Horizontal" do gizmo de cor do Orca: no arraste da pintura, o dedo só move o pincel
+ * nessa direção da tela, e a outra coordenada fica a do começo do traço.
+ */
+enum class StrokeLock { NONE, VERTICAL, HORIZONTAL }
+
 /** Resultados dos gestos, entregues na thread principal. */
 interface ViewportListener {
     /** Toque num objeto (índice) ou fora deles (null); [part]: numa peça dele que não é do objeto. */
@@ -77,6 +83,7 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
 
     var listener: ViewportListener? = null
     var tool = Tool.MOVE
+    var strokeLock = StrokeLock.NONE
 
     // Thread principal: referência do gesto (centroide e distância entre os dedos).
     private var lastX = 0f
@@ -219,7 +226,11 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
                             paintObject != null -> {
                                 // Só depois de passar do touch slop: um segundo dedo antes disso não pinta.
                                 if (!paintStarted) paintAt(downX, downY, strokeStart = true)
-                                paintAt(x, y, strokeStart = false)
+                                paintAt(
+                                    if (strokeLock == StrokeLock.VERTICAL) downX else x,
+                                    if (strokeLock == StrokeLock.HORIZONTAL) downY else y,
+                                    strokeStart = false,
+                                )
                             }
                             dragObject != null -> drag(x, y, dx, dy)
                             draggingTower -> dragTower(x, y)

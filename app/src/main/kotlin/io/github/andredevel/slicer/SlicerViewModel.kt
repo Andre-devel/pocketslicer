@@ -32,6 +32,7 @@ import io.github.andredevel.slicer.core.Thumbnail
 import io.github.andredevel.slicer.profiles.OrcaResources
 import io.github.andredevel.slicer.render.Preview
 import io.github.andredevel.slicer.render.Scene
+import io.github.andredevel.slicer.render.StrokeLock
 import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.send.Connection
 import io.github.andredevel.slicer.send.Kind
@@ -228,6 +229,8 @@ data class SlicerUiState(
     val paintOnOverhangsOnly: Boolean = false,
     /** "Detecção de bordas" do balde da pintura de cor: limita o balde a [Brush.smartFillAngle] entre faces vizinhas. */
     val edgeDetection: Boolean = true,
+    /** Trava do traço da pintura de cor com os pincéis ([Brush.Tool.lockable]). */
+    val strokeLock: StrokeLock = StrokeLock.NONE,
     /** Com "Preencher lacunas" (suporte) escolhido no lugar de [brush]: a área máxima (mm²) dos trechos. */
     val gapArea: Float? = null,
     /** Viewport na pré-visualização do G-code (só com fatiamento concluído). */
@@ -775,6 +778,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun setPaintOnOverhangsOnly(only: Boolean) = _state.update { it.copy(paintOnOverhangsOnly = only) }
 
     fun setEdgeDetection(on: Boolean) = _state.update { it.copy(edgeDetection = on) }
+
+    fun setStrokeLock(lock: StrokeLock) = _state.update { it.copy(strokeLock = lock) }
 
     fun setHighlightAngle(angle: Float) = _state.update { state -> state.copy(painting = state.painting?.copy(highlightAngle = angle)) }
 
