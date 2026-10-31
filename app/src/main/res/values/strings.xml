@@ -332,6 +332,8 @@
     </plurals>
     <string name="category_general">General</string>
     <string name="filaments">Filaments</string>
+    <string name="expand">Expand</string>
+    <string name="collapse">Collapse</string>
     <string name="add_filament">Add filament</string>
     <string name="remove_filament">Remove filament %1$d</string>
     <string name="remove_filament_detail">Objects and painted areas that use filament %1$d move to filament 1.</string>

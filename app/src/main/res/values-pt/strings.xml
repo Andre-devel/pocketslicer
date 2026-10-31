@@ -328,6 +328,8 @@
     </plurals>
     <string name="category_general">Geral</string>
     <string name="filaments">Filamentos</string>
+    <string name="expand">Expandir</string>
+    <string name="collapse">Recolher</string>
     <string name="add_filament">Adicionar filamento</string>
     <string name="remove_filament">Excluir filamento %1$d</string>
     <string name="remove_filament_detail">Os objetos e as áreas pintadas do filamento %1$d passam para o filamento 1.</string>

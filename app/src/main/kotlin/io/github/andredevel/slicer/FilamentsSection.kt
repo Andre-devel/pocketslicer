@@ -24,6 +24,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
@@ -48,16 +53,35 @@ fun FilamentsSection(state: SlicerUiState, viewModel: SlicerViewModel, enabled: 
     var coloring by remember { mutableStateOf<Int?>(null) }
     var removing by remember { mutableStateOf<Int?>(null) }
     var flushing by remember { mutableStateOf(false) }
+    // Recolhida, a seção mostra só as cores; tocar no título ou nelas abre a lista.
+    var expanded by rememberSaveable { mutableStateOf(false) }
     val count = state.filaments.size
-    SectionLabel(stringResource(R.string.filaments)) {
+    val toggle = stringResource(if (expanded) R.string.collapse else R.string.expand)
+    SectionLabel(
+        stringResource(R.string.filaments) + " · $count",
+        Modifier.clip(MaterialTheme.shapes.small).clickable(onClickLabel = toggle) { expanded = !expanded },
+    ) {
         AppIconButton(
             R.drawable.ic_tune, stringResource(R.string.edit_filament_parameters), { openParameters(PresetKind.FILAMENT) },
             enabled = enabled,
         )
         AppIconButton(
-            R.drawable.ic_add, stringResource(R.string.add_filament), viewModel::addFilament,
+            R.drawable.ic_add, stringResource(R.string.add_filament), { expanded = true; viewModel.addFilament() },
             enabled = enabled && count < state.filamentLimits.last,
         )
+        Icon(
+            painterResource(R.drawable.ic_chevron_right), toggle,
+            Modifier.rotate(if (expanded) 270f else 90f), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    if (!expanded) {
+        FlowRow(
+            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { expanded = true },
+            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            for (i in 0 until count) ColorSwatch(state.scene?.filamentColors?.getOrNull(i), "${i + 1}", Modifier.size(28.dp))
+        }
+        return
     }
     val options = state.presets[PresetKind.FILAMENT]?.options.orEmpty()
     state.filaments.forEachIndexed { i, preset ->
