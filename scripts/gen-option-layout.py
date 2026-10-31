@@ -28,10 +28,16 @@ VECTOR = re.compile(r"std::vector<std::string>\s*(\w+)\s*\{")
 RANGE_FOR = re.compile(r"\bfor\s*\(.*?(\w+)\s*:\s*(\w+)\s*\)")
 APPEND_VAR = re.compile(r"append_option_line\(\s*optgroup\s*,\s*(?:\"(\w+)\"\s*\+\s*)?(\w+)\s*,")
 ASSIGN_OPTION = re.compile(r"Option\s+option\s*=\s*optgroup->get_option\(\"(\w+)\"")
+# Chamada sem argumentos de outra função da aba, como add_filament_overrides_page(): a página
+# dela entra nesse ponto da ordem de build(), não onde a função aparece no arquivo.
+CALL = re.compile(r"^\s*(\w+)\(\);")
 
 layout = {kind: [] for kind in TABS.values()}
 seen = {kind: set() for kind in TABS.values()}
-kind = page = group = line = None
+kind = page = group = line = func = None
+# Ordem das páginas em cada aba e a primeira página de cada função auxiliar.
+order = {kind: [] for kind in TABS.values()}
+helper_page = {}
 skip = 0
 in_loop = False
 vectors = {}
@@ -50,7 +56,7 @@ for raw in tab.read_text(encoding="utf-8").splitlines():
             skip -= 1
         continue
     if m := FUNC.match(raw):
-        kind = TABS.get(m.group(1))
+        kind, func = TABS.get(m.group(1)), m.group(2)
         line = None
         continue
     if kind is None:
@@ -58,6 +64,13 @@ for raw in tab.read_text(encoding="utf-8").splitlines():
     if m := PAGE.search(text):
         # Páginas dos extrusores: o nome vem de uma variável ("Extruder N").
         page, group, line = m.group(1) or "Extruder", "", None
+        helper_page.setdefault(func, page)
+        if page not in order[kind]:
+            order[kind].append(page)
+        continue
+    if func == "build" and (m := CALL.match(text)) and m.group(1) in helper_page:
+        order[kind].remove(helper_page[m.group(1)])
+        order[kind].append(helper_page[m.group(1)])
         continue
     if m := GROUP.search(text):
         group, line = m.group(1) or m.group(2) or "", None
@@ -102,6 +115,8 @@ for raw in tab.read_text(encoding="utf-8").splitlines():
     for key in IN_LINE.findall(text):
         add(key, line)
 
+for kind, entries in layout.items():
+    entries.sort(key=lambda e: order[kind].index(e[1]))
 out = ["// Gerado por scripts/gen-option-layout.py a partir do Tab.cpp do OrcaSlicer. Não editar."]
 for kind, entries in layout.items():
     out.append(f"static const OptionPlace {kind.lower()}_layout[] = {{")
