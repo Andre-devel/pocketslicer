@@ -111,6 +111,18 @@ class SlicerEngineTest {
         assertEquals(128f, offset[1], 0.01f)
     }
 
+    // screw.step: exemplo que acompanha o OpenCASCADE (data/step), malhado como no Orca.
+    @Test
+    fun stepModelIsMeshedAndSliced() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("screw.step"))
+        val mesh = engine.objects().single()
+        assertTrue(mesh.indices.size / 3 > 100)
+        assertEquals(0f, worldVertices(mesh, engine.placements().single()).minOf { it[2] }, 0.01f)
+        assertTrue(engine.slice(File(work, "screw.gcode")) { _, _ -> }.filamentMm3 > 0)
+    }
+
     @Test
     fun placementChangesKeepObjectOnBed() = runBlocking {
         engine.loadVendor("BBL")

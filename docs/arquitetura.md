@@ -56,7 +56,7 @@ estatísticas). Nada de UI do Orca (wxWidgets) é portado.
 | Clipper2, libnest2d, admesh, libigl, miniz, qhull, semver, qoi, glu-libtess, noise | Vendorizados em `src/` do Orca | Compilam junto |
 | CGAL 6.2 + GMP + MPFR | `libslic3r_cgal` (booleanos de malha, hull) | GMP/MPFR cross-compile; CGAL header-only |
 | OpenVDB + Blosc + Imath | Hollowing / SLA / mesh repair | **Fase 0: desligar** (`OpenVDB::openvdb` é condicional ao target existir). Reavaliar na fase 3 |
-| OCCT | Import STEP + `SLIC3R_CAD` | **Desligar** (`SLIC3R_CAD=0`); STEP fora do MVP. Patch para `#ifdef` o `Format/STEP.cpp` |
+| OCCT | Import STEP + `SLIC3R_CAD` | Compilado (7.6, estático) para o import de STEP; SVG e texto 3D seguem fora (stubs) |
 | OpenCV (`opencv_world`) | Link PUBLIC; uso restrito (imagens/texto) | **Stubar ou compilar módulos mínimos (core, imgproc)**. Investigar na fase 0 quais símbolos são realmente necessários |
 | mcut | Booleanos / corte | Compila junto (vendorizado) |
 | draco, assimp | Import de formatos extras (glTF, etc.) | Assimp: compilar só com STL/OBJ/3MF ou desligar; draco desligar |

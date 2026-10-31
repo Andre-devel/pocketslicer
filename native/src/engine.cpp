@@ -1034,12 +1034,21 @@ std::string vendor_of(const std::vector<std::pair<std::string, fs::path>> &vendo
     return {};
 }
 
+// Model::read_from_file não abre STEP; o Plater do Orca chama read_from_step com a
+// tolerância de malha das preferências (padrão 0,003 mm e 0,5°, sem separar compostos).
+Model read_model_file(const std::string &path, LoadStrategy strategy, DynamicPrintConfig *config = nullptr,
+                      ConfigSubstitutionContext *substitutions = nullptr)
+{
+    if (boost::iends_with(path, ".stp") || boost::iends_with(path, ".step"))
+        return Model::read_from_step(path, strategy, nullptr, nullptr, nullptr, 0.003, 0.5, false);
+    return Model::read_from_file(path, config, substitutions, strategy);
+}
+
 Model read_model(const std::string &path)
 {
     DynamicPrintConfig        config;
     ConfigSubstitutionContext substitutions(ForwardCompatibilitySubstitutionRule::EnableSilent);
-    Model model = Model::read_from_file(path, &config, &substitutions,
-                                        LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
+    Model model = read_model_file(path, LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances, &config, &substitutions);
     if (model.objects.empty())
         throw std::runtime_error(format(_u8L("No objects found in %1%."), fs::path(path).filename().string()));
     // Como a GUI do Orca: a origem de cada objeto passa a ser o centro da sua malha,
@@ -1899,7 +1908,7 @@ size_t Engine::add_part_from_file(size_t object, Part::Type type, const std::str
         throw std::invalid_argument("invalid part type");
     ModelObject &o = m->object(object);
     // ObjectList::load_modifier(), sem a galeria.
-    Model model = Model::read_from_file(path, nullptr, nullptr, LoadStrategy::LoadModel);
+    Model model = read_model_file(path, LoadStrategy::LoadModel);
     if (model.objects.empty())
         throw std::runtime_error(format(_u8L("No objects found in %1%."), fs::path(path).filename().string()));
     for (ModelObject *other : model.objects)

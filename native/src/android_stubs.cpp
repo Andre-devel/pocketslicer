@@ -1,7 +1,7 @@
-// Stubs for libslic3r entry points whose implementations need OpenCASCADE
-// or OpenCV. Those libraries are not built for Android (see
-// docs/arquitetura.md §2.3); the formats they back (STEP, SVG extrusion,
-// 3D text) are out of scope for the app. Each stub fails cleanly.
+// Stubs for libslic3r entry points left out of the Android build: SVG
+// extrusion and 3D text (OCCT fonts) and the OBJ color clustering (OpenCV,
+// not built for Android; see docs/arquitetura.md §2.3). They are out of
+// scope for the app. Each stub fails cleanly.
 // At the end, one GUI-side helper that libslic3r calls.
 
 #include <string>

@@ -60,10 +60,11 @@ set(SLIC3R_STATIC ON)
 set(SLIC3R_GUI OFF)
 set(SLIC3R_PCH OFF)
 set(SLIC3R_PROFILE OFF)
-set(SLIC3R_NO_OCCT ON)                 # patch em src/libslic3r/CMakeLists.txt
+set(SLIC3R_ANDROID ON)                 # patch em src/libslic3r/CMakeLists.txt (sem OpenCV)
+set(OpenCASCADE_DIR "${DEPS_PREFIX}/lib/cmake/opencascade")
 set(IS_CROSS_COMPILE TRUE)             # desliga encoding-check (dev-utils)
 set(SLIC3R_ENC_CHECK OFF CACHE BOOL "" FORCE)
-set(SLIC3R_NO_OCCT_STUBS "${CMAKE_CURRENT_SOURCE_DIR}/src/android_stubs.cpp")
+set(SLIC3R_ANDROID_STUBS "${CMAKE_CURRENT_SOURCE_DIR}/src/android_stubs.cpp")
 
 add_compile_definitions("$<IF:$<CONFIG:Debug>,DEBUG,NDEBUG>")
 # O toolchain do NDK sempre passa -g; em Release isso dá ~4 GB de objetos e um
