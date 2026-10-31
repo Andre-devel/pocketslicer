@@ -103,15 +103,21 @@ const val HUMID_PERCENT = 60
 /** Como mostrar a câmera de uma impressora ([Uploader.camera]). */
 sealed interface Camera {
     /**
-     * Imagem pela URL: [url] é um fluxo MJPEG, ou com [snapshot] uma foto a recarregar; [rotation]
-     * em graus e os espelhamentos como o Moonraker informa. [monitorSocket]: WebSocket do Moonraker
-     * da Snapmaker U1, onde `camera.start_monitor` mantém a foto atualizada.
+     * Imagem pela URL: [url] é um fluxo MJPEG, ou com [snapshot] uma foto a recarregar [fps] vezes
+     * por segundo (o `target_fps` do Moonraker); [rotation] em graus e os espelhamentos como o
+     * Moonraker informa. [monitorSocket]: WebSocket do Moonraker da Snapmaker U1, onde
+     * `camera.start_monitor` mantém a foto atualizada.
      */
     data class Image(
         val url: String, val snapshot: Boolean = false, val rotation: Int = 0,
         val flipHorizontal: Boolean = false, val flipVertical: Boolean = false,
-        val monitorSocket: String? = null,
-    ) : Camera
+        val monitorSocket: String? = null, val fps: Int = SNAPSHOT_FPS,
+    ) : Camera {
+        companion object {
+            /** Sem `target_fps`: a foto da U1 muda a cada ~2 s. */
+            const val SNAPSHOT_FPS = 1
+        }
+    }
 
     /** WebRTC da Creality (K2): oferta em base64 por POST em [signalingUrl] (`:8000/call/webrtc_local`). */
     data class CrealityWebRtc(val signalingUrl: String) : Camera

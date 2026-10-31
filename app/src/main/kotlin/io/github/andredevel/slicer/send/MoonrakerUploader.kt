@@ -45,7 +45,9 @@ object MoonrakerUploader : Uploader {
     private val EXTRUDERS = listOf("extruder", "extruder1", "extruder2", "extruder3")
     /** Sensor da câmara: da Creality (K2), da QIDI (aquecedor) e um nome comum. */
     private val CHAMBERS = listOf("temperature_sensor chamber_temp", "heater_generic chamber", "temperature_sensor chamber")
-    private val STATUS_OBJECTS = listOf("print_stats", "virtual_sdcard", "heater_bed", "box") + EXTRUDERS + CHAMBERS
+    /** Sensor de temperatura e umidade de cada Box da QIDI (Q2). */
+    private val QIDI_BOXES = (1..4).map { "aht20_f heater_box$it" }
+    private val STATUS_OBJECTS = listOf("print_stats", "virtual_sdcard", "heater_bed", "box") + EXTRUDERS + CHAMBERS + QIDI_BOXES
 
     /** Sinalização WebRTC da câmera da Creality K2 (`/call/webrtc_local`). */
     private const val CREALITY_WEBRTC_PORT = 8000
@@ -402,7 +404,7 @@ object MoonrakerUploader : Uploader {
         return PrinterStatus(
             state, progress = progress, file = file, raw = raw,
             temperatures = temperatures(objects), layer = layer?.takeIf { active }, layers = layers?.takeIf { active },
-            elapsed = elapsed, remaining = remaining, boxes = crealityBoxes(objects?.optJSONObject("box")),
+            elapsed = elapsed, remaining = remaining, boxes = crealityBoxes(objects?.optJSONObject("box")) + qidiBoxes(objects),
         )
     }
 
@@ -434,6 +436,16 @@ object MoonrakerUploader : Uploader {
                 temperature = unit.optString("temperature").toFloatOrNull(),
             )
         }
+    }
+
+    /** Box da QIDI ligadas: o AHT20 de cada uma (`aht20_f heater_boxN`) dá a temperatura e a umidade. */
+    private fun qidiBoxes(objects: JSONObject?): List<FilamentBox> = QIDI_BOXES.mapIndexedNotNull { i, name ->
+        val sensor = objects?.optJSONObject(name)?.takeIf { it.has("humidity") } ?: return@mapIndexedNotNull null
+        FilamentBox(
+            "Box ${i + 1}",
+            humidity = sensor.optDouble("humidity").takeIf { !it.isNaN() }?.toInt(),
+            temperature = sensor.optDouble("temperature").takeIf { !it.isNaN() }?.toFloat(),
+        )
     }
 
     /**
@@ -479,6 +491,7 @@ object MoonrakerUploader : Uploader {
             return Camera.Image(
                 URL(URL(api.protocol, api.host, ""), url).toString(), still, cam.optInt("rotation"),
                 cam.optBoolean("flip_horizontal"), cam.optBoolean("flip_vertical"),
+                fps = cam.optInt("target_fps", 0).takeIf { it > 0 } ?: Camera.Image.SNAPSHOT_FPS,
             )
         }
         if (u1Slots(api, host) != null) {

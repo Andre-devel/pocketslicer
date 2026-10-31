@@ -103,6 +103,7 @@ private fun page(camera: Camera): String {
         is Camera.Image -> JSONObject()
             .put("type", "image").put("url", camera.url).put("snapshot", camera.snapshot)
             .put("transform", transform(camera)).put("monitor", camera.monitorSocket ?: JSONObject.NULL)
+            .put("interval", 1000 / camera.fps.coerceIn(1, 30))
         is Camera.CrealityWebRtc -> JSONObject().put("type", "webrtc").put("url", camera.signalingUrl)
     }
     return PAGE.replace("/*CONFIG*/", config.toString())
@@ -115,7 +116,7 @@ private fun transform(camera: Camera.Image) = buildString {
     if (camera.flipVertical) append("scaleY(-1)")
 }.trim()
 
-/** Página da câmera; o marcador CONFIG recebe o tipo e a URL. A foto ([Camera.Image.snapshot]) recarrega a cada 1 s. */
+/** Página da câmera; o marcador CONFIG recebe o tipo, a URL e o intervalo entre fotos ([Camera.Image.fps]). */
 private const val PAGE = """<!doctype html>
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
@@ -135,7 +136,7 @@ if (c.type === 'image') {
   img.onload = () => {
     errors = 0;
     if (!shown) { shown = true; Camera.playing(); }
-    if (c.snapshot) setTimeout(load, 1000);
+    if (c.snapshot) setTimeout(load, c.interval);
   };
   // A foto da U1 só existe depois do primeiro camera.start_monitor: tenta de novo por um tempo.
   img.onerror = () => {
