@@ -3,7 +3,7 @@
 Estado em 2026-10-24. Objetivo da fase (ver [roadmap](roadmap.md)): `libslic3r` do
 OrcaSlicer fatiando um STL dentro do Android, sem UI, com G-code equivalente ao desktop.
 
-**Conclusão: gate aprovado no emulador.** Falta só repetir o teste num tablet arm64 real.
+**Conclusão: gate aprovado no emulador** e no Xiaomi Pad 7 (arm64): `scripts/test-device.sh` 5/5 em 2026-10-28.
 
 ## Como reproduzir
 

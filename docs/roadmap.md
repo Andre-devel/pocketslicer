@@ -4,7 +4,7 @@ Fases sequenciais; cada uma tem critério de saída objetivo. Estimativas assume
 em tempo parcial com apoio de IA; são ordens de grandeza, não compromissos.
 
 ## Fase 0 — Prova de conceito nativa (2–4 semanas) — **gate do projeto**
-**Status:** aprovado no emulador em 2026-10-24; falta confirmar em tablet arm64. Ver [fase0-resultados.md](fase0-resultados.md).
+**Status:** aprovado no emulador em 2026-10-24 e no Xiaomi Pad 7 (arm64) em 2026-10-28. Ver [fase0-resultados.md](fase0-resultados.md).
 Objetivo: `libslic3r` fatiando um STL dentro de um Android arm64, sem UI.
 
 1. Preparar ambiente: instalar NDK + CMake via `sdkmanager`, liberar disco, `JAVA_HOME` = JDK 17.
@@ -20,7 +20,7 @@ Objetivo: `libslic3r` fatiando um STL dentro de um Android arm64, sem UI.
 ## Fase 1 — Esqueleto do app (2–3 semanas)
 **Status:** itens 1–5 implementados em 2026-10-24 e validados no emulador (x86_64): APK abre STL
 pelo SAF, fatia e salva G-code; 3 testes instrumentados e a paridade de `scripts/test-device.sh`
-passam. Falta repetir num tablet arm64 real. Ver README para build e testes.
+passam; repetidos no Xiaomi Pad 7 (arm64, Android 15) em 2026-10-28. Ver README para build e testes.
 1. Projeto Gradle: `:app`, `:slicer-core`, `:profiles`; Compose; Kotlin 2.x; AGP atual; minSdk 29; `abiFilters arm64-v8a`.
 2. Bridge JNI (`bridge.cpp` + `SlicerEngine.kt`) cobrindo `create`, `load_model`, `list_presets`, `select_preset`, `slice`, `export_gcode`.
 3. Empacotar `resources/profiles` como asset comprimido; extração/índice na primeira execução.
@@ -42,7 +42,7 @@ vermelho, com aviso, e fatiamento recusado. Adicionar/duplicar rearranja todos o
 "Clonar" do Orca (o arranjo com objetos fixos do FirstFit do Orca os sobrepõe quando falha a 1ª tentativa).
 Item 4 implementado em 2026-10-24 e visto no emulador: barra superior (Adicionar modelo, Arranjar,
 Ocultar/Mostrar painel), painel lateral recolhível em paisagem e bottom sheet em retrato.
-Falta da fase 2: testar gestos de 2 dedos e desempenho com malhas grandes num tablet real.
+Gestos de 2 dedos, arranjo e projeto 3MF de 5 placas conferidos no Xiaomi Pad 7 em 2026-10-28.
 1. `SceneRenderer` GL ES 3: mesa do perfil, malha do modelo, câmera orbital, gestos.
 2. Seleção por toque, gizmo mover/rotacionar/escalar, campos numéricos, lay-on-face.
 3. Múltiplos objetos, duplicar/excluir, arranjo automático, aviso fora da mesa.
