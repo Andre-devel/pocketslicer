@@ -383,8 +383,13 @@ internal fun OptionRow(
     // valor é "nil" e o editor mostra, apagado, o valor da impressora/processo que vale no lugar.
     val override = def.nullable && fallback != null
     val overridden = !override || value != NIL
+    // Lista de texto com um só valor vazio: o Orca serializa como "" entre aspas, que aqui fica
+    // como campo vazio (e vazio volta a ser "").
+    val stringList = def.type == OptionType.STRING && def.vector
     @Suppress("NAME_SHADOWING")
-    val value = if (overridden) value else fallback
+    val value = (if (overridden) value else fallback)?.let { if (stringList && it == EMPTY_STRING_LIST) "" else it }
+    @Suppress("NAME_SHADOWING")
+    val onCommit = { text: String -> onCommit(if (stringList && text.isEmpty()) EMPTY_STRING_LIST else text) }
     var showTooltip by remember { mutableStateOf(false) }
     // Vetores com mais de um valor (vários extrusores) são editados como texto.
     val single = value != null && !(def.vector && ',' in value)
@@ -485,9 +490,10 @@ private fun displayValue(def: OptionDef, value: String): String = when {
 
 /** Valor de uma opção que aceita nulo quando não substitui nada. */
 private const val NIL = "nil"
+private const val EMPTY_STRING_LIST = "\"\""
 private val NUMERIC_TYPES = setOf(OptionType.INT, OptionType.FLOAT, OptionType.PERCENT, OptionType.FLOAT_OR_PERCENT)
 private val EDITOR_WIDTH = 180.dp
-private val DENSE_EDITOR_WIDTH = 116.dp
+private val DENSE_EDITOR_WIDTH = 144.dp
 private val LIST_MAX_WIDTH = 560.dp
 private const val WIDE_DP = 840
 
