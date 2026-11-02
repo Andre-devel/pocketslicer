@@ -3,6 +3,7 @@
 #include <map>
 #include <algorithm>
 #include <atomic>
+#include <deque>
 #include <iterator>
 #include <map>
 #include <queue>
@@ -144,6 +145,8 @@ struct Engine::Impl {
         Vec3f  point  = Vec3f::Zero();
     };
     std::optional<PaintHit> paint_last;
+    // O traço atual já guardou a mesa para o undo() (no primeiro toque que atingiu o objeto).
+    bool                    paint_saved = false;
 
     // Parâmetros do teste de calibração na mesa (calibrate()), que o gerador de G-code lê a cada
     // camada; Calib_None fora de um teste.
@@ -152,6 +155,58 @@ struct Engine::Impl {
     // de cada placa em slice().
     std::unique_ptr<CalibPressureAdvancePattern> pa_pattern;
     void calib_pa_pattern(bool junction_deviation);
+
+    // Mesa guardada para checkpoint()/undo()/redo(). As cópias do Model compartilham as malhas
+    // (ModelVolume::m_mesh) e mantêm os ObjectID, então cada uma custa pouco além da pintura.
+    struct Snapshot {
+        Model               model;
+        std::vector<Model>  plates;
+        size_t              plate = 0;
+        std::vector<double> wipe_tower_x, wipe_tower_y;
+    };
+    static constexpr size_t HISTORY_SIZE = 50;
+    std::deque<Snapshot>    undo_stack, redo_stack;
+
+    Snapshot snapshot() const
+    {
+        Snapshot out{model, plates, plate, {}, {}};
+        if (bundle) {
+            out.wipe_tower_x = bundle->project_config.option<ConfigOptionFloats>("wipe_tower_x")->values;
+            out.wipe_tower_y = bundle->project_config.option<ConfigOptionFloats>("wipe_tower_y")->values;
+        }
+        return out;
+    }
+
+    void restore_snapshot(Snapshot &&snapshot)
+    {
+        model  = std::move(snapshot.model);
+        plates = std::move(snapshot.plates);
+        plate  = snapshot.plate;
+        if (bundle && !snapshot.wipe_tower_x.empty()) {
+            bundle->project_config.option<ConfigOptionFloats>("wipe_tower_x")->values = std::move(snapshot.wipe_tower_x);
+            bundle->project_config.option<ConfigOptionFloats>("wipe_tower_y")->values = std::move(snapshot.wipe_tower_y);
+        }
+        // A pintura em andamento era das peças de antes.
+        paint_volumes.clear();
+        paint_last.reset();
+    }
+
+    // Volta a mesa de from, guardando a atual em to.
+    bool step_history(std::deque<Snapshot> &from, std::deque<Snapshot> &to)
+    {
+        if (from.empty())
+            return false;
+        to.push_back(snapshot());
+        restore_snapshot(std::move(from.back()));
+        from.pop_back();
+        return true;
+    }
+
+    void forget_history()
+    {
+        undo_stack.clear();
+        redo_stack.clear();
+    }
     PaintVolume &paint_volume(const ModelObject &object, PaintKind kind, const ModelVolume &volume);
 
     // Índice de um fabricante de vendors(): "<app>/<fabricante>" está em vendors_dir, e o
@@ -334,6 +389,7 @@ struct Engine::Impl {
         plate = 0;
         calib = Calib_Params();
         pa_pattern.reset();
+        forget_history();
     }
 
     Model &plate_model(size_t index)
@@ -613,6 +669,8 @@ void Engine::load_vendor(const std::string &vendor)
     }
     if (choices)
         m->restore(*choices);
+    if (m->filament_count() < colors.size())
+        m->forget_history();
 }
 
 std::vector<std::string> Engine::presets(PresetKind kind) const
@@ -669,8 +727,12 @@ void Engine::select(PresetKind kind, const std::string &name)
     case PresetKind::Printer: {
         const Impl::Choices choices = m->choices();
         const size_t        nozzles = m->bundle->project_config.option<ConfigOptionFloats>("flush_multiplier")->values.size();
+        const size_t        filaments = m->filament_count();
         collection.select_preset_by_name(name, true);
         m->bundle->update_multi_material_filament_presets();
+        // Menos filamentos: as mesas guardadas usariam os que saíram.
+        if (m->filament_count() < filaments)
+            m->forget_history();
         m->sync_filament_colors();
         // Outro número de bicos (projeto de 1 bico aberto na K3): a matriz foi refeita com o
         // flush_volumes_vector genérico (patch 0006); recalcula pelas cores, como ao adicionar.
@@ -1148,7 +1210,9 @@ void Engine::load_model(const std::string &path)
 
 void Engine::add_model(const std::string &path)
 {
-    m->add(read_model(path));
+    Model model = read_model(path);
+    checkpoint();
+    m->add(std::move(model));
 }
 
 std::string Engine::open_project(const std::string &path)
@@ -1444,6 +1508,22 @@ void Engine::arrange()
     m->arrange_all();
 }
 
+void Engine::checkpoint()
+{
+    m->undo_stack.push_back(m->snapshot());
+    if (m->undo_stack.size() > Impl::HISTORY_SIZE)
+        m->undo_stack.pop_front();
+    m->redo_stack.clear();
+}
+
+bool Engine::undo() { return m->step_history(m->undo_stack, m->redo_stack); }
+
+bool Engine::redo() { return m->step_history(m->redo_stack, m->undo_stack); }
+
+bool Engine::can_undo() const { return !m->undo_stack.empty(); }
+
+bool Engine::can_redo() const { return !m->redo_stack.empty(); }
+
 std::vector<ObjectMesh> Engine::objects() const
 {
     std::vector<ObjectMesh> out;
@@ -1634,6 +1714,8 @@ void Engine::remove_filament(size_t filament)
     const size_t count = m->filament_count();
     if (count <= filament_limits()[0])
         throw std::runtime_error(_u8L("Each extruder of the printer needs a filament."));
+    // As mesas guardadas usariam o filamento excluído e os números de antes.
+    m->forget_history();
     m->bundle->update_num_filaments(unsigned(filament));
     // A seleção do tipo Filamento é o preset do primeiro.
     m->select_filament(m->bundle->filament_presets.front());
@@ -1712,6 +1794,7 @@ void Engine::reorder_filaments(const std::vector<size_t> &order)
             config.set_key_value(key, new ConfigOptionInt(renumber(config.opt_int(key))));
     };
     static constexpr const char *FILAMENT_KEYS[] = {"extruder", "support_filament", "support_interface_filament"};
+    m->forget_history(); // as mesas guardadas têm os números de antes
 
     permute(m->bundle->filament_presets);
     DynamicPrintConfig &project = m->bundle->project_config;
@@ -2286,8 +2369,10 @@ bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3
     ModelObject &o = m->object(object);
     const Vec3d  world_origin(origin[0], origin[1], origin[2]);
     const Vec3d  world_direction(direction[0], direction[1], direction[2]);
-    if (stroke_start)
+    if (stroke_start) {
         m->paint_last.reset();
+        m->paint_saved = false;
+    }
 
     // A peça do objeto mais próxima no raio, como o MeshRaycaster do gizmo.
     const Transform3d instance = o.instances.front()->get_matrix();
@@ -2328,6 +2413,12 @@ bool Engine::paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3
         // Saiu do objeto: o próximo ponto que o atingir começa outro traço.
         m->paint_last.reset();
         return false;
+    }
+
+    if (!m->paint_saved) {
+        // checkpoint() guarda as peças, não paint_volumes: hit continua valendo.
+        checkpoint();
+        m->paint_saved = true;
     }
 
     // Como GLGizmoPainterBase::gizmo_event() com o botão apertado.
@@ -2473,6 +2564,9 @@ size_t Engine::fill_gaps(size_t object, PaintKind kind, double area)
         const size_t       changed = pv.selector->fill_gaps(area);
         if (changed == 0)
             continue;
+        // A pintura das peças ainda é a de antes: o seletor só passa para elas abaixo.
+        if (count == 0)
+            checkpoint();
         count += changed;
         FacetsAnnotation &facets = paint_facets(*volume, kind);
         facets.set(*pv.selector);

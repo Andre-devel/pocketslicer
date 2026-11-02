@@ -195,6 +195,57 @@ class SlicerEngineTest {
         assertArrangedWithoutOverlap()
     }
 
+    @Test
+    fun undoAndRedoRestoreTheBed() = runBlocking {
+        engine.loadVendor("BBL")
+        engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        assertEquals(History(), engine.history())
+
+        // addModel() guarda a mesa sozinho; o app chama checkpoint() antes das outras alterações.
+        engine.addModel(testAsset("voron_cube_v7.stl"))
+        assertEquals(History(canUndo = true), engine.history())
+        val before = engine.placements()[0]
+        engine.checkpoint()
+        engine.setPlacement(0, floatArrayOf(60f, 60f, 0f), before.rotation, before.scale)
+        val moved = engine.placements()[0]
+
+        assertTrue(engine.undo())
+        assertEquals(before.offset.toList(), engine.placements()[0].offset.toList())
+        assertEquals(History(canUndo = true, canRedo = true), engine.history())
+        assertTrue(engine.undo())
+        assertEquals(1, engine.objects().size)
+        assertTrue(!engine.undo())
+        assertTrue(engine.redo())
+        assertTrue(engine.redo())
+        assertEquals(moved.offset.toList(), engine.placements()[0].offset.toList())
+        assertTrue(!engine.redo())
+
+        // Placas: desfazer volta à placa da alteração.
+        engine.checkpoint()
+        engine.selectPlate(engine.addPlate())
+        assertEquals(listOf(2, 0), engine.plates().objects)
+        assertTrue(engine.undo())
+        assertEquals(listOf(2), engine.plates().objects)
+
+        // Pintura: um passo por traço que atinge o objeto; uma alteração nova esquece o refazer.
+        val history = engine.history()
+        val center = engine.placements()[0].offset
+        val down = floatArrayOf(0f, 0f, -1f)
+        assertTrue(!engine.paint(0, PaintKind.SUPPORT, floatArrayOf(-50f, -50f, 100f), down, Brush(), strokeStart = true))
+        assertEquals(history, engine.history())
+        assertTrue(engine.paint(0, PaintKind.SUPPORT, floatArrayOf(center[0], center[1], 100f), down, Brush(radius = 2.0), strokeStart = true))
+        assertEquals(History(canUndo = true), engine.history())
+        assertTrue(engine.painted(0, PaintKind.SUPPORT).states.isNotEmpty())
+        assertTrue(engine.undo())
+        assertTrue(engine.painted(0, PaintKind.SUPPORT).states.isEmpty())
+
+        // Excluir um filamento esquece o histórico: as mesas guardadas usariam os números de antes.
+        engine.addFilament()
+        engine.removeFilament(1)
+        assertEquals(History(), engine.history())
+    }
+
     /** Caixas XY sem sobreposição e todos os objetos dentro da mesa. */
     private suspend fun assertArrangedWithoutOverlap() {
         val boxes = engine.objects().zip(engine.placements()).map { (mesh, placement) ->

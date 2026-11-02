@@ -101,6 +101,8 @@ fun PrepareHeader(state: SlicerUiState, viewModel: SlicerViewModel, pickers: Fil
         var calibrating by remember { mutableStateOf(false) }
         FileMenu(state, pickers, viewModel::openRecent) { calibrating = true }
         if (calibrating) CalibrationDialog(state, { calibrating = false }, viewModel::calibrate)
+        AppIconButton(R.drawable.ic_undo, stringResource(R.string.undo), viewModel::undo, enabled = state.editable && state.history.canUndo)
+        AppIconButton(R.drawable.ic_redo, stringResource(R.string.redo), viewModel::redo, enabled = state.editable && state.history.canRedo)
         AppIconButton(
             R.drawable.ic_save, stringResource(R.string.save_project), pickers.saveProject,
             enabled = state.editable && state.projectObjectCount > 0,

@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -54,6 +55,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Ctrl+Z desfaz e Ctrl+Y (ou Ctrl+Shift+Z) refaz a última alteração da mesa, com teclado
+     * físico. Só chega aqui o que nenhuma view tratou: num campo de texto, desfaz o texto.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (event.isCtrlPressed && !event.isAltPressed) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_Z -> if (event.isShiftPressed) viewModel.redo() else viewModel.undo()
+                KeyEvent.KEYCODE_Y -> viewModel.redo()
+                else -> return super.onKeyDown(keyCode, event)
+            }
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onNewIntent(intent: Intent) {

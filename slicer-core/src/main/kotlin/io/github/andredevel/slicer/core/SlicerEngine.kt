@@ -184,6 +184,9 @@ data class Brush(
 /** [repaired]: alguma malha estava aberta e foi fechada; [paintRemoved]: o objeto tinha pintura. */
 data class RepairResult(val repaired: Boolean, val paintRemoved: Boolean)
 
+/** Se há o que desfazer e refazer na mesa ([SlicerEngine.checkpoint]). */
+data class History(val canUndo: Boolean = false, val canRedo: Boolean = false)
+
 /**
  * "Vista em corte" do gizmo de pintura, na mesa: o lado com [normal]·p > [offset] fica escondido
  * e não é pintado.
@@ -363,7 +366,7 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
      */
     suspend fun loadModel(file: File) = call { nativeLoadModel(handle, file.absolutePath) }
 
-    /** Acrescenta os objetos do arquivo; se a mesa já tinha objetos, todos são rearranjados. */
+    /** Acrescenta os objetos do arquivo; se a mesa já tinha objetos, todos são rearranjados. Pode ser desfeito ([undo]). */
     suspend fun addModel(file: File) = call { nativeAddModel(handle, file.absolutePath) }
 
     /**
@@ -439,6 +442,26 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
 
     /** Arranjo automático de todos os objetos na mesa. */
     suspend fun arrange() = call { nativeArrange(handle) }
+
+    /**
+     * Guarda a mesa antes de uma alteração, para [undo]: objetos (posições, peças, pintura,
+     * configurações próprias, filamento), placas, ações por altura e torre de limpeza; perfis e
+     * filamentos do projeto não entram. Esquece o que havia para [redo]. Abrir outra mesa,
+     * excluir ou reordenar filamentos, ou trocar para uma impressora com menos filamentos
+     * esquece o histórico. [addModel], [paint] e [fillGaps] guardam a mesa sozinhos, só quando mudam algo.
+     */
+    suspend fun checkpoint() = call { nativeCheckpoint(handle) }
+
+    /** Volta à mesa anterior (a placa dela fica na mesa); false se não havia. */
+    suspend fun undo(): Boolean = call { nativeUndo(handle) }
+
+    /** Desfaz o último [undo]; false se não havia. */
+    suspend fun redo(): Boolean = call { nativeRedo(handle) }
+
+    suspend fun history(): History = call {
+        val bits = nativeHistory(handle)
+        History(canUndo = bits and 1 != 0, canRedo = bits and 2 != 0)
+    }
 
     /** Malhas dos objetos, na mesma ordem de [placements]. */
     suspend fun objects(): List<ObjectMesh> = call { nativeObjects(handle).asList() }
@@ -801,6 +824,10 @@ private external fun nativeDuplicate(handle: Long, objectIndex: Int)
 private external fun nativeRepair(handle: Long, objectIndex: Int): Int
 private external fun nativeRemove(handle: Long, objectIndex: Int)
 private external fun nativeArrange(handle: Long)
+private external fun nativeCheckpoint(handle: Long)
+private external fun nativeUndo(handle: Long): Boolean
+private external fun nativeRedo(handle: Long): Boolean
+private external fun nativeHistory(handle: Long): Int
 private external fun nativeObjects(handle: Long): Array<ObjectMesh>
 private external fun nativeFilamentColors(handle: Long): Array<String>
 private external fun nativeFilamentPresets(handle: Long): Array<String>

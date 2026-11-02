@@ -14,6 +14,7 @@ import io.github.andredevel.slicer.core.Brush
 import io.github.andredevel.slicer.core.Calibration
 import io.github.andredevel.slicer.core.ClipPlane
 import io.github.andredevel.slicer.core.HeightRange
+import io.github.andredevel.slicer.core.History
 import io.github.andredevel.slicer.core.LayerChange
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.OptionDef
@@ -227,6 +228,8 @@ data class SlicerUiState(
     val scene: Scene? = null,
     /** Placas da mesa; Fatiar e Arranjar agem na escolhida. */
     val plates: Plates = Plates(listOf(0), 0),
+    /** Desfazer/refazer da mesa ([SlicerViewModel.undo]). */
+    val history: History = History(),
     val tool: Tool = Tool.MOVE,
     val painting: Painting? = null,
     /** Pincel das ferramentas de pintura; o ângulo das saliências vem de [Painting.highlightAngle]. */
@@ -711,7 +714,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun setObjectFilament(objectIndex: Int, filament: Int) = editFilaments { it.setObjectFilament(objectIndex, filament) }
+    fun setObjectFilament(objectIndex: Int, filament: Int) = editFilaments { engine ->
+        engine.checkpoint()
+        engine.setObjectFilament(objectIndex, filament)
+    }
 
     /** Purga da troca de [from] para [to] no extrusor [nozzle]. */
     fun setFlushVolume(nozzle: Int, from: Int, to: Int, volume: Double) = editFlush { engine ->
@@ -787,6 +793,25 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         null
     }
 
+    /** Ctrl+Z: volta a mesa de antes da última alteração ([SlicerEngine.checkpoint]). */
+    fun undo() = stepHistory { it.undo() }
+
+    /** Ctrl+Y: refaz o último [undo]. */
+    fun redo() = stepHistory { it.redo() }
+
+    private fun stepHistory(step: suspend (SlicerEngine) -> Boolean) {
+        if (!_state.value.editable) return
+        launchEngine(null) { engine ->
+            val plate = _state.value.plates.selected
+            if (!step(engine)) return@launchEngine
+            // Os objetos podem ser outros; a seleção fica se o índice ainda existir.
+            refreshScene(engine, engine.objects(), keepSelection = true)
+            if (_state.value.plates.selected == plate) markChanged(StaleReason(null))
+            else _state.update { it.copy(slice = SliceState.Idle, dirty = true) }
+            if (_state.value.projectObjectCount == 0) _state.update { it.copy(modelName = null) }
+        }
+    }
+
     /** [part]: uma peça do objeto, ou o objeto inteiro (null). */
     fun select(objectIndex: Int?, part: Int? = null) {
         _state.update { state ->
@@ -822,6 +847,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         launchEngine(null) { engine ->
             if (engine.fillGaps(painting.objectIndex, painting.kind, area.toDouble()) > 0) markChanged(StaleReason(app.getString(paintLabel(painting.kind))))
             refreshPainting(engine)
+            refreshHistory(engine)
         }
     }
 
@@ -847,9 +873,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun clearPaint() {
         val painting = _state.value.painting ?: return
         launchEngine(null) { engine ->
+            engine.checkpoint()
             engine.clearPaint(painting.objectIndex, painting.kind)
             markChanged(StaleReason(app.getString(paintLabel(painting.kind))))
             refreshPainting(engine)
+            refreshHistory(engine)
         }
     }
 
@@ -880,6 +908,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             val mesh = runCatching { engine.painted(ray.objectIndex, ray.kind) }.getOrElse { continue }
             markChanged(StaleReason(app.getString(paintLabel(ray.kind))))
             _state.update { state -> state.copy(painting = state.painting?.takeIf { it.objectIndex == ray.objectIndex && it.kind == ray.kind }?.copy(mesh = mesh)) }
+            refreshHistory(engine)
         }
     }
 
@@ -939,6 +968,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun editLayerChanges(edit: (List<LayerChange>) -> List<LayerChange>) = launchEngine(null) { engine ->
         try {
+            engine.checkpoint()
             engine.setLayerChanges(edit(engine.layerChanges()))
             markChanged(StaleReason(app.getString(R.string.layer_changes)))
         } finally {
@@ -965,6 +995,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun editSettings(reason: String, edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
         try {
+            engine.checkpoint()
             edit(engine)
             markChanged(StaleReason(reason))
         } finally {
@@ -1018,6 +1049,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private fun editParts(objectIndex: Int, type: Part.Type?, edit: suspend (SlicerEngine) -> Int?) = launchEngine(null) { engine ->
         var selectPart: Int? = _state.value.scene?.selectedPart
         try {
+            engine.checkpoint()
             selectPart = edit(engine)
             markChanged(StaleReason(app.getString(R.string.parts)))
         } finally {
@@ -1426,6 +1458,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val tower = engine.wipeTower()
         val layerChanges = engine.layerChanges()
         val filamentChange = engine.filamentChangeAvailable()
+        val history = engine.history()
         val parts = placements.indices.map { engine.parts(it) }
         val settings = placements.indices.map { index ->
             val ranges = engine.heightRanges(index).mapIndexed { i, range ->
@@ -1441,11 +1474,16 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             val selectedPart = state.scene?.selectedPart?.takeIf { selected != null && it < parts[selected].size }
             state.copy(
                 scene = Scene(bed, meshes ?: state.scene?.meshes.orEmpty(), placements, selected, colors, tower, parts, selectedPart),
-                plates = plates,
+                plates = plates, history = history,
                 layerChanges = layerChanges, filamentChangeAvailable = filamentChange, objectSettings = settings,
             )
         }
         refreshPainting(engine)
+    }
+
+    private suspend fun refreshHistory(engine: SlicerEngine) {
+        val history = engine.history()
+        _state.update { it.copy(history = history) }
     }
 
     /**
@@ -1473,6 +1511,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     ) = launchEngine(null) { engine ->
         var meshes: List<ObjectMesh>? = null
         try {
+            if (modifies) engine.checkpoint()
             meshes = edit(engine)
             if (samePlate) markChanged(StaleReason(null))
             else _state.update { it.copy(slice = SliceState.Idle, dirty = it.dirty || modifies) }

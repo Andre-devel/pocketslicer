@@ -278,7 +278,8 @@ public:
     // na mesa da impressora selecionada; trocar a impressora os recentraliza.
     void load_model(const std::string &path);
     // Como load_model(), mas acrescenta os objetos do arquivo. Se a mesa já tinha
-    // objetos, todos são rearranjados (como o "Clonar" da GUI do Orca).
+    // objetos, todos são rearranjados (como o "Clonar" da GUI do Orca). Lido o arquivo, chama
+    // checkpoint().
     void add_model(const std::string &path);
     // Projeto 3MF do Orca/Bambu Studio: objetos nas posições salvas e perfis com as
     // alterações, como a GUI do Orca abre. Carrega o fabricante da impressora do projeto
@@ -323,6 +324,18 @@ public:
     std::pair<bool, bool> repair(size_t object);
     // Arranjo automático de todos os objetos na mesa (libnest2d).
     void arrange();
+
+    // Desfazer/refazer da mesa, como o Ctrl+Z da GUI do Orca: objetos (posições, peças, pintura,
+    // configurações próprias, filamento), placas, ações por altura e torre de limpeza. Os perfis
+    // e os filamentos do projeto não entram. checkpoint() guarda a mesa antes de uma alteração
+    // e esquece o que havia para refazer. Abrir outra mesa, excluir ou reordenar filamentos, ou
+    // trocar para uma impressora com menos filamentos esquece o histórico.
+    void checkpoint();
+    // Voltam à mesa anterior/seguinte (a placa dela fica na mesa); false se não havia.
+    bool undo();
+    bool redo();
+    bool can_undo() const;
+    bool can_redo() const;
     std::vector<ObjectMesh> objects() const;
     // Cor de cada filamento do projeto ("#RRGGBB", filament_colour), pelo índice de
     // ObjectMesh::filaments.
@@ -410,12 +423,14 @@ public:
     // Pinta onde o raio (na mesa; origin na câmera ou no plano próximo dela) atinge as peças do
     // objeto. Num arraste (stroke_start false) liga o ponto ao do toque anterior, como o Orca
     // faz entre dois eventos do mouse. Com clip, só fora do lado escondido. Devolve se atingiu o objeto.
+    // O primeiro toque de cada traço que atinge o objeto chama checkpoint().
     bool paint(size_t object, PaintKind kind, const Vec3 &origin, const Vec3 &direction, const Brush &brush, bool stroke_start,
                const std::optional<ClipPlane> &clip = std::nullopt);
     PaintMesh painted(size_t object, PaintKind kind) const;
     // "Preencher lacunas" dos gizmos de suporte e de cor: cada trecho pintado ou não, de área menor que
     // area (mm², na malha da peça; o Orca permite até 5), passa ao estado vizinho. gaps() mostra
-    // esses trechos já no estado que vão receber; fill_gaps() os aplica e devolve quantos mudaram.
+    // esses trechos já no estado que vão receber; fill_gaps() os aplica e devolve quantos mudaram
+    // (com checkpoint() antes, se algum mudou).
     PaintMesh gaps(size_t object, PaintKind kind, double area);
     size_t fill_gaps(size_t object, PaintKind kind, double area);
     // "Apagar tudo" do gizmo.

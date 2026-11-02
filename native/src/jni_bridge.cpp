@@ -370,6 +370,31 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeArrange(JNIEnv *env, 
     guarded(env, [&] { engine(handle)->arrange(); });
 }
 
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeCheckpoint(JNIEnv *env, jclass, jlong handle)
+{
+    guarded(env, [&] { engine(handle)->checkpoint(); });
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeUndo(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return jboolean(engine(handle)->undo()); });
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRedo(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return jboolean(engine(handle)->redo()); });
+}
+
+// Bit 0: há o que desfazer; bit 1: há o que refazer.
+JNIEXPORT jint JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeHistory(JNIEnv *env, jclass, jlong handle)
+{
+    return guarded(env, [&] { return jint((engine(handle)->can_undo() ? 1 : 0) | (engine(handle)->can_redo() ? 2 : 0)); });
+}
+
 JNIEXPORT jobjectArray JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeObjects(JNIEnv *env, jclass, jlong handle)
 {
