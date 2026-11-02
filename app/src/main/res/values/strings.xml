@@ -142,6 +142,11 @@
     <string name="humidity_level">level %1$d of 5</string>
     <string name="humidity_warning">High humidity: %1$s</string>
     <string name="humidity_high_title">High humidity in %1$s: %2$s</string>
+    <string name="print_pause">Pause</string>
+    <string name="print_resume">Continue</string>
+    <string name="print_stop">Stop</string>
+    <string name="print_stop_title">Stop the print on %1$s?</string>
+    <string name="print_stop_text">The current print will be cancelled. It cannot be resumed afterwards.</string>
     <string name="printer_alert_title">Printer error %1$s</string>
     <string name="printer_alert_ai_quality">The AI camera found a print quality problem and paused the print. Check the part, then continue or stop on the printer.</string>
     <string name="printer_alert_ai_first_layer">The AI camera found a problem in the first layer and paused the print. Check the part, then continue or stop on the printer.</string>

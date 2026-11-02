@@ -13,14 +13,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.FilamentBox
+import io.github.andredevel.slicer.send.PrintAction
 import io.github.andredevel.slicer.send.PrinterAlert
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterStatus
@@ -47,10 +51,11 @@ import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.color
 import io.github.andredevel.slicer.ui.theme.MonoStyles
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Estado de uma impressora salva: câmera, impressão em curso (camada, tempos), temperaturas e
@@ -102,6 +107,7 @@ fun PrinterDetail(host: PrinterHost, status: PrinterStatus?, viewModel: SlicerVi
                 CameraView(it, Modifier.fillMaxWidth().widthIn(max = 720.dp).aspectRatio(16f / 9f).clip(MaterialTheme.shapes.medium))
             }
             if (status != null && status.busy) PrintProgress(status)
+            if (status != null && status.busy && viewModel.canControlPrinter(host)) PrintControls(host, status, viewModel)
             if (status != null && status.temperatures.isNotEmpty()) {
                 SectionLabel(stringResource(R.string.temperatures))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {
@@ -149,6 +155,58 @@ private fun PrintProgress(status: PrinterStatus) {
             val end = if (status.state == PrinterStatus.State.PRINTING) DateFormat.getTimeFormat(context).format(Date(System.currentTimeMillis() + it * 1000)) else null
             MetricTile(stringResource(R.string.remaining_time), formatDuration(it.toDouble()), Modifier.weight(1f).fillMaxRowHeight(), detail = end?.let { time -> stringResource(R.string.ends_at, time) })
         }
+    }
+}
+
+/**
+ * Pausar ou continuar e parar a impressão, como na tela da impressora; parar não tem volta e
+ * pede confirmação. Até o estado seguinte chegar os botões ficam desligados.
+ */
+@Composable
+private fun PrintControls(host: PrinterHost, status: PrinterStatus, viewModel: SlicerViewModel) {
+    val scope = rememberCoroutineScope()
+    var sending by remember(host) { mutableStateOf(false) }
+    var failure by remember(host) { mutableStateOf<String?>(null) }
+    var confirmStop by remember(host) { mutableStateOf(false) }
+    val context = LocalContext.current
+    fun run(action: PrintAction) {
+        sending = true
+        failure = null
+        scope.launch {
+            try {
+                viewModel.printerControl(host, action)
+            } catch (e: SendException) {
+                failure = context.getString(e.text, *e.args)
+            } finally {
+                sending = false
+            }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (status.state == PrinterStatus.State.PAUSED) {
+            AppButton(stringResource(R.string.print_resume), { run(PrintAction.RESUME) }, icon = R.drawable.ic_play_arrow, enabled = !sending)
+        } else {
+            AppButton(stringResource(R.string.print_pause), { run(PrintAction.PAUSE) }, style = ButtonStyle.TONAL, icon = R.drawable.ic_pause, enabled = !sending)
+        }
+        AppButton(
+            stringResource(R.string.print_stop), { confirmStop = true }, style = ButtonStyle.OUTLINED, icon = R.drawable.ic_stop,
+            enabled = !sending, color = MaterialTheme.colorScheme.error,
+        )
+    }
+    failure?.let { Banner(Tone.ERROR, it, Modifier.fillMaxWidth()) }
+    if (confirmStop) {
+        AlertDialog(
+            onDismissRequest = { confirmStop = false },
+            title = { Text(stringResource(R.string.print_stop_title, host.name)) },
+            text = { Text(listOfNotNull(status.file, stringResource(R.string.print_stop_text)).joinToString("\n")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmStop = false
+                    run(PrintAction.STOP)
+                }) { Text(stringResource(R.string.print_stop), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.cancel)) } },
+        )
     }
 }
 

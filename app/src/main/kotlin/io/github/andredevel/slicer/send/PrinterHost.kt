@@ -57,7 +57,15 @@ interface Uploader {
 
     /** Câmera da impressora, null se ela não tem (ou o app não sabe mostrar); falha com [SendException]. */
     suspend fun camera(host: PrinterHost): Camera? = null
+
+    /** Se [control] pausa, continua e para a impressão. */
+    val canControl: Boolean get() = false
+
+    /** Pausa, continua ou para a impressão em andamento; falha com [SendException]. */
+    suspend fun control(host: PrinterHost, action: PrintAction): Unit = throw UnsupportedOperationException()
 }
+
+enum class PrintAction { PAUSE, RESUME, STOP }
 
 /**
  * Estado ao vivo de uma impressora ([Uploader.status]). [progress] de 0 a 1 e [file] quando há

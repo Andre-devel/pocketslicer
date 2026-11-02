@@ -141,6 +141,11 @@
     <string name="humidity_level">nível %1$d de 5</string>
     <string name="humidity_warning">Umidade alta: %1$s</string>
     <string name="humidity_high_title">Umidade alta em %1$s: %2$s</string>
+    <string name="print_pause">Pausar</string>
+    <string name="print_resume">Continuar</string>
+    <string name="print_stop">Parar</string>
+    <string name="print_stop_title">Parar a impressão em %1$s?</string>
+    <string name="print_stop_text">A impressão atual será cancelada e não dá para continuar depois.</string>
     <string name="printer_alert_title">Erro na impressora %1$s</string>
     <string name="printer_alert_ai_quality">A câmera com IA achou um problema de qualidade e pausou a impressão. Confira a peça e continue ou pare na impressora.</string>
     <string name="printer_alert_ai_first_layer">A câmera com IA achou um problema na primeira camada e pausou a impressão. Confira a peça e continue ou pare na impressora.</string>

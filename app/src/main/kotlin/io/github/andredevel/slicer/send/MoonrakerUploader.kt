@@ -61,6 +61,8 @@ object MoonrakerUploader : Uploader {
 
     private const val CREALITY_CONNECT_MS = 3_000
     private const val CREALITY_READ_MS = 5_000
+    /** Tempo com o WebSocket aberto depois de um comando de [control]. */
+    private const val CREALITY_COMMAND_MS = 3_000
     /** Espera pelo `printFileName` que a Creality manda ao aceitar o início (veio em ~3 s na K2). */
     private const val CREALITY_ACCEPT_MS = 15_000
     /**
@@ -363,6 +365,45 @@ object MoonrakerUploader : Uploader {
     }
 
     override suspend fun status(host: PrinterHost): PrinterStatus = status(api(host), host)
+
+    override val canControl get() = true
+
+    /**
+     * Na K2/K3 (objeto `box` do CFS) pela tela da Creality, como o app dela: `set` `pause` 1/0 e
+     * `stop` 1 (de github.com/3dg1luk43/ha_creality_ws); só ela continua a pausa da detecção
+     * por IA, que vem antes de o Klipper começar o arquivo. Nas outras, pela API do Moonraker.
+     */
+    override suspend fun control(host: PrinterHost, action: PrintAction) {
+        val api = api(host)
+        val response = Http.get(api.resolve("/printer/objects/query?box"), headers(host))
+        check(response, host)
+        val creality = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")?.has("box") == true
+        if (creality) {
+            val params = when (action) {
+                PrintAction.PAUSE -> JSONObject().put("pause", 1)
+                PrintAction.RESUME -> JSONObject().put("pause", 0)
+                PrintAction.STOP -> JSONObject().put("stop", 1)
+            }
+            withContext(Dispatchers.IO) {
+                try {
+                    CrealitySocket.open(api.host, CREALITY_CONNECT_MS).use { socket ->
+                        socket.send(JSONObject().put("method", "set").put("params", params))
+                        // A K2 ignora o que chega se o WebSocket fecha logo depois (ver crealityStart).
+                        socket.awaitMessage(CREALITY_COMMAND_MS) { false }
+                    }
+                } catch (e: IOException) {
+                    throw SendException(R.string.send_error_unreachable, "${api.host}:${CrealitySocket.PORT}", cause = e)
+                }
+            }
+        } else {
+            val path = when (action) {
+                PrintAction.PAUSE -> "/printer/print/pause"
+                PrintAction.RESUME -> "/printer/print/resume"
+                PrintAction.STOP -> "/printer/print/cancel"
+            }
+            check(Http.postJson(api.resolve(path), headers(host), "{}"), host)
+        }
+    }
 
     /** Falha se o Klipper estiver imprimindo ou pausado (print_stats.state). */
     private suspend fun checkIdle(api: URL, host: PrinterHost) {
