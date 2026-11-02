@@ -232,7 +232,7 @@ fun PrinterStatusDot(status: PrinterStatus, modifier: Modifier = Modifier) {
     val (text, color) = when (status.state) {
         PrinterStatus.State.IDLE -> stringResource(R.string.printer_status_idle) to PocketTheme.colors.success
         PrinterStatus.State.PRINTING -> stringResource(R.string.printer_status_printing) + percent + file to MaterialTheme.colorScheme.primary
-        PrinterStatus.State.PAUSED -> stringResource(R.string.printer_status_paused) + percent + file to PocketTheme.colors.warning
+        PrinterStatus.State.PAUSED -> stringResource(R.string.printer_status_paused) + status.alert?.let { " · ${it.code}" }.orEmpty() + percent + file to PocketTheme.colors.warning
         PrinterStatus.State.ERROR -> stringResource(R.string.printer_status_error) + status.raw?.let { " · $it" }.orEmpty() to MaterialTheme.colorScheme.error
         PrinterStatus.State.OFFLINE -> stringResource(R.string.printer_status_offline) to MaterialTheme.colorScheme.outline
     }

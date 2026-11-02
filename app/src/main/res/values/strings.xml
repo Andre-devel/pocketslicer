@@ -142,6 +142,11 @@
     <string name="humidity_level">level %1$d of 5</string>
     <string name="humidity_warning">High humidity: %1$s</string>
     <string name="humidity_high_title">High humidity in %1$s: %2$s</string>
+    <string name="printer_alert_title">Printer error %1$s</string>
+    <string name="printer_alert_ai_quality">The AI camera found a print quality problem and paused the print. Check the part, then continue or stop on the printer.</string>
+    <string name="printer_alert_ai_first_layer">The AI camera found a problem in the first layer and paused the print. Check the part, then continue or stop on the printer.</string>
+    <string name="printer_alert_ai_foreign_object">The AI camera found something on the build plate and paused the print. Clear the plate, then continue or stop on the printer.</string>
+    <string name="printer_alert_unknown">See the printer screen for details.</string>
     <string name="humidity_high_text">Damp filament can string, bubble and print weak parts. Dry the filament and replace the box desiccant.</string>
     <string name="camera_error">Could not show the camera (%1$s).</string>
     <string name="send_preset_mismatch">This printer was added with the %1$s profile, but the file was sliced with %2$s.</string>

@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.FilamentBox
+import io.github.andredevel.slicer.send.PrinterAlert
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterStatus
 import io.github.andredevel.slicer.send.SendException
@@ -95,6 +96,7 @@ fun PrinterDetail(host: PrinterHost, status: PrinterStatus?, viewModel: SlicerVi
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (status != null) PrinterStatusDot(status) else Text(stringResource(R.string.printer_status_loading), style = MaterialTheme.typography.labelSmall)
+            status?.alert?.let { PrinterAlertBanner(it) }
             status?.let { HumidityBanners(it) }
             camera?.let {
                 CameraView(it, Modifier.fillMaxWidth().widthIn(max = 720.dp).aspectRatio(16f / 9f).clip(MaterialTheme.shapes.medium))
@@ -148,6 +150,18 @@ private fun PrintProgress(status: PrinterStatus) {
             MetricTile(stringResource(R.string.remaining_time), formatDuration(it.toDouble()), Modifier.weight(1f).fillMaxRowHeight(), detail = end?.let { time -> stringResource(R.string.ends_at, time) })
         }
     }
+}
+
+/** Erro que a impressora mostra na tela dela, com o texto dos códigos que o app conhece. */
+@Composable
+private fun PrinterAlertBanner(alert: PrinterAlert) {
+    val text = when (alert.number) {
+        101, 500 -> R.string.printer_alert_ai_quality
+        103, 503 -> R.string.printer_alert_ai_first_layer
+        104 -> R.string.printer_alert_ai_foreign_object
+        else -> R.string.printer_alert_unknown
+    }
+    Banner(Tone.ERROR, stringResource(text), Modifier.fillMaxWidth(), title = stringResource(R.string.printer_alert_title, alert.code))
 }
 
 /** Aviso de cada caixa de filamento úmida ([FilamentBox.humid]). */

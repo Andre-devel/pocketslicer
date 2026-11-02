@@ -63,7 +63,8 @@ interface Uploader {
  * Estado ao vivo de uma impressora ([Uploader.status]). [progress] de 0 a 1 e [file] quando há
  * impressão; [raw]: o estado como a impressora o informa ("printing", "RUNNING"...). Quando a
  * impressora informa: [temperatures], [layer] de [layers], [elapsed] e [remaining] em segundos
- * (só durante a impressão) e as caixas de filamento ([boxes]).
+ * (só durante a impressão) e as caixas de filamento ([boxes]). [alert]: erro que a impressora
+ * mostra na tela dela, como o objeto estranho na mesa da detecção por IA da Creality.
  */
 data class PrinterStatus(
     val state: State,
@@ -76,12 +77,19 @@ data class PrinterStatus(
     val elapsed: Long? = null,
     val remaining: Long? = null,
     val boxes: List<FilamentBox> = emptyList(),
+    val alert: PrinterAlert? = null,
 ) {
     enum class State { IDLE, PRINTING, PAUSED, ERROR, OFFLINE }
 
     /** Imprimindo ou pausada: dá para enviar, não para iniciar outra impressão. */
     val busy get() = state == State.PRINTING || state == State.PAUSED
 }
+
+/**
+ * Erro na tela da impressora: [code] como o app da Creality o mostra ("AC0104"; só o número,
+ * "0104", quando o app não conhece o prefixo do módulo) e [number], o número dele, para o texto.
+ */
+data class PrinterAlert(val code: String, val number: Int)
 
 /** Temperatura em °C de um aquecedor ou sensor; [index] separa os bicos (0 = o primeiro); [target] 0 = desligado. */
 data class Temperature(val source: Source, val current: Float, val target: Float? = null, val index: Int = 0) {

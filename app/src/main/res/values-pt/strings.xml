@@ -141,6 +141,11 @@
     <string name="humidity_level">nível %1$d de 5</string>
     <string name="humidity_warning">Umidade alta: %1$s</string>
     <string name="humidity_high_title">Umidade alta em %1$s: %2$s</string>
+    <string name="printer_alert_title">Erro na impressora %1$s</string>
+    <string name="printer_alert_ai_quality">A câmera com IA achou um problema de qualidade e pausou a impressão. Confira a peça e continue ou pare na impressora.</string>
+    <string name="printer_alert_ai_first_layer">A câmera com IA achou um problema na primeira camada e pausou a impressão. Confira a peça e continue ou pare na impressora.</string>
+    <string name="printer_alert_ai_foreign_object">A câmera com IA achou um objeto na mesa e pausou a impressão. Limpe a mesa e continue ou pare na impressora.</string>
+    <string name="printer_alert_unknown">Veja os detalhes na tela da impressora.</string>
     <string name="humidity_high_text">Filamento úmido solta fios, faz bolhas e deixa a peça fraca. Seque o filamento e troque a sílica da caixa.</string>
     <string name="camera_error">Não foi possível mostrar a câmera (%1$s).</string>
     <string name="send_preset_mismatch">Esta impressora foi cadastrada com o perfil %1$s, mas o arquivo foi fatiado com %2$s.</string>

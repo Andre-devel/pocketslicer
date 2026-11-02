@@ -14,6 +14,7 @@ import java.io.File
 import java.io.IOException
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -51,6 +52,12 @@ object MoonrakerUploader : Uploader {
 
     /** Sinalização WebRTC da câmera da Creality K2 (`/call/webrtc_local`). */
     private const val CREALITY_WEBRTC_PORT = 8000
+
+    /**
+     * Módulo dos códigos de erro da Creality pelo número (tabela da K2 Plus no fórum da Creality);
+     * o WebSocket só manda o número. AC = detecção por IA.
+     */
+    private val CREALITY_CODE_PREFIX = mapOf(101 to "AC", 103 to "AC", 104 to "AC", 500 to "AC", 503 to "AC")
 
     private const val CREALITY_CONNECT_MS = 3_000
     private const val CREALITY_READ_MS = 5_000
@@ -375,15 +382,18 @@ object MoonrakerUploader : Uploader {
         val stats = objects?.optJSONObject("print_stats")
         val sdcard = objects?.optJSONObject("virtual_sdcard")
         val raw = stats?.optString("state").orEmpty()
+        // Só a K2/K3 (com o objeto `box` do CFS) têm a interface da Creality.
+        val creality = if (objects?.has("box") == true) crealityScreen(api) else null
         val state = when (raw) {
             "printing" -> PrinterStatus.State.PRINTING
             "paused" -> PrinterStatus.State.PAUSED
             "error" -> PrinterStatus.State.ERROR
-            // standby, complete, cancelled.
-            else -> PrinterStatus.State.IDLE
+            // A K3 aquece, nivela e carrega o CFS (e a detecção por IA pode pausar) antes de o
+            // Klipper começar o arquivo: print_stats fica em standby e só a tela sabe da impressão.
+            else -> creality?.state ?: PrinterStatus.State.IDLE
         }
         val active = state == PrinterStatus.State.PRINTING || state == PrinterStatus.State.PAUSED
-        val file = stats?.optString("filename")?.takeIf { active && it.isNotEmpty() }
+        val file = stats?.optString("filename")?.takeIf { active && it.isNotEmpty() } ?: creality?.file?.takeIf { active }
         val progress = sdcard?.optDouble("progress")?.takeIf { active && !it.isNaN() }?.toFloat()
         // A Q2 deixa print_duration em 0 (2026-10-30).
         val elapsed = stats?.optDouble("print_duration")?.takeIf { active && it > 0 }?.toLong()
@@ -405,7 +415,34 @@ object MoonrakerUploader : Uploader {
             state, progress = progress, file = file, raw = raw,
             temperatures = temperatures(objects), layer = layer?.takeIf { active }, layers = layers?.takeIf { active },
             elapsed = elapsed, remaining = remaining, boxes = crealityBoxes(objects?.optJSONObject("box")) + qidiBoxes(objects),
+            alert = creality?.alert,
         )
+    }
+
+    /** O que a tela da Creality mostra: erro, impressão que o Klipper ainda não começou ([state]) e o arquivo dela. */
+    private class CrealityScreen(val alert: PrinterAlert?, val state: PrinterStatus.State?, val file: String?)
+
+    /**
+     * Estado da tela da Creality: o WebSocket manda tudo ao conectar, com `err` (`key` é o número
+     * do código, 0 sem erro), `state` e `printFileName`. Visto na K3 em 2026-11-02: `state` 0
+     * livre, 1 imprimindo (também enquanto prepara) e 5 pausada pela detecção por IA (AC0104).
+     * Null se o WebSocket não responde.
+     */
+    private suspend fun crealityScreen(api: URL): CrealityScreen? = withContext(Dispatchers.IO) {
+        val message = try {
+            CrealitySocket.open(api.host, CREALITY_CONNECT_MS).use { it.awaitMessage(CREALITY_READ_MS) { m -> m.has("err") } }
+        } catch (e: IOException) {
+            null
+        } ?: return@withContext null
+        val number = message.optJSONObject("err")?.optInt("key") ?: 0
+        val alert = if (number > 0) PrinterAlert(CREALITY_CODE_PREFIX[number].orEmpty() + "%04d".format(Locale.ROOT, number), number) else null
+        val file = message.optString("printFileName").substringAfterLast('/').takeIf { it.isNotEmpty() }
+        val state = when (message.optInt("state", -1)) {
+            1 -> PrinterStatus.State.PRINTING
+            5 -> PrinterStatus.State.PAUSED
+            else -> null
+        }?.takeIf { file != null }
+        CrealityScreen(alert, state, file)
     }
 
     private fun positive(json: JSONObject?, key: String) = json?.optInt(key, -1)?.takeIf { it > 0 }
