@@ -1,0 +1,15 @@
+diff --git a/src/libslic3r/PresetBundle.cpp b/src/libslic3r/PresetBundle.cpp
+--- a/src/libslic3r/PresetBundle.cpp
++++ b/src/libslic3r/PresetBundle.cpp
+@@ -5214,7 +5214,10 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
+         f_multiplier.resize(nozzle_nums, 1.f);
+     }
+ 
+-    if ( (num_filaments * num_filaments) != size_t(old_matrix.size() / old_nozzle_nums) ) {
++    // Também quando só o número de bicos muda (projeto de impressora de 1 bico aberto na K3), como
++    // no OrcaSlicer atual: antes a matriz ficava do tamanho antigo e o G-code falhava com "Flush
++    // volumes matrix do not match to the correct size!".
++    if (old_matrix.size() != num_filaments * num_filaments * nozzle_nums) {
+         // First verify if purging volumes presets for each extruder matches number of extruders
+         std::vector<double>& filaments = this->project_config.option<ConfigOptionFloats>("flush_volumes_vector")->values;
+         while (filaments.size() < 2* num_filaments) {

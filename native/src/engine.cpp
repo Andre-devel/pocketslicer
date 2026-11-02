@@ -668,9 +668,14 @@ void Engine::select(PresetKind kind, const std::string &name)
     switch (kind) {
     case PresetKind::Printer: {
         const Impl::Choices choices = m->choices();
+        const size_t        nozzles = m->bundle->project_config.option<ConfigOptionFloats>("flush_multiplier")->values.size();
         collection.select_preset_by_name(name, true);
         m->bundle->update_multi_material_filament_presets();
         m->sync_filament_colors();
+        // Outro número de bicos (projeto de 1 bico aberto na K3): a matriz foi refeita com o
+        // flush_volumes_vector genérico (patch 0006); recalcula pelas cores, como ao adicionar.
+        if (m->bundle->project_config.option<ConfigOptionFloats>("flush_multiplier")->values.size() != nozzles)
+            m->calc_flush_volumes(std::nullopt);
         // Troca processo/filamento incompatíveis pelos primeiros compatíveis...
         m->bundle->update_compatible(PresetSelectCompatibleType::Always);
         // ...e prefere os padrões declarados pela impressora.

@@ -579,6 +579,27 @@ class SlicerEngineTest {
         assertEquals(extruded(k3Gcode), k3.filamentMm3, 10.0)
     }
 
+    // Projeto de 4 filamentos numa impressora de 1 bico aberto na K3 (4 bicos): só o número de
+    // bicos muda, e o Orca 2.4.2 deixava a matriz de purga do tamanho antigo ("Flush volumes
+    // matrix do not match to the correct size!" ao fatiar). Patch 0006.
+    @Test
+    fun printerWithMoreNozzlesResizesTheFlushMatrix() = runBlocking {
+        engine.loadVendor("CrealityPrint/Creality")
+        engine.select(PresetKind.PRINTER, "Creality K2 0.4 nozzle")
+        engine.loadModel(testAsset("cube20.stl"))
+        while (engine.filamentColors().size < 4) engine.addFilament()
+        assertEquals(16, engine.flushVolumes().size)
+        engine.select(PresetKind.PRINTER, "Creality K3")
+        assertEquals(4, engine.filamentColors().size)
+        assertEquals(4, engine.flushMultipliers().size)
+        val flush = engine.flushVolumes()
+        assertEquals(64, flush.size)
+        // Recalculada pelas cores em todos os bicos, não o valor genérico (140 + 140).
+        for (nozzle in 0 until 4) assertTrue(flush.toList().toString(), flush[nozzle * 16 + 1] != 280.0 && flush[nozzle * 16 + 1] > 0)
+        val stats = engine.slice(File(work, "k3-4.gcode")) { _, _ -> }
+        assertTrue(stats.filamentMm3 > 0)
+    }
+
     @Test
     fun crealityGcodeHasTheColorOfEachUsedFilament() = runBlocking {
         engine.loadVendor("CrealityPrint/Creality")
