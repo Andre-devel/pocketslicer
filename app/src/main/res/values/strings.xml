@@ -167,6 +167,8 @@
     <string name="z_offset">Z offset</string>
     <string name="pause_at_layer">Pause at layer</string>
     <string name="pause_at_layer_set">Pauses when layer %1$d starts</string>
+    <string name="pause_at_layer_range">Choose a layer from %1$d to %2$d</string>
+    <string name="pause_at_layer_after">Choose a layer after %1$d</string>
     <string name="pause_at_layer_clear">Clear</string>
     <string name="humidity_value">humidity %1$s</string>
     <string name="humidity_level">level %1$d of 5</string>

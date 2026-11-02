@@ -11,6 +11,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -71,16 +75,23 @@ internal fun PrintAdjustments(status: PrinterStatus, adjustments: Adjustments, c
     }
     if (adjustments.pauseAtLayer) {
         val current = status.layer ?: 0
+        // A camada digitada que não vale (já começou ou não existe), até a próxima tentativa.
+        var invalid by remember { mutableStateOf(false) }
         LabeledRow(
             stringResource(R.string.pause_at_layer),
-            detail = status.pauseAtLayer?.let { stringResource(R.string.pause_at_layer_set, it) },
+            detail = when {
+                invalid -> status.layers?.let { stringResource(R.string.pause_at_layer_range, current + 1, it) }
+                    ?: stringResource(R.string.pause_at_layer_after, current)
+                else -> status.pauseAtLayer?.let { stringResource(R.string.pause_at_layer_set, it) }
+            },
         ) {
             // Vazio sem pausa marcada; só uma camada que ainda não começou (e que existe) vale.
             CommitField(
                 status.pauseAtLayer?.toString().orEmpty(),
                 { text ->
-                    text.trim().toIntOrNull()?.takeIf { it > current && (status.layers == null || it <= status.layers) }
-                        ?.let { commands.run(PrinterCommand.PauseAtLayer(it)) }
+                    val layer = text.trim().toIntOrNull()?.takeIf { it > current && (status.layers == null || it <= status.layers) }
+                    invalid = layer == null && text.isNotBlank()
+                    layer?.let { commands.run(PrinterCommand.PauseAtLayer(it)) }
                 },
                 Modifier.width(96.dp), enabled = enabled, keyboardType = KeyboardType.Number,
             )

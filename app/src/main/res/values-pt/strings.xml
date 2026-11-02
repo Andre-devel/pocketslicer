@@ -166,6 +166,8 @@
     <string name="z_offset">Deslocamento Z</string>
     <string name="pause_at_layer">Pausar na camada</string>
     <string name="pause_at_layer_set">Pausa quando a camada %1$d começar</string>
+    <string name="pause_at_layer_range">Escolha uma camada de %1$d a %2$d</string>
+    <string name="pause_at_layer_after">Escolha uma camada depois da %1$d</string>
     <string name="pause_at_layer_clear">Desmarcar</string>
     <string name="humidity_value">umidade %1$s</string>
     <string name="humidity_level">nível %1$d de 5</string>
