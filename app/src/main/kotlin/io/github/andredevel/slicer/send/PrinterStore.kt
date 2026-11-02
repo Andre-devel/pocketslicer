@@ -47,6 +47,7 @@ class PrinterStore(private val file: File) {
                 put("kind", host.kind.name)
                 put("address", host.address)
                 host.preset?.let { put("preset", it) }
+                if (host.identity.isNotEmpty()) put("identity", JSONArray(host.identity.sorted()))
                 host.secret?.takeIf { it.isNotEmpty() }?.let { put("secret", encrypt(it)) }
             })
         }
@@ -81,6 +82,7 @@ class PrinterStore(private val file: File) {
             address = json.getString("address"),
             secret = secret,
             preset = json.optString("preset").takeIf { it.isNotEmpty() },
+            identity = json.optJSONArray("identity")?.let { ids -> (0 until ids.length()).map(ids::getString).toSet() }.orEmpty(),
         )
     }
 

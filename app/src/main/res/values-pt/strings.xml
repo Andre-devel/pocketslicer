@@ -200,6 +200,7 @@
     <string name="add">Adicionar</string>
     <string name="advanced">Avançado</string>
     <string name="already_saved">Já salva</string>
+    <string name="printer_moved">%1$s achada num endereço novo: %2$s</string>
     <string name="back">Voltar</string>
     <string name="back_to_prepare">Voltar a preparar</string>
     <string name="bambu_send_note">Em impressoras Bambu Lab o PocketSlicer só transfere o arquivo pela rede local (FTPS). A impressora pode recusar o início remoto; nesse caso, inicie pela tela da impressora.</string>

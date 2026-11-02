@@ -203,6 +203,7 @@
     <string name="add">Add</string>
     <string name="advanced">Advanced</string>
     <string name="already_saved">Already saved</string>
+    <string name="printer_moved">%1$s found at a new address: %2$s</string>
     <string name="back">Back</string>
     <string name="back_to_prepare">Back to prepare</string>
     <string name="bambu_send_note">On Bambu Lab printers PocketSlicer only transfers the file over the local network (FTPS). The printer may refuse a remote start; in that case, start it from the printer screen.</string>

@@ -39,6 +39,7 @@ import io.github.andredevel.slicer.send.Connection
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrintAction
 import io.github.andredevel.slicer.send.PrinterHost
+import io.github.andredevel.slicer.send.PrinterScanner
 import io.github.andredevel.slicer.send.PrinterStatus
 import io.github.andredevel.slicer.send.PrinterStore
 import io.github.andredevel.slicer.send.SendException
@@ -60,6 +61,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import java.io.File
@@ -1080,9 +1082,18 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         return file
     }
 
-    /** Acrescenta [host] ou substitui o de mesmo id. */
+    /**
+     * Acrescenta [host] ou substitui o de mesmo id. Com outro endereço ou protocolo a identidade
+     * antiga pode ser de outra impressora: some, e a próxima conexão lê a nova.
+     */
     fun savePrinter(host: PrinterHost) = editPrinters { printers ->
-        if (printers.any { it.id == host.id }) printers.map { if (it.id == host.id) host else it } else printers + host
+        val old = printers.find { it.id == host.id }
+        val saved = if (old != null && (old.address != host.address || old.kind != host.kind) && old.identity == host.identity) {
+            host.copy(identity = emptySet())
+        } else {
+            host
+        }
+        if (old != null) printers.map { if (it.id == host.id) saved else it } else printers + saved
     }
 
     fun deletePrinter(id: String) = editPrinters { printers -> printers.filter { it.id != id } }
@@ -1114,12 +1125,15 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Consulta o estado de cada uma de [printers] a cada [STATUS_INTERVAL_MS], em paralelo, até
-     * ser cancelada (a tela de Impressoras ou o diálogo de envio saem).
+     * ser cancelada (a tela de Impressoras ou o diálogo de envio saem). A impressora que responde
+     * sem identidade salva ganha a dela ([learnIdentity]); a que não responde e tem identidade é
+     * procurada na rede ([rediscover]).
      */
     suspend fun watchPrinterStatus(printers: List<PrinterHost>) = coroutineScope {
         for (host in printers) {
             launch {
                 val uploader = uploader(host.kind, app.assets)
+                var learning = host.identity.isEmpty()
                 while (true) {
                     val status = try {
                         uploader.status(host)
@@ -1133,9 +1147,62 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                         PrinterStatus(PrinterStatus.State.ERROR, raw = e.toString())
                     }
                     _state.update { it.copy(printerStatus = it.printerStatus + (host.id to status)) }
+                    when {
+                        status.state == PrinterStatus.State.OFFLINE -> if (host.identity.isNotEmpty()) rediscover()
+                        learning -> {
+                            learning = false
+                            learnIdentity(host)
+                        }
+                    }
                     delay(STATUS_INTERVAL_MS)
                 }
             }
+        }
+    }
+
+    /** Lê e salva a identidade de [host], se o endereço dele ainda é o mesmo; falha só vai para o log. */
+    private suspend fun learnIdentity(host: PrinterHost) {
+        val identity = try {
+            uploader(host.kind, app.assets).identity(host)
+        } catch (e: SendException) {
+            Log.w(TAG, "identity of ${host.name}", e.cause)
+            return
+        }
+        if (identity.isEmpty()) return
+        editPrinters { printers -> printers.map { if (it.id == host.id && it.address == host.address) it.copy(identity = identity) else it } }
+    }
+
+    private val rediscovery = Mutex()
+    private var lastRediscovery = 0L
+
+    /**
+     * Varre a rede ([PrinterScanner]) atrás das impressoras salvas que não respondem e têm
+     * identidade, no máximo a cada [REDISCOVERY_INTERVAL_MS]; a que aparece, sozinha, com a mesma
+     * identidade em outro endereço passa a usá-lo. Duas achadas com a mesma identidade: nada muda.
+     */
+    private suspend fun rediscover() {
+        if (!rediscovery.tryLock()) return
+        try {
+            val now = System.currentTimeMillis()
+            if (now - lastRediscovery < REDISCOVERY_INTERVAL_MS) return
+            lastRediscovery = now
+            val found = PrinterScanner.scan(app)
+            val state = _state.value
+            val moved = state.printers.mapNotNull { host ->
+                if (host.identity.isEmpty() || state.printerStatus[host.id]?.state != PrinterStatus.State.OFFLINE) return@mapNotNull null
+                val match = found.filter(host::matches).singleOrNull() ?: return@mapNotNull null
+                if (host.hostName == match.address) null else host to host.movedTo(match.address)
+            }
+            if (moved.isEmpty()) return
+            editPrinters { printers ->
+                printers.map { saved -> moved.find { (old, _) -> old.id == saved.id && old.address == saved.address }?.second ?: saved }
+            }
+            for ((_, host) in moved) {
+                Log.i(TAG, "${host.name} moved to ${host.address}")
+                _state.update { it.copy(message = UserMessage(app.getString(R.string.printer_moved, host.name, host.address), success = true)) }
+            }
+        } finally {
+            rediscovery.unlock()
         }
     }
 
@@ -1429,6 +1496,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val PROJECT_THUMBNAIL_SIZE = 512
         /** Intervalo da consulta do estado das impressoras. */
         const val STATUS_INTERVAL_MS = 5_000L
+        /** Varredura da rede atrás de impressora que mudou de IP ([rediscover]): no máximo uma por minuto. */
+        const val REDISCOVERY_INTERVAL_MS = 60_000L
         /** Procura automática por versão nova no máximo a cada 12 h (a API do GitHub limita a 60/h). */
         const val UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000L
         /** Número da camada em "Generating G-code: layer N", em qualquer idioma. */

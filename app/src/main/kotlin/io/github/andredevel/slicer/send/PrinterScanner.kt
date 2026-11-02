@@ -24,9 +24,10 @@ import java.net.SocketTimeoutException
 
 /**
  * Impressora achada na rede. [name]: o modelo, como a própria impressora informa; [kind]: protocolo
- * de envio, ou null quando ela não tem um que o app suporte.
+ * de envio, ou null quando ela não tem um que o app suporte; [identity]: como em
+ * [PrinterHost.identity], vazio quando ela não informa.
  */
-data class FoundPrinter(val address: String, val name: String, val kind: Kind?)
+data class FoundPrinter(val address: String, val name: String, val kind: Kind?, val identity: Set<String> = emptySet())
 
 /**
  * Procura impressoras na sub-rede do Wi-Fi: Moonraker na porta 7125, a interface da Creality na
@@ -125,7 +126,8 @@ object PrinterScanner {
         val name = (if (creality) crealityModel(ip) else null)
             ?: (if (moonraker) moonrakerModel(ip) else null)
             ?: if (creality) "Creality" else "Klipper"
-        return FoundPrinter(ip, name, kind)
+        val identity = if (moonraker) moonrakerIdentity(ip) else emptySet()
+        return FoundPrinter(ip, name, kind, identity)
     }
 
     /** `product_info.machine_type` (Snapmaker U1...) ou, sem ele, o hostname do Klipper. */
@@ -142,6 +144,13 @@ object PrinterScanner {
         } catch (e: JSONException) {
             null
         }
+    }
+
+    /** Vazio se o Moonraker exige API key ou não informa. */
+    private suspend fun moonrakerIdentity(ip: String): Set<String> = try {
+        MoonrakerUploader.identityAt(Http.baseUrl("$ip:$MOONRAKER_PORT"))
+    } catch (e: SendException) {
+        emptySet()
     }
 
     /**
@@ -187,7 +196,8 @@ object PrinterScanner {
                         .associate { (key, value) -> key.trim().lowercase() to value.trim() }
                     val model = headers["devmodel.bambu.com"] ?: continue
                     val ip = packet.address.hostAddress ?: continue
-                    found[ip] = FoundPrinter(ip, BAMBU_MODELS[model] ?: "Bambu Lab ($model)", Kind.BAMBU_LAN)
+                    val serial = setOfNotNull(headers["usn"]?.takeIf { it.isNotEmpty() })
+                    found[ip] = FoundPrinter(ip, BAMBU_MODELS[model] ?: "Bambu Lab ($model)", Kind.BAMBU_LAN, serial)
                 }
             }
         } catch (e: IOException) {

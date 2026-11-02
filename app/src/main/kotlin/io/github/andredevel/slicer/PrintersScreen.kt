@@ -98,7 +98,7 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
     val pick = { found: FoundPrinter ->
         val host = newHost(viewModel)
         showing = null
-        edit(host.copy(name = found.name, kind = found.kind ?: host.kind, address = found.address))
+        edit(host.copy(name = found.name, kind = found.kind ?: host.kind, address = found.address, identity = found.identity))
     }
     val edited = editing
     val shown = state.printers.find { it.id == showing }
@@ -425,7 +425,7 @@ private fun NetworkScan(saved: List<PrinterHost>, onPick: (FoundPrinter) -> Unit
             }
             for (printer in found.orEmpty()) {
                 val kind = printer.kind
-                val known = saved.any { it.address.substringBefore(':') == printer.address }
+                val known = saved.any { it.hostName == printer.address || it.matches(printer) }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
                         Text(printer.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

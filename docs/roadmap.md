@@ -191,6 +191,8 @@ Creality, Box da QIDI).
      app é distribuído pelo GitHub; baixar os perfis da internet quebraria o uso offline. O
      x86_64 já vai no build debug (slicer-core), que é o do emulador.
    - Feito (2026-10-31): R8 no release (minificação e recursos), APK de 67,7 para 46,1 MB.
+8. Tela dedicada da impressora: controle, filamento, ajustes ao vivo, cancelar objeto, arquivos,
+   calibração e console — plano em [plano-impressora.md](plano-impressora.md).
 
 ## Cadência de atualização do OrcaSlicer
 A cada release maior do Orca: branch `upgrade/orca-vX.Y`, mover submódulo, reaplicar patches, rodar paridade; merge só com paridade verde.

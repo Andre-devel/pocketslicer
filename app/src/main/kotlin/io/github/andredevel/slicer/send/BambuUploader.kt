@@ -112,6 +112,9 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
         return slots
     }
 
+    /** O serial, que a impressora traz no certificado (o mesmo do `USN` do anúncio SSDP). */
+    override suspend fun identity(host: PrinterHost): Set<String> = mqtt(host) { setOf(it.serial) }
+
     override suspend fun status(host: PrinterHost): PrinterStatus {
         val print = report(host)
         val raw = print.optString("gcode_state")

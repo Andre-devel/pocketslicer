@@ -13,8 +13,11 @@ registra o SDCARD_PRINT_FILE_WITH_PARAMETERS recebido e inicia como /printer/pri
 a câmera de fábrica: GET /server/files/camera/monitor.jpg (uma imagem com a hora, precisa do
 Pillow) só responde até 30 s depois do último camera.start_monitor no WebSocket /websocket.
 
+GET /machine/system_info informa o MAC de --mac (a identidade que o app guarda para reencontrar a
+impressora quando o IP muda) e GET /printer/info o hostname "fake-moonraker".
+
 Uso: scripts/fake-moonraker.py [--port 7125] [--api-key CHAVE] [--state standby]
-     [--u1 PLA:FF0000,PETG:000000,,] [pasta]
+     [--u1 PLA:FF0000,PETG:000000,,] [--mac 02:00:00:00:fa:01] [pasta]
 """
 import argparse
 import base64
@@ -39,6 +42,7 @@ def main():
     parser.add_argument("--state", default="standby", help="print_stats.state informado")
     parser.add_argument("--slow", type=float, default=0, help="KB/s ao receber o upload, para ver o andamento no app")
     parser.add_argument("--u1", help="filamento de cada cabeça, TIPO:RRGGBB separados por vírgula")
+    parser.add_argument("--mac", default="02:00:00:00:fa:01", help="MAC da wlan0 em /machine/system_info")
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
@@ -161,6 +165,11 @@ def main():
             elif self.path == "/server/info":
                 self.reply(200, {"result": {"klippy_connected": True, "klippy_state": "ready",
                                             "moonraker_version": "v0.9.3-fake"}})
+            elif self.path == "/machine/system_info":
+                self.reply(200, {"result": {"system_info": {"network": {
+                    "wlan0": {"mac_address": args.mac, "ip_addresses": []}}}}})
+            elif self.path == "/printer/info":
+                self.reply(200, {"result": {"state": "ready", "hostname": "fake-moonraker"}})
             elif self.path.startswith("/server/files/metadata?") and args.u1 is not None:
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 result = metadata(query.get("filename", [""])[0])

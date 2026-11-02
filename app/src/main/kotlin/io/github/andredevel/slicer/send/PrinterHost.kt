@@ -16,7 +16,9 @@ enum class Kind(@StringRes val label: Int, @StringRes val shortLabel: Int, @Stri
 /**
  * Impressora salva pelo usuário. [address]: IP ou nome, com porta e `http://` opcionais;
  * [secret]: API key do Moonraker, quando exigida, ou código de acesso da Bambu; [preset]: perfil de impressora com que foi
- * cadastrada, para vir escolhida quando esse perfil estiver em uso.
+ * cadastrada, para vir escolhida quando esse perfil estiver em uso. [identity]: o que identifica a
+ * impressora sem o endereço ([Uploader.identity]), para reencontrá-la na rede quando o IP muda;
+ * vazio até a primeira conexão.
  */
 data class PrinterHost(
     val id: String,
@@ -25,7 +27,24 @@ data class PrinterHost(
     val address: String,
     val secret: String? = null,
     val preset: String? = null,
-)
+    val identity: Set<String> = emptySet(),
+) {
+    /** IP ou nome de [address], sem esquema e porta; null se o endereço não vale. */
+    val hostName: String? get() = runCatching { Http.baseUrl(address).host }.getOrNull()
+
+    /** Se [found] é esta impressora: mesmo protocolo e alguma identidade em comum. */
+    fun matches(found: FoundPrinter) = found.kind == kind && identity.any { it in found.identity }
+
+    /** Este endereço com o IP (ou nome) trocado por [newHost], mantendo esquema e porta. */
+    fun movedTo(newHost: String): PrinterHost {
+        val text = address.trim()
+        val scheme = text.substringBefore("://", "").let { if (it.isEmpty()) "" else "$it://" }
+        val rest = text.removePrefix(scheme)
+        val authority = rest.substringBefore('/')
+        val port = authority.substringAfterLast(']').substringAfter(':', "").let { if (it.isEmpty()) "" else ":$it" }
+        return copy(address = scheme + newHost + port + rest.substring(authority.length))
+    }
+}
 
 interface Uploader {
     /** Se [upload] pode iniciar a impressão (`start`). */
@@ -51,6 +70,13 @@ interface Uploader {
      * filamento do projeto ao iniciar; vazia se a impressora não aceita esse mapeamento.
      */
     suspend fun slots(host: PrinterHost): List<Slot> = emptyList()
+
+    /**
+     * Identidade que não muda com o IP: os MACs das interfaces de rede do Moonraker (ou, sem eles,
+     * o hostname do Klipper) e o serial da Bambu; a mesma que o [PrinterScanner] lê de cada
+     * impressora achada. Falha com [SendException].
+     */
+    suspend fun identity(host: PrinterHost): Set<String>
 
     /** Estado atual da impressora; falha com [SendException]. */
     suspend fun status(host: PrinterHost): PrinterStatus

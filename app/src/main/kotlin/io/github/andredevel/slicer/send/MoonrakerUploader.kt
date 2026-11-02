@@ -96,6 +96,27 @@ object MoonrakerUploader : Uploader {
         return Connection(listOfNotNull("Moonraker", version).joinToString(" "), millis)
     }
 
+    override suspend fun identity(host: PrinterHost): Set<String> = identityAt(api(host), headers(host))
+
+    /**
+     * MACs (minúsculos) das interfaces em `/machine/system_info`, sem os zerados; sem nenhum, o
+     * hostname de `/printer/info` como `hostname:<nome>`. Vazio se a impressora não informa.
+     * [api]: a URL do Moonraker; usada também pelo [PrinterScanner].
+     */
+    internal suspend fun identityAt(api: URL, headers: Map<String, String> = emptyMap()): Set<String> {
+        val system = jsonOrNull(Http.get(api.resolve("/machine/system_info"), headers).body)
+            ?.optJSONObject("result")?.optJSONObject("system_info")
+        val network = system?.optJSONObject("network")
+        val macs = network?.keys()?.asSequence().orEmpty()
+            .mapNotNull { network!!.optJSONObject(it)?.optString("mac_address")?.lowercase() }
+            .filter { mac -> mac.isNotBlank() && mac.any { it in '1'..'9' || it in 'a'..'f' } }
+            .toSet()
+        if (macs.isNotEmpty()) return macs
+        val hostname = jsonOrNull(Http.get(api.resolve("/printer/info"), headers).body)
+            ?.optJSONObject("result")?.optString("hostname")?.takeIf { it.isNotBlank() }
+        return setOfNotNull(hostname?.let { "hostname:$it" })
+    }
+
     override suspend fun upload(
         host: PrinterHost, file: File, name: String, start: Boolean, progress: (Float) -> Unit,
         starting: () -> Unit, mapping: List<Slot?>?,
