@@ -600,6 +600,38 @@ class SlicerEngineTest {
         assertTrue(stats.filamentMm3 > 0)
     }
 
+    // Na K3 cada filamento vai sempre ao bico de mesmo número: para imprimir com outro slot o
+    // projeto troca a ordem dos filamentos, e a peça (objetos, pintura) acompanha.
+    @Test
+    fun reorderFilamentsKeepsThePartTheSame() = runBlocking {
+        engine.loadVendor("CrealityPrint/Creality")
+        engine.select(PresetKind.PRINTER, "Creality K3")
+        engine.loadModel(testAsset("cube20.stl"))
+        val colors = listOf("#000000", "#FFFFFF", "#0000FF", "#00FF00")
+        colors.forEachIndexed { i, color -> engine.setFilamentColor(i, color) }
+        engine.setObjectFilament(0, 1)
+        // A face de cima do cubo pintada com o filamento 3 (raio de cima no centro dele na mesa).
+        val center = engine.placements()[0].offset
+        assertTrue(engine.paint(0, PaintKind.COLOR, floatArrayOf(center[0], center[1], 100f), floatArrayOf(0f, 0f, -1f), Brush(Brush.Tool.BUCKET_FILL, color = 3), strokeStart = true))
+        val flush = engine.flushVolumes()
+
+        // Novo 0 = antigo 3, novo 1 = antigo 2, novo 2 = antigo 0, novo 3 = antigo 1.
+        engine.reorderFilaments(intArrayOf(3, 2, 0, 1))
+        assertEquals(listOf("#00FF00", "#0000FF", "#000000", "#FFFFFF"), engine.filamentColors())
+        assertEquals(listOf(3), engine.objects().map { it.filament })
+        // A face de cima (antigo 3, índice 2) é o novo 2; o resto, o do objeto (antigo 2, novo 4).
+        val painted = engine.painted(0, PaintKind.COLOR).states.map { it.toInt() }
+        assertEquals(2, painted.count { it == 2 })
+        assertEquals(painted.size - 2, painted.count { it == 4 })
+        // Purga de antigo 0 -> antigo 1 é agora a de novo 2 -> novo 3, em cada bico.
+        val moved = engine.flushVolumes()
+        for (nozzle in 0 until 4) assertEquals(flush[nozzle * 16 + 0 * 4 + 1], moved[nozzle * 16 + 2 * 4 + 3], 1e-9)
+        assertThrows(SlicerException::class.java) { runBlocking { engine.reorderFilaments(intArrayOf(0, 0, 1, 2)) } }
+        val stats = engine.slice(File(work, "k3-reordered.gcode")) { _, _ -> }
+        // Só os novos 2 (topo) e 4 (corpo) imprimem.
+        assertEquals(listOf(1, 3), stats.filaments.filter { it.meters > 0 }.map { it.index })
+    }
+
     @Test
     fun crealityGcodeHasTheColorOfEachUsedFilament() = runBlocking {
         engine.loadVendor("CrealityPrint/Creality")

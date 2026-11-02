@@ -1685,6 +1685,96 @@ void Engine::remove_filament(size_t filament)
         }
 }
 
+void Engine::reorder_filaments(const std::vector<size_t> &order)
+{
+    if (!m->bundle)
+        throw std::runtime_error("no vendor loaded");
+    const size_t count = m->filament_count();
+    std::vector<size_t> new_of(count, count); // antigo -> novo
+    if (order.size() != count)
+        throw std::invalid_argument("filament order has the wrong size");
+    for (size_t i = 0; i < count; ++i) {
+        if (order[i] >= count || new_of[order[i]] != count)
+            throw std::invalid_argument("filament order is not a permutation");
+        new_of[order[i]] = i;
+    }
+    auto permute = [&](auto &values) {
+        if (values.size() != count)
+            return;
+        auto old = values;
+        for (size_t i = 0; i < count; ++i)
+            values[i] = old[order[i]];
+    };
+    // Número 1-based (0 = o padrão / o do objeto) de um filamento antigo para o novo.
+    auto renumber = [&](int value) { return value >= 1 && size_t(value) <= count ? int(new_of[size_t(value) - 1]) + 1 : value; };
+    auto renumber_key = [&](ModelConfig &config, const char *key) {
+        if (config.has(key))
+            config.set_key_value(key, new ConfigOptionInt(renumber(config.opt_int(key))));
+    };
+    static constexpr const char *FILAMENT_KEYS[] = {"extruder", "support_filament", "support_interface_filament"};
+
+    permute(m->bundle->filament_presets);
+    DynamicPrintConfig &project = m->bundle->project_config;
+    permute(project.option<ConfigOptionStrings>("filament_colour")->values);
+    if (auto *multi = project.option<ConfigOptionStrings>("filament_multi_colour"))
+        permute(multi->values);
+    if (auto *type = project.option<ConfigOptionStrings>("filament_colour_type"))
+        permute(type->values);
+    if (auto *map = project.option<ConfigOptionInts>("filament_map"))
+        permute(map->values);
+    permute(m->bundle->ams_multi_color_filment);
+    // Purga de a para b em cada bico: a linha e a coluna seguem os filamentos.
+    auto &matrix = project.option<ConfigOptionFloats>("flush_volumes_matrix")->values;
+    if (count > 0 && matrix.size() % (count * count) == 0) {
+        const std::vector<double> old = matrix;
+        for (size_t base = 0; base < matrix.size(); base += count * count)
+            for (size_t from = 0; from < count; ++from)
+                for (size_t to = 0; to < count; ++to)
+                    matrix[base + from * count + to] = old[base + order[from] * count + order[to]];
+    }
+    if (auto *vector = project.option<ConfigOptionFloats>("flush_volumes_vector"); vector != nullptr && vector->values.size() == 2 * count) {
+        const std::vector<double> old = vector->values;
+        for (size_t i = 0; i < count; ++i) {
+            vector->values[2 * i]     = old[2 * order[i]];
+            vector->values[2 * i + 1] = old[2 * order[i] + 1];
+        }
+    }
+    m->select_filament(m->bundle->filament_presets.front());
+
+    EnforcerBlockerStateMap paint;
+    for (size_t i = 0; i < paint.size(); ++i)
+        paint[i] = EnforcerBlockerType(i);
+    for (size_t old = 0; old < count && old + size_t(EnforcerBlockerType::Extruder1) < paint.size(); ++old)
+        paint[old + size_t(EnforcerBlockerType::Extruder1)] = EnforcerBlockerType(new_of[old] + size_t(EnforcerBlockerType::Extruder1));
+    for (Model *plate : m->all_plates()) {
+        for (auto &[index, info] : plate->plates_custom_gcodes)
+            for (CustomGCode::Item &item : info.gcodes)
+                if (item.type == CustomGCode::ToolChange)
+                    item.extruder = renumber(item.extruder);
+        for (ModelObject *object : plate->objects) {
+            for (const char *key : FILAMENT_KEYS)
+                renumber_key(object->config, key);
+            for (auto &[range, config] : object->layer_config_ranges)
+                for (const char *key : FILAMENT_KEYS)
+                    renumber_key(config, key);
+            for (ModelVolume *volume : object->volumes) {
+                for (const char *key : FILAMENT_KEYS)
+                    renumber_key(volume->config, key);
+                if (!volume->mmu_segmentation_facets.empty()) {
+                    TriangleSelector selector(volume->mesh());
+                    selector.deserialize(volume->mmu_segmentation_facets.get_data(), false);
+                    selector.remap_triangle_state(paint);
+                    volume->mmu_segmentation_facets.set(selector);
+                }
+            }
+        }
+    }
+    DynamicPrintConfig &print = m->bundle->prints.get_edited_preset().config;
+    for (const char *key : {"support_filament", "support_interface_filament", "wipe_tower_filament"})
+        if (auto *opt = print.option<ConfigOptionInt>(key); opt != nullptr)
+            opt->value = renumber(opt->value);
+}
+
 void Engine::set_filament_preset(size_t filament, const std::string &name)
 {
     if (!m->bundle)

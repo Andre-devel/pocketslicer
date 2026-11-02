@@ -341,6 +341,11 @@ public:
     // Exclui o filamento; os objetos e partes dele passam para o primeiro, e os dos
     // seguintes descem um índice (também nas outras placas e na pintura).
     void remove_filament(size_t filament);
+    // Reordena os filamentos: o novo i é o antigo order[i] (uma permutação). Leva junto o preset,
+    // a cor, a purga, o filamento de objetos, partes e faixas de altura, a pintura de cor, as
+    // trocas por camada e os filamentos de suporte e da torre, em todas as placas: a peça sai
+    // igual, só com outro número (outro bico na K3) para cada filamento.
+    void reorder_filaments(const std::vector<size_t> &order);
     // Preset (compatível) do filamento; o do primeiro é o selected(PresetKind::Filament).
     void set_filament_preset(size_t filament, const std::string &name);
     // Cor "#RRGGBB".

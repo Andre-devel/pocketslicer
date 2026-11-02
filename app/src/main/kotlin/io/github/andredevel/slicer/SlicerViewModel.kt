@@ -695,6 +695,17 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /**
+     * Reordena os filamentos (o novo i é o antigo [order]`[i]`) e fatia de novo: na K3 cada
+     * filamento vai ao bico do mesmo número, então é assim que ele passa a usar outro slot.
+     */
+    fun reorderFilamentsAndSlice(order: IntArray) {
+        viewModelScope.launch {
+            editFilaments { engine -> engine.reorderFilaments(order) }.join()
+            slice()
+        }
+    }
+
     fun setObjectFilament(objectIndex: Int, filament: Int) = editFilaments { it.setObjectFilament(objectIndex, filament) }
 
     /** Purga da troca de [from] para [to] no extrusor [nozzle]. */

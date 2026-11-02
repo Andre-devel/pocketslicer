@@ -257,7 +257,10 @@
     <string name="mapping_failed">Couldn\'t read the printer\'s filaments: %1$s</string>
     <string name="mapping_slot_empty">No filament detected: %1$s.</string>
     <string name="mapping_type_differs">Filament %1$d is %2$s, but %3$s has %4$s.</string>
-    <string name="mapping_fixed_nozzles">On this printer each filament uses the nozzle with its number, fed by the slot shown. To use another slot, change the order of the filaments in the project.</string>
+    <string name="mapping_fixed_nozzles">On this printer each filament uses the nozzle with its number, fed by the slot shown. Choosing another slot makes the app reorder the project filaments.</string>
+    <string name="mapping_reorder_needed">These slots feed other nozzles: the project filaments change order to match (the part stays the same) and the project is sliced again.</string>
+    <string name="mapping_reorder">Reorder and slice again</string>
+    <string name="mapping_nozzle_conflict">Two filaments chose slots of the same nozzle. Choose a different slot for one of them.</string>
     <string name="mapping_no_slot">No slot feeds the nozzle of filament %1$d.</string>
     <string name="check_mapping">Each filament is where shown</string>
     <string name="mapping_colors_differ">The project colors differ from the filaments on the printer, so the preview and the purge don\'t match the real part.</string>

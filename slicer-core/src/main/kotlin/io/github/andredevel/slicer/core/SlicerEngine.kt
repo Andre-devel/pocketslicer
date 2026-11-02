@@ -464,6 +464,12 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
     /** Os objetos e partes do filamento passam para o primeiro; os seguintes descem um índice. */
     suspend fun removeFilament(filament: Int) = call { nativeRemoveFilament(handle, filament) }
 
+    /**
+     * Reordena os filamentos: o novo i é o antigo [order]`[i]`. Objetos, partes, pintura, trocas
+     * por camada e suporte acompanham, então a peça sai igual com outros números de filamento.
+     */
+    suspend fun reorderFilaments(order: IntArray) = call { nativeReorderFilaments(handle, order) }
+
     /** O preset do primeiro filamento é o selecionado em [PresetKind.FILAMENT]. */
     suspend fun setFilamentPreset(filament: Int, name: String) = call { nativeSetFilamentPreset(handle, filament, name) }
 
@@ -802,6 +808,7 @@ private external fun nativeFilamentTypes(handle: Long): Array<String>
 private external fun nativeFilamentLimits(handle: Long): IntArray
 private external fun nativeAddFilament(handle: Long)
 private external fun nativeRemoveFilament(handle: Long, filament: Int)
+private external fun nativeReorderFilaments(handle: Long, order: IntArray)
 private external fun nativeSetFilamentPreset(handle: Long, filament: Int, name: String)
 private external fun nativeSetFilamentColor(handle: Long, filament: Int, color: String)
 private external fun nativeSetObjectFilament(handle: Long, objectIndex: Int, filament: Int)

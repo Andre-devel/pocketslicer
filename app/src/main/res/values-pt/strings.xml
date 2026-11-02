@@ -253,7 +253,10 @@
     <string name="mapping_failed">Não deu para ler os filamentos da impressora: %1$s</string>
     <string name="mapping_slot_empty">Nenhum filamento detectado: %1$s.</string>
     <string name="mapping_type_differs">O filamento %1$d é %2$s, mas %3$s tem %4$s.</string>
-    <string name="mapping_fixed_nozzles">Nesta impressora cada filamento usa o bico do mesmo número, alimentado pela posição indicada. Para usar outra posição, mude a ordem dos filamentos no projeto.</string>
+    <string name="mapping_fixed_nozzles">Nesta impressora cada filamento usa o bico do mesmo número, alimentado pela posição indicada. Escolhendo outra posição, o app troca a ordem dos filamentos do projeto.</string>
+    <string name="mapping_reorder_needed">Essas posições alimentam outros bicos: os filamentos do projeto mudam de ordem para combinar (a peça fica igual) e o projeto é fatiado de novo.</string>
+    <string name="mapping_reorder">Trocar a ordem e fatiar de novo</string>
+    <string name="mapping_nozzle_conflict">Dois filamentos escolheram posições do mesmo bico. Escolha outra posição para um deles.</string>
     <string name="mapping_no_slot">Nenhuma posição alimenta o bico do filamento %1$d.</string>
     <string name="check_mapping">Cada filamento está na posição indicada</string>
     <string name="mapping_colors_differ">As cores do projeto são diferentes das dos filamentos na impressora: a vista prévia e a purga não batem com a peça real.</string>

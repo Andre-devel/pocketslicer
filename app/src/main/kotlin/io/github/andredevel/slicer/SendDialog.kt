@@ -107,7 +107,11 @@ fun SendDialog(
             viewModel.recolorAndSlice(colors)
             onDismiss()
         }
-        ConfirmPrint(selected, state, viewModel, { confirmPrint = false }, recolor) { mapping ->
+        val reorder = { order: IntArray ->
+            viewModel.reorderFilamentsAndSlice(order)
+            onDismiss()
+        }
+        ConfirmPrint(selected, state, viewModel, { confirmPrint = false }, recolor, reorder) { mapping ->
             confirmPrint = false
             viewModel.sendGcode(selected, start = true, mapping = mapping)
         }
@@ -270,12 +274,14 @@ private sealed interface SlotsLoad {
  * impressora que mapeia filamentos ([SlicerViewModel.printerSlots]), mostra a posição de cada
  * filamento usado, já escolhida pela cor, e [onConfirm] recebe o mapeamento; senão, null. Se a
  * cor de um filamento difere da posição escolhida, [onRecolor] recebe as cores das posições
- * (filamento -> "#RRGGBB") para fatiar de novo com elas.
+ * (filamento -> "#RRGGBB") para fatiar de novo com elas. Com bicos fixos (K3), uma posição que
+ * não alimenta o bico do filamento pede outra ordem de filamentos: [onReorder] recebe a ordem
+ * ([SlicerViewModel.reorderFilamentsAndSlice]).
  */
 @Composable
 private fun ConfirmPrint(
     host: PrinterHost, state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit,
-    onRecolor: (Map<Int, String>) -> Unit, onConfirm: (List<Slot?>?) -> Unit,
+    onRecolor: (Map<Int, String>) -> Unit, onReorder: (IntArray) -> Unit, onConfirm: (List<Slot?>?) -> Unit,
 ) {
     var bedClear by remember { mutableStateOf(false) }
     var filamentLoaded by remember { mutableStateOf(false) }
@@ -298,6 +304,10 @@ private fun ConfirmPrint(
     val mapping = remember(slots) {
         mutableStateListOf<Int>().apply { if (slots.isNotEmpty()) addAll(defaultMapping(maxOf(state.filaments.size, used.max() + 1), used, colors, state.filamentTypes, slots)) }
     }
+    val fixed = slots.any { it.nozzle != null }
+    // Bicos fixos: a ordem de filamentos que leva cada um ao bico da posição escolhida, null se já
+    // está assim; vazia se dois escolheram posições do mesmo bico.
+    val order = if (fixed && mapping.isNotEmpty()) nozzleOrder(state.filaments.size, used, mapping, slots) else null
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(painterResource(R.drawable.ic_play_circle), null) },
@@ -312,12 +322,19 @@ private fun ConfirmPrint(
                     }
                     is SlotsLoad.Loaded -> if (mapping.isNotEmpty()) {
                         SectionLabel(stringResource(R.string.filament_mapping))
-                        val fixed = l.slots.any { it.nozzle != null }
                         for (filament in used) {
-                            MappingRow(filament, colors.getOrNull(filament), state.filaments.getOrNull(filament), l.slots, mapping[filament], enabled = !fixed) { mapping[filament] = it }
+                            MappingRow(filament, colors.getOrNull(filament), state.filaments.getOrNull(filament), l.slots, mapping[filament], enabled = true) { mapping[filament] = it }
                         }
                         if (fixed) {
                             Text(stringResource(R.string.mapping_fixed_nozzles), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        when {
+                            order == null -> {}
+                            order.isEmpty() -> Banner(Tone.ERROR, stringResource(R.string.mapping_nozzle_conflict), Modifier.fillMaxWidth())
+                            else -> {
+                                Banner(Tone.INFO, stringResource(R.string.mapping_reorder_needed), Modifier.fillMaxWidth())
+                                AppButton(stringResource(R.string.mapping_reorder), { onReorder(order) }, style = ButtonStyle.TEXT)
+                            }
                         }
                         for (filament in used.filter { it !in mapping.indices || mapping[it] < 0 }) {
                             Banner(Tone.ERROR, stringResource(R.string.mapping_no_slot, filament + 1), Modifier.fillMaxWidth())
@@ -361,7 +378,7 @@ private fun ConfirmPrint(
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(mapping.takeIf { it.isNotEmpty() }?.mapIndexed { i, slot -> if (i in used) slots[slot] else null }) },
-                enabled = bedClear && filamentLoaded && load is SlotsLoad.Loaded && used.all { mapping.isEmpty() || mapping[it] >= 0 },
+                enabled = bedClear && filamentLoaded && load is SlotsLoad.Loaded && used.all { mapping.isEmpty() || mapping[it] >= 0 } && order == null,
             ) { Text(stringResource(R.string.print_start)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.back)) } },
@@ -430,6 +447,25 @@ private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?
         val best = sameMaterial.ifEmpty { free }.minByOrNull { colorDistance(color, slots[it].color) }
         (best ?: fallback).also { taken += it }
     }
+}
+
+/**
+ * Bicos fixos ([Slot.nozzle]): a ordem de filamentos (o novo i é o antigo `order[i]`) em que cada
+ * um de [used] fica no bico da posição escolhida em [mapping]; os outros ocupam os bicos que
+ * sobram, na ordem em que estavam. Null se todos já estão no bico certo; vazia se dois usam o
+ * mesmo bico ou o bico passa do número de filamentos.
+ */
+private fun nozzleOrder(count: Int, used: List<Int>, mapping: List<Int>, slots: List<Slot>): IntArray? {
+    val order = IntArray(count) { -1 }
+    for (filament in used) {
+        val nozzle = slots.getOrNull(mapping[filament])?.nozzle ?: return IntArray(0)
+        if (nozzle !in 1..count || order[nozzle - 1] >= 0) return IntArray(0)
+        order[nozzle - 1] = filament
+    }
+    if (used.all { order[it] == it }) return null
+    val rest = (0 until count).filter { it !in used }.iterator()
+    for (i in order.indices) if (order[i] < 0) order[i] = rest.next()
+    return order
 }
 
 /** Mesmo material: a impressora e o perfil escrevem o tipo com caixa e espaços diferentes. */

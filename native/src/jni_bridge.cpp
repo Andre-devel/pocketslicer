@@ -439,6 +439,22 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeRemoveFilament(JNIEnv
 }
 
 JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeReorderFilaments(JNIEnv *env, jclass, jlong handle, jintArray order)
+{
+    guarded(env, [&] {
+        std::vector<jint> values(size_t(env->GetArrayLength(order)));
+        env->GetIntArrayRegion(order, 0, jsize(values.size()), values.data());
+        std::vector<size_t> indices;
+        for (jint value : values) {
+            if (value < 0)
+                throw std::invalid_argument("negative filament index");
+            indices.push_back(size_t(value));
+        }
+        engine(handle)->reorder_filaments(indices);
+    });
+}
+
+JNIEXPORT void JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeSetFilamentPreset(JNIEnv *env, jclass, jlong handle, jint filament, jstring name)
 {
     guarded(env, [&] { engine(handle)->set_filament_preset(size_t(filament), to_string(env, name)); });
