@@ -21,6 +21,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 
 /**
  * Moonraker (API do Klipper), como `src/slic3r/Utils/Moonraker.cpp` do Orca: o G-code vai para
@@ -53,7 +54,15 @@ object MoonrakerUploader : Uploader {
     private val CHAMBERS = listOf("temperature_sensor chamber_temp", "heater_generic chamber", "temperature_sensor chamber")
     /** Sensor de temperatura e umidade de cada Box da QIDI (Q2). */
     private val QIDI_BOXES = (1..4).map { "aht20_f heater_box$it" }
-    private val STATUS_OBJECTS = listOf("webhooks", "print_stats", "virtual_sdcard", "heater_bed", "box") + EXTRUDERS + CHAMBERS + QIDI_BOXES
+    /** Aquecedor da câmara da K3 (módulo da Creality), com o alvo do `M141`. */
+    private const val CREALITY_CHAMBER = "heater_chamber chamber"
+    private val STATUS_OBJECTS = listOf("webhooks", "print_stats", "virtual_sdcard", "heater_bed", "box", CREALITY_CHAMBER) + EXTRUDERS + CHAMBERS + QIDI_BOXES
+
+    /** Objetos de luz do Klipper, todos ligados por `SET_LED`. */
+    private val LED_PREFIXES = listOf("led ", "neopixel ", "dotstar ", "pca9533 ", "pca9632 ")
+    /** Velocidade do jog em mm/min: XY e Z (a K3 aceita no máximo 10 mm/s em Z). */
+    private const val JOG_XY_FEED = 6_000
+    private const val JOG_Z_FEED = 600
 
     /** Sinalização WebRTC da câmera da Creality K2 (`/call/webrtc_local`). */
     private const val CREALITY_WEBRTC_PORT = 8000
@@ -411,8 +420,12 @@ object MoonrakerUploader : Uploader {
         val api = api(host)
         val action = when (command) {
             PrinterCommand.EmergencyStop -> return check(Http.postJson(api.resolve("/printer/emergency_stop"), headers(host), "{}"), host)
-            PrinterCommand.FirmwareRestart -> return check(Http.postJson(api.resolve("/printer/firmware_restart"), headers(host), "{}"), host)
+            PrinterCommand.FirmwareRestart -> {
+                capabilities.remove(api.toString())
+                return check(Http.postJson(api.resolve("/printer/firmware_restart"), headers(host), "{}"), host)
+            }
             PrinterCommand.Pause, PrinterCommand.Resume, PrinterCommand.Stop -> command
+            else -> return gcode(api, host, script(command, capabilities(api, host)))
         }
         val response = Http.get(api.resolve("/printer/objects/query?box"), headers(host))
         check(response, host)
@@ -442,6 +455,174 @@ object MoonrakerUploader : Uploader {
             }
             check(Http.postJson(api.resolve(path), headers(host), "{}"), host)
         }
+    }
+
+    /** G-code de um comando da aba Controle. */
+    private fun script(command: PrinterCommand, capabilities: Capabilities): String = when (command) {
+        is PrinterCommand.Home -> "G28" + command.axes.uppercase().map { " $it" }.joinToString("")
+        is PrinterCommand.Jog -> {
+            val feed = if (command.axis.uppercaseChar() == 'Z') JOG_Z_FEED else JOG_XY_FEED
+            // Relativo só neste movimento; o modo de antes volta.
+            "SAVE_GCODE_STATE NAME=app_jog\nG91\nG1 ${command.axis.uppercaseChar()}${number(command.distance)} F$feed\nRESTORE_GCODE_STATE NAME=app_jog"
+        }
+        PrinterCommand.MotorsOff -> "M84"
+        is PrinterCommand.SetTemperature -> {
+            val key = command.heater.source to command.heater.index
+            if (key !in capabilities.heaters) throw IllegalArgumentException("no heater $key")
+            val target = "%.0f".format(Locale.ROOT, command.target.coerceAtLeast(0f))
+            capabilities.heaters[key]?.let { "SET_HEATER_TEMPERATURE HEATER=$it TARGET=$target" } ?: "M141 S$target"
+        }
+        is PrinterCommand.SetFan -> {
+            val speed = command.speed.coerceIn(0f, 1f)
+            val pwm = (speed * 255).roundToInt()
+            val creality = capabilities.crealityFans[command.fan]
+            when {
+                command.fan == "fan" -> "M106 S$pwm"
+                creality != null -> "M106 P${creality.number} S$pwm"
+                command.fan.startsWith("fan_generic ") -> "SET_FAN_SPEED FAN=${command.fan.substringAfter(' ')} SPEED=${number(speed)}"
+                else -> throw IllegalArgumentException("no fan ${command.fan}")
+            }
+        }
+        is PrinterCommand.SetLight -> {
+            val value = if (command.on) 1 else 0
+            "SET_LED LED=${command.light.substringAfter(' ')} RED=$value GREEN=$value BLUE=$value WHITE=$value"
+        }
+        else -> throw IllegalArgumentException("not a G-code command: $command")
+    }
+
+    private fun number(value: Float) = "%.3f".format(Locale.ROOT, value).trimEnd('0').trimEnd('.')
+
+    /** Manda [script] por `/printer/gcode/script`, que só responde quando o Klipper o executou; o erro dele vira a mensagem. */
+    private suspend fun gcode(api: URL, host: PrinterHost, script: String) {
+        Log.i(TAG, "gcode ${host.name}: ${script.replace('\n', ';')}")
+        check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", script).toString()), host)
+    }
+
+    override suspend fun controls(host: PrinterHost): PrinterControls = capabilities(api(host), host).controls
+
+    /**
+     * O que cada impressora tem para a aba Controle, por endereço da API; lido na primeira vez
+     * e de novo depois do reinício do firmware.
+     */
+    private val capabilities = ConcurrentHashMap<String, Capabilities>()
+
+    /**
+     * [heaters]: o nome do aquecedor no `SET_HEATER_TEMPERATURE` de cada aquecedor (fonte, índice),
+     * null para o `M141` (câmara da K3). [crealityFans]: as ventoinhas da Creality pelo [Fan.id].
+     * [objects]: o que o estado ao vivo assina a mais para os valores da aba.
+     */
+    private class Capabilities(
+        val controls: PrinterControls,
+        val heaters: Map<Pair<Temperature.Source, Int>, String?>,
+        val crealityFans: Map<String, CrealityFan>,
+        val objects: List<String>,
+    )
+
+    /**
+     * Ventoinha `output_pin fan<number>` da Creality: o `M106 P<number>` dela (macro da K3) leva
+     * 0..255 para [min]..255 antes de mudar o pino.
+     */
+    private class CrealityFan(val number: Int, val min: Int)
+
+    /**
+     * Lê `/printer/objects/list`, `/printer/gcode/help` e o `configfile`: os aquecedores do
+     * Klipper (`heaters.available_heaters`, com o `max_temp`) e a câmara da K3 pelo `M141`; a
+     * ventoinha da peça (`fan`, `M106`), as `fan_generic` (`SET_FAN_SPEED`) e as da Creality
+     * (`output_pin fan0`.., quantas a macro PRINTER_PARAM diz: 0 a da peça, 2 a auxiliar como o
+     * `M106 P2` do Orca, a que o `heater_chamber` usa em `case_fan_pins` a da câmara); as luzes
+     * do Klipper com `SET_LED`.
+     */
+    private suspend fun capabilities(api: URL, host: PrinterHost): Capabilities {
+        capabilities[api.toString()]?.let { return it }
+        val objects = result(api, host, "/printer/objects/list").optJSONArray("objects")
+            .let { list -> (0 until (list?.length() ?: 0)).map { list!!.getString(it) } }.toSet()
+        val help = result(api, host, "/printer/gcode/help").keys().asSequence().map { it.uppercase() }.toSet()
+        val status = result(api, host, "/printer/objects/query?configfile=settings&heaters").optJSONObject("status")
+        val settings = status?.optJSONObject("configfile")?.optJSONObject("settings") ?: JSONObject()
+        val available = status?.optJSONObject("heaters")?.optJSONArray("available_heaters")
+            .let { list -> (0 until (list?.length() ?: 0)).map { list!!.getString(it) } }.toSet()
+        fun maxTemp(name: String, key: String = "max_temp") = settings.optJSONObject(name.lowercase())?.optDouble(key)?.takeIf { !it.isNaN() }?.toFloat()
+
+        val heaters = linkedMapOf<Pair<Temperature.Source, Int>, String?>()
+        val heaterList = mutableListOf<Heater>()
+        EXTRUDERS.forEachIndexed { i, name ->
+            if (name in available) {
+                heaters[Temperature.Source.NOZZLE to i] = name
+                heaterList += Heater(Temperature.Source.NOZZLE, i, maxTemp(name))
+            }
+        }
+        if ("heater_bed" in available) {
+            heaters[Temperature.Source.BED to 0] = "heater_bed"
+            heaterList += Heater(Temperature.Source.BED, 0, maxTemp("heater_bed"))
+        }
+        val chamber = CHAMBERS.firstOrNull { it.startsWith("heater_generic ") && it in available }
+        if (chamber != null) {
+            heaters[Temperature.Source.CHAMBER to 0] = chamber.substringAfter(' ')
+            heaterList += Heater(Temperature.Source.CHAMBER, 0, maxTemp(chamber))
+        } else if (CREALITY_CHAMBER in objects && "M141" in help) {
+            heaters[Temperature.Source.CHAMBER to 0] = null
+            heaterList += Heater(Temperature.Source.CHAMBER, 0, maxTemp(CREALITY_CHAMBER, "target_max"))
+        }
+
+        val fans = mutableListOf<Fan>()
+        val crealityFans = mutableMapOf<String, CrealityFan>()
+        if ("fan" in objects) fans += Fan("fan", Fan.Kind.PART)
+        val param = settings.optJSONObject("gcode_macro printer_param")
+        val crealityCount = param?.optString("variable_fans")?.trim()?.toIntOrNull()
+        if (crealityCount != null && "M106" in help) {
+            val chamberFans = settings.optJSONObject(CREALITY_CHAMBER)?.optString("case_fan_pins").orEmpty()
+                .split(',').map { it.trim() }.toSet()
+            for (i in 0 until crealityCount) {
+                val id = "output_pin fan$i"
+                if (id !in objects) continue
+                val kind = when {
+                    i == 0 -> Fan.Kind.PART
+                    i == 2 -> Fan.Kind.AUXILIARY
+                    "fan$i" in chamberFans -> Fan.Kind.CHAMBER
+                    else -> Fan.Kind.OTHER
+                }
+                fans += Fan(id, kind, "fan$i")
+                crealityFans[id] = CrealityFan(i, param.optString("variable_fan${i}_min").trim().toIntOrNull() ?: 0)
+            }
+        }
+        if ("SET_FAN_SPEED" in help) objects.filter { it.startsWith("fan_generic ") }.sorted().forEach { fans += Fan(it, Fan.Kind.OTHER, it.substringAfter(' ')) }
+        val lights = if ("SET_LED" in help) objects.filter { name -> LED_PREFIXES.any { name.startsWith(it) } }.sorted().map { Light(it, it.substringAfter(' ')) } else emptyList()
+
+        val motion = "toolhead" in objects
+        val controls = PrinterControls(motion, heaterList, fans, lights)
+        val subscribed = listOfNotNull("toolhead".takeIf { motion }) + fans.map { it.id } + lights.map { it.id }
+        return Capabilities(controls, heaters, crealityFans, subscribed).also { capabilities[api.toString()] = it }
+    }
+
+    /** O `result` de um GET da API; falha com [SendException]. */
+    private suspend fun result(api: URL, host: PrinterHost, path: String): JSONObject {
+        val response = Http.get(api.resolve(path), headers(host))
+        check(response, host)
+        return jsonOrNull(response.body)?.optJSONObject("result") ?: throw SendException(R.string.send_error_not_moonraker, api.authority)
+    }
+
+    /** Os valores da aba Controle em [objects] (assinados por [Capabilities.objects]). */
+    private fun controlState(objects: JSONObject, capabilities: Capabilities, status: PrinterStatus): PrinterStatus {
+        val toolhead = objects.optJSONObject("toolhead")
+        val position = toolhead?.optJSONArray("position")?.let { array -> (0 until minOf(3, array.length())).map { array.optDouble(it).toFloat() } }
+        val fans = capabilities.controls.fans.mapNotNull { fan ->
+            val state = objects.optJSONObject(fan.id) ?: return@mapNotNull null
+            val creality = capabilities.crealityFans[fan.id]
+            val speed = if (creality != null) {
+                // O pino recebe o mínimo mais a fração do resto (macro M106 da K3).
+                val pwm = state.optDouble("value", 0.0) * 255
+                if (pwm <= 0) 0.0 else ((pwm - creality.min) / (255 - creality.min)).coerceIn(0.0, 1.0)
+            } else {
+                state.optDouble("speed", Double.NaN)
+            }
+            if (speed.isNaN()) null else fan.id to speed.toFloat()
+        }.toMap()
+        val lights = capabilities.controls.lights.mapNotNull { light ->
+            val data = objects.optJSONObject(light.id)?.optJSONArray("color_data") ?: return@mapNotNull null
+            val on = (0 until data.length()).any { i -> data.optJSONArray(i)?.let { c -> (0 until c.length()).any { c.optDouble(it) > 0 } } == true }
+            light.id to on
+        }.toMap()
+        return status.copy(homedAxes = toolhead?.optString("homed_axes"), position = position?.takeIf { it.size == 3 }, fans = fans, lights = lights)
     }
 
     /** Falha se o Klipper estiver imprimindo ou pausado (print_stats.state). */
@@ -515,8 +696,8 @@ object MoonrakerUploader : Uploader {
 
     /**
      * Estado pelo WebSocket do Moonraker (`/websocket`): `printer.objects.subscribe` com os
-     * mesmos objetos de [status] traz tudo de uma vez, e cada `notify_status_update` só os campos
-     * que mudaram, que vão sendo juntados. A tela da Creality continua lida a cada
+     * mesmos objetos de [status], mais os da aba Controle ([capabilities]), traz tudo de uma vez,
+     * e cada `notify_status_update` só os campos que mudaram, que vão sendo juntados. A tela da Creality continua lida a cada
      * [CREALITY_POLL_MS] (o WebSocket dela só manda tudo ao conectar). Com o Klipper parado
      * (`notify_klippy_shutdown`) ou de volta (`notify_klippy_ready`) assina de novo; quando o
      * Klipper desconecta (reinício do firmware) o fluxo termina. Sem nenhum quadro por
@@ -524,6 +705,7 @@ object MoonrakerUploader : Uploader {
      */
     override fun liveStatus(host: PrinterHost): Flow<PrinterStatus> = channelFlow {
         val api = api(host)
+        val controls = capabilities(api, host)
         val port = api.port.takeIf { it != -1 } ?: api.defaultPort
         val socket = try {
             withContext(Dispatchers.IO) {
@@ -541,12 +723,12 @@ object MoonrakerUploader : Uploader {
         var crealityWatch: Job? = null
         suspend fun publish() {
             val snapshot = synchronized(objects) { JSONObject(objects.toString()) }
-            send(statusOf(snapshot, api, host, creality))
+            send(controlState(snapshot, controls, statusOf(snapshot, api, host, creality)))
         }
         var request = 0
         fun subscribe() {
             val wanted = JSONObject()
-            STATUS_OBJECTS.forEach { wanted.put(it, JSONObject.NULL) }
+            (STATUS_OBJECTS + controls.objects).forEach { wanted.put(it, JSONObject.NULL) }
             socket.send(
                 JSONObject().put("jsonrpc", "2.0").put("method", "printer.objects.subscribe")
                     .put("params", JSONObject().put("objects", wanted)).put("id", ++request)
@@ -582,7 +764,11 @@ object MoonrakerUploader : Uploader {
                             publish()
                         }
                         "notify_klippy_shutdown", "notify_klippy_ready" -> subscribe()
-                        "notify_klippy_disconnected" -> return@withContext
+                        "notify_klippy_disconnected" -> {
+                            // O firmware reinicia e pode voltar com outra configuração.
+                            capabilities.remove(api.toString())
+                            return@withContext
+                        }
                         "" -> if (message.optInt("id") == request) {
                             message.optJSONObject("error")?.let { error ->
                                 throw SendException(R.string.send_error_http, error.optInt("code"), error.optString("message"))
@@ -654,6 +840,9 @@ object MoonrakerUploader : Uploader {
         EXTRUDERS.forEachIndexed { i, name -> add(name, Temperature.Source.NOZZLE, i) }
         add("heater_bed", Temperature.Source.BED)
         CHAMBERS.firstOrNull { objects.optJSONObject(it)?.has("temperature") == true }?.let { add(it, Temperature.Source.CHAMBER) }
+        // O sensor da câmara da K3 não tem alvo; o do M141 fica no heater_chamber.
+        val chamberTarget = objects.optJSONObject(CREALITY_CHAMBER)?.optDouble("target")?.takeIf { !it.isNaN() }?.toFloat()
+        if (chamberTarget != null) list.replaceAll { if (it.source == Temperature.Source.CHAMBER && it.target == null) it.copy(target = chamberTarget) else it }
         return list
     }
 

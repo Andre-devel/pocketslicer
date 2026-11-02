@@ -39,6 +39,7 @@ import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.Connection
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterCommand
+import io.github.andredevel.slicer.send.PrinterControls
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterScanner
 import io.github.andredevel.slicer.send.PrinterStatus
@@ -1295,6 +1296,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Se o app sabe mandar [command] para [host] ([printerCommand]). */
     fun printerSupports(host: PrinterHost, command: PrinterCommand): Boolean = uploader(host.kind, app.assets).supports(command)
+
+    /** O que a aba Controle de [host] mostra (null se o protocolo não tem controle); falha com [SendException]. */
+    suspend fun printerControls(host: PrinterHost): PrinterControls? = uploader(host.kind, app.assets).controls(host)
 
     /** Manda [command] para [host]; falha com [SendException]. */
     suspend fun printerCommand(host: PrinterHost, command: PrinterCommand) = uploader(host.kind, app.assets).command(host, command)

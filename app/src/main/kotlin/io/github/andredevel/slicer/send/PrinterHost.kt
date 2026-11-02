@@ -100,6 +100,12 @@ interface Uploader {
      * [SendException]. Só os que [supports] aceita.
      */
     suspend fun command(host: PrinterHost, command: PrinterCommand): Unit = throw UnsupportedOperationException()
+
+    /**
+     * O que a aba Controle pode mexer nesta impressora, pelo que ela informa ter; null se o
+     * protocolo não tem controle. Falha com [SendException].
+     */
+    suspend fun controls(host: PrinterHost): PrinterControls? = null
 }
 
 /** O que o app manda a impressora fazer ([Uploader.command]); cada protocolo traduz. */
@@ -118,7 +124,52 @@ sealed interface PrinterCommand {
 
     /** Reinicia o firmware do Klipper, para sair de [PrinterStatus.halted]. */
     data object FirmwareRestart : PrinterCommand
+
+    /** Home dos eixos de [axes] ("X", "XY"...); vazio = todos. */
+    data class Home(val axes: String = "") : PrinterCommand
+
+    /** Move o eixo [axis] ('X', 'Y' ou 'Z') [distance] mm a partir de onde está. */
+    data class Jog(val axis: Char, val distance: Float) : PrinterCommand
+
+    /** Desliga os motores; os eixos perdem o home. */
+    data object MotorsOff : PrinterCommand
+
+    /** Alvo de [heater] em °C; 0 desliga. */
+    data class SetTemperature(val heater: Heater, val target: Float) : PrinterCommand
+
+    /** Velocidade de [fan] ([Fan.id]) de 0 a 1. */
+    data class SetFan(val fan: String, val speed: Float) : PrinterCommand
+
+    /** Liga ou desliga [light] ([Light.id]). */
+    data class SetLight(val light: String, val on: Boolean) : PrinterCommand
 }
+
+/**
+ * O que a aba Controle mostra ([Uploader.controls]): [motion] = home, mover os eixos e desligar os
+ * motores; os aquecedores, ventoinhas e luzes que dá para mudar.
+ */
+data class PrinterControls(
+    val motion: Boolean = false,
+    val heaters: List<Heater> = emptyList(),
+    val fans: List<Fan> = emptyList(),
+    val lights: List<Light> = emptyList(),
+) {
+    val isEmpty get() = !motion && heaters.isEmpty() && fans.isEmpty() && lights.isEmpty()
+}
+
+/** Aquecedor que dá para ligar, como em [Temperature] ([source], [index]); [max] em °C, quando a impressora informa. */
+data class Heater(val source: Temperature.Source, val index: Int = 0, val max: Float? = null) {
+    /** Se [temperature] é a deste aquecedor. */
+    fun matches(temperature: Temperature) = temperature.source == source && temperature.index == index
+}
+
+/** Ventoinha que dá para ajustar: [id] para [PrinterCommand.SetFan] e [PrinterStatus.fans]; [name] quando é [Kind.OTHER]. */
+data class Fan(val id: String, val kind: Kind, val name: String = id) {
+    enum class Kind { PART, AUXILIARY, CHAMBER, OTHER }
+}
+
+/** Luz que dá para ligar: [id] para [PrinterCommand.SetLight] e [PrinterStatus.lights]. */
+data class Light(val id: String, val name: String)
 
 /**
  * Estado ao vivo de uma impressora ([Uploader.status]). [progress] de 0 a 1 e [file] quando há
@@ -127,7 +178,10 @@ sealed interface PrinterCommand {
  * (só durante a impressão) e as caixas de filamento ([boxes]). [alert]: erro que a impressora
  * mostra na tela dela, como o objeto estranho na mesa da detecção por IA da Creality. [halted]: o
  * Klipper parou (parada de emergência, erro do firmware) e só volta com
- * [PrinterCommand.FirmwareRestart]; [raw] traz a mensagem dele.
+ * [PrinterCommand.FirmwareRestart]; [raw] traz a mensagem dele. Só no estado ao vivo
+ * ([Uploader.liveStatus]), para a aba Controle: [homedAxes] ("xyz", vazio sem home),
+ * [position] XYZ em mm, a velocidade de cada ventoinha ([Fan.id], 0 a 1) e se cada luz está
+ * acesa ([Light.id]).
  */
 data class PrinterStatus(
     val state: State,
@@ -142,6 +196,10 @@ data class PrinterStatus(
     val boxes: List<FilamentBox> = emptyList(),
     val alert: PrinterAlert? = null,
     val halted: Boolean = false,
+    val homedAxes: String? = null,
+    val position: List<Float>? = null,
+    val fans: Map<String, Float> = emptyMap(),
+    val lights: Map<String, Boolean> = emptyMap(),
 ) {
     enum class State { IDLE, PRINTING, PAUSED, ERROR, OFFLINE }
 

@@ -21,6 +21,12 @@ POST /printer/emergency_stop deixa o Klipper parado (webhooks.state "shutdown",
 notify_klippy_shutdown no WebSocket) até POST /printer/firmware_restart
 (notify_klippy_disconnected e, 2 s depois, notify_klippy_ready).
 
+Controle (a aba da tela da impressora): GET /printer/objects/list, /printer/gcode/help e o
+configfile (max_temp) de um Klipper comum com toolhead, fan (M106), fan_generic exhaust
+(SET_FAN_SPEED), led chamber_light (SET_LED) e heater_generic chamber. POST /printer/gcode/script
+executa G28, G91/G90, G1, M84, SET_HEATER_TEMPERATURE, M106/M107, SET_FAN_SPEED, SET_LED e
+SAVE/RESTORE_GCODE_STATE; mover sem home ou fora da mesa responde o erro do Klipper.
+
 GET /machine/system_info informa o MAC de --mac (a identidade que o app guarda para reencontrar a
 impressora quando o IP muda) e GET /printer/info o hostname "fake-moonraker".
 
@@ -57,6 +63,91 @@ def main():
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
     state = {"print_stats": args.state, "filename": "", "started": None, "monitor": 0, "webhooks": "ready"}
+    # Klipper simulado para a aba Controle.
+    machine = {"homed": "", "position": [0.0, 0.0, 0.0], "relative": False, "saved": {},
+               "target": {"extruder": 0.0, "heater_bed": 0.0, "chamber": 0.0},
+               "fan": 0.0, "exhaust": 0.0, "light": 0.0}
+    limits = {"x": (0.0, 250.0), "y": (0.0, 250.0), "z": (0.0, 240.0)}
+    max_temp = {"extruder": 300.0, "heater_bed": 120.0, "heater_generic chamber": 60.0}
+    help_text = {"M106": "Set fan speed", "M107": "Turn fan off", "M84": "Disable steppers",
+                 "SET_HEATER_TEMPERATURE": "Sets a heater temperature", "SET_FAN_SPEED": "Sets the speed of a fan",
+                 "SET_LED": "Set the color of an LED", "SAVE_GCODE_STATE": "Save G-Code coordinate state",
+                 "RESTORE_GCODE_STATE": "Restore a previously saved G-Code state", "TURN_OFF_HEATERS": "Turn off all heaters"}
+
+    class KlipperError(Exception):
+        pass
+
+    def gcode(script):
+        """Executa as linhas de [script] como o Klipper; KlipperError com a mensagem dele."""
+        for line in script.splitlines():
+            words = line.split(";")[0].split()
+            if not words:
+                continue
+            command, params = words[0].upper(), {}
+            for word in words[1:]:
+                if "=" in word:
+                    key, value = word.split("=", 1)
+                    params[key.upper()] = value
+                else:
+                    params[word[0].upper()] = word[1:]
+            if command == "G28":
+                axes = [a for a in "XYZ" if a in params] or list("XYZ")
+                for a in axes:
+                    machine["position"]["XYZ".index(a)] = 0.0
+                machine["homed"] = "".join(a for a in "xyz" if a in machine["homed"] or a.upper() in axes)
+            elif command == "G90":
+                machine["relative"] = False
+            elif command == "G91":
+                machine["relative"] = True
+            elif command in ("G0", "G1"):
+                new = list(machine["position"])
+                for i, a in enumerate("XYZ"):
+                    if a in params:
+                        value = float(params[a])
+                        new[i] = new[i] + value if machine["relative"] else value
+                        if a.lower() not in machine["homed"]:
+                            raise KlipperError("Must home axis first: %.3f %.3f %.3f [0.000]" % tuple(new))
+                        low, high = limits[a.lower()]
+                        if not low <= new[i] <= high:
+                            raise KlipperError("Move out of range: %.3f %.3f %.3f [0.000]" % tuple(new))
+                machine["position"] = new
+            elif command == "M84":
+                machine["homed"] = ""
+            elif command == "SAVE_GCODE_STATE":
+                machine["saved"][params.get("NAME", "default")] = machine["relative"]
+            elif command == "RESTORE_GCODE_STATE":
+                machine["relative"] = machine["saved"].get(params.get("NAME", "default"), False)
+            elif command == "SET_HEATER_TEMPERATURE":
+                heater = params.get("HEATER", "")
+                if heater not in machine["target"]:
+                    raise KlipperError(f"Heater {heater} not configured")
+                target = float(params.get("TARGET", 0))
+                limit = max_temp["heater_generic chamber" if heater == "chamber" else heater]
+                if target > limit:
+                    raise KlipperError(f"Requested temperature ({target:.1f}) out of range (0.0:{limit:.1f})")
+                machine["target"][heater] = target
+            elif command == "M106":
+                machine["fan"] = min(float(params.get("S", 255)) / 255, 1.0)
+            elif command == "M107":
+                machine["fan"] = 0.0
+            elif command == "SET_FAN_SPEED":
+                if params.get("FAN") != "exhaust":
+                    raise KlipperError(f"Fan {params.get('FAN')} not configured")
+                machine["exhaust"] = float(params.get("SPEED", 0))
+            elif command == "SET_LED":
+                if params.get("LED") != "chamber_light":
+                    raise KlipperError(f"Unknown LED '{params.get('LED')}'")
+                machine["light"] = max(float(params.get(k, 0)) for k in ("RED", "GREEN", "BLUE", "WHITE"))
+            elif command.startswith("SDCARD_PRINT_FILE_WITH_PARAMETERS") and args.u1 is not None:
+                m = re.match(r'SDCARD_PRINT_FILE_WITH_PARAMETERS FILENAME="((?:[^"\\]|\\.)*)"', line)
+                if m:
+                    state.update(print_stats="printing", filename=m.group(1), started=time.time())
+            elif command not in help_text and not (args.u1 is not None):
+                raise KlipperError(f"Unknown command:\"{command}\"")
+
+    def heater(name, ambient):
+        target = machine["target"][name]
+        return {"temperature": round((target or ambient) + math.sin(time.time() / 5), 2), "target": target}
     # Avisos pendentes (notify_klippy_*) de cada WebSocket aberto.
     sockets = []
 
@@ -76,8 +167,18 @@ def main():
                                "state_message": "Shutdown due to M112 command" if shutdown else "Printer is ready"},
                   "print_stats": {"state": state["print_stats"], "filename": state["filename"]},
                   "virtual_sdcard": {"progress": progress},
-                  "extruder": {"temperature": round(25 + math.sin(time.time() / 5), 2), "target": 0.0},
-                  "heater_bed": {"temperature": round(24 + math.cos(time.time() / 7), 2), "target": 0.0}}
+                  "extruder": heater("extruder", 25),
+                  "heater_bed": heater("heater_bed", 24),
+                  "heater_generic chamber": heater("chamber", 23),
+                  "heaters": {"available_heaters": ["extruder", "heater_bed", "heater_generic chamber"],
+                              "available_sensors": ["extruder", "heater_bed", "heater_generic chamber"]},
+                  "toolhead": {"homed_axes": machine["homed"], "position": machine["position"] + [0.0],
+                               "axis_minimum": [v[0] for v in limits.values()] + [0.0],
+                               "axis_maximum": [v[1] for v in limits.values()] + [0.0]},
+                  "fan": {"speed": machine["fan"], "rpm": None},
+                  "fan_generic exhaust": {"speed": machine["exhaust"], "rpm": None},
+                  "led chamber_light": {"color_data": [[machine["light"]] * 4]},
+                  "configfile": {"settings": {name: {"max_temp": value} for name, value in max_temp.items()}}}
         if args.u1 is not None:
             heads = [h.split(":") if h else None for h in args.u1.split(",")]
             result["print_task_config"] = {
@@ -256,8 +357,12 @@ def main():
                     self.reply(200, {"result": result})
             elif self.path.startswith("/printer/objects/query?") and state["webhooks"] == "disconnected":
                 self.reply(503, {"error": {"code": 503, "message": "Klippy Disconnected"}})
+            elif self.path == "/printer/objects/list":
+                self.reply(200, {"result": {"objects": [k for k in status() if k != "configfile"] + ["configfile"]}})
+            elif self.path == "/printer/gcode/help":
+                self.reply(200, {"result": help_text})
             elif self.path.startswith("/printer/objects/query?"):
-                wanted = self.path.split("?", 1)[1].split("&")
+                wanted = [urllib.parse.unquote(w.split("=", 1)[0]) for w in self.path.split("?", 1)[1].split("&")]
                 self.reply(200, {"result": {"status": {k: v for k, v in status().items() if k in wanted}}})
             else:
                 self.reply(404, {"error": {"code": 404, "message": "Not Found"}})
@@ -290,12 +395,15 @@ def main():
                 state.update(print_stats="printing", filename=request.get("filename", ""), started=time.time())
                 self.reply(200, {"result": "ok"})
                 return
-            if self.path == "/printer/gcode/script" and args.u1 is not None:
+            if self.path == "/printer/gcode/script":
                 script = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))["script"]
-                print(f"script: {script}", file=sys.stderr)
-                m = re.match(r'SDCARD_PRINT_FILE_WITH_PARAMETERS FILENAME="((?:[^"\\]|\\.)*)"', script)
-                if m:
-                    state.update(print_stats="printing", filename=m.group(1), started=time.time())
+                print(f"script: {script!r}", file=sys.stderr)
+                try:
+                    gcode(script)
+                except KlipperError as e:
+                    print(f"  erro: {e}", file=sys.stderr)
+                    self.reply(400, {"error": {"code": 400, "message": str(e)}})
+                    return
                 self.reply(200, {"result": "ok"})
                 return
             if self.path != "/server/files/upload":

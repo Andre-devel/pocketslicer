@@ -129,6 +129,23 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      Testado no emulador com o `fake-moonraker.py` (assinatura, parada de emergência, reinício,
      queda) e só leitura na K3 real.
 3. **Controle.** Jog, home, motores, temperaturas, ventoinhas, luz; bloqueios durante a impressão.
+   - Feito (2026-11-02), Moonraker: abas Visão geral e Controle (a segunda só quando a impressora
+     tem o que mexer). O que aparece vem de `/printer/objects/list`, `/printer/gcode/help` e do
+     `configfile`, lidos uma vez por impressora e de novo depois do reinício do firmware:
+     aquecedores de `heaters.available_heaters` (`SET_HEATER_TEMPERATURE`, limite `max_temp`) e a
+     câmara da K3 pelo `M141` (`heater_chamber`, até `target_max`); ventoinha `fan` (`M106`),
+     `fan_generic` (`SET_FAN_SPEED`) e as da Creality (`output_pin fan0`.., quantas a macro
+     `PRINTER_PARAM` diz: 0 peça, 2 auxiliar como o `M106 P2` do Orca, a de `case_fan_pins` do
+     `heater_chamber` a da câmara; o `M106 P<n>` da macro); luzes `led`/`neopixel`/... por
+     `SET_LED`. Jog relativo entre `SAVE_GCODE_STATE`/`RESTORE_GCODE_STATE` (XY 100 mm/s, Z 10
+     mm/s), desligado nos eixos sem home; home de todos ou por eixo; `M84`. Os valores ao vivo
+     (posição, eixos com home, ventoinhas, luzes) vêm da assinatura do WebSocket. Valores dos
+     materiais dos perfis genéricos do Orca. Durante a impressão movimento, home e motores
+     ficam bloqueados e mudar temperatura, ventoinha ou luz pede confirmação. A recusa do
+     Klipper aparece por cima, no rodapé, sem mexer nos botões.
+   - Testado no emulador (tablet e celular) com o `fake-moonraker.py`; na K3 só a leitura (sem
+     comandos). Falta: a luz da K3 (não está no Klipper; talvez o WebSocket 9999), a Q2, a U1 e a
+     K2 conferidas, e a Bambu (sem controle ainda).
 4. **Ajustes ao vivo.** Velocidade, fluxo, modo de impressão, babystep Z, pausar numa camada (U1).
 5. **Filamento.** Carregar/descarregar por slot e externo, reler RFID, editar slot da Bambu,
    secagem da K3. Depende das pendências da Creality e da U1.
