@@ -13,8 +13,13 @@ registra o SDCARD_PRINT_FILE_WITH_PARAMETERS recebido e inicia como /printer/pri
 a câmera de fábrica: GET /server/files/camera/monitor.jpg (uma imagem com a hora, precisa do
 Pillow) só responde até 30 s depois do último camera.start_monitor no WebSocket /websocket.
 
-POST /printer/emergency_stop deixa o Klipper parado (webhooks.state "shutdown") até
-POST /printer/firmware_restart.
+WebSocket /websocket (JSON-RPC): printer.objects.subscribe responde o estado dos objetos pedidos
+e depois manda notify_status_update com os campos que mudaram, uma vez por segundo (o bico e a
+mesa oscilam um pouco para sempre haver mudança).
+
+POST /printer/emergency_stop deixa o Klipper parado (webhooks.state "shutdown",
+notify_klippy_shutdown no WebSocket) até POST /printer/firmware_restart
+(notify_klippy_disconnected e, 2 s depois, notify_klippy_ready).
 
 GET /machine/system_info informa o MAC de --mac (a identidade que o app guarda para reencontrar a
 impressora quando o IP muda) e GET /printer/info o hostname "fake-moonraker".
@@ -31,7 +36,9 @@ import email.policy
 import json
 import os
 import re
+import math
 import sys
+import threading
 import urllib.parse
 import zipfile
 import time
@@ -50,6 +57,12 @@ def main():
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
     state = {"print_stats": args.state, "filename": "", "started": None, "monitor": 0, "webhooks": "ready"}
+    # Avisos pendentes (notify_klippy_*) de cada WebSocket aberto.
+    sockets = []
+
+    def klippy(event):
+        for events in list(sockets):
+            events.append(event)
 
     def status():
         """print_stats e virtual_sdcard; a impressão "termina" em 300 s."""
@@ -62,7 +75,9 @@ def main():
         result = {"webhooks": {"state": state["webhooks"],
                                "state_message": "Shutdown due to M112 command" if shutdown else "Printer is ready"},
                   "print_stats": {"state": state["print_stats"], "filename": state["filename"]},
-                  "virtual_sdcard": {"progress": progress}}
+                  "virtual_sdcard": {"progress": progress},
+                  "extruder": {"temperature": round(25 + math.sin(time.time() / 5), 2), "target": 0.0},
+                  "heater_bed": {"temperature": round(24 + math.cos(time.time() / 7), 2), "target": 0.0}}
         if args.u1 is not None:
             heads = [h.split(":") if h else None for h in args.u1.split(",")]
             result["print_task_config"] = {
@@ -110,8 +125,15 @@ def main():
                 return False
             return True
 
+        def send_text(self, lock, message):
+            answer = json.dumps(message).encode()
+            header = bytes([0x81, len(answer)]) if len(answer) < 126 else bytes([0x81, 126]) + len(answer).to_bytes(2, "big")
+            with lock:
+                self.wfile.write(header + answer)
+                self.wfile.flush()
+
         def websocket(self):
-            """JSON-RPC pelo WebSocket; só camera.start_monitor (u1-moonraker repeater.py) responde."""
+            """JSON-RPC pelo WebSocket: printer.objects.subscribe e camera.start_monitor (u1-moonraker repeater.py)."""
             accept = base64.b64encode(hashlib.sha1((self.headers["Sec-WebSocket-Key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
             # O navegador só aceita o 101 em HTTP/1.1.
             self.protocol_version = "HTTP/1.1"
@@ -122,6 +144,39 @@ def main():
             self.end_headers()
             self.wfile.flush()
             sock = self.rfile
+            lock = threading.Lock()
+            subscribed = {}  # objeto -> último estado mandado
+            events = []
+            sockets.append(events)
+            closed = threading.Event()
+
+            def notify():
+                """Os campos que mudaram desde o último envio, uma vez por segundo, e os avisos do Klipper."""
+                while not closed.wait(1):
+                    try:
+                        while events:
+                            self.send_text(lock, {"jsonrpc": "2.0", "method": events.pop(0)})
+                        if not subscribed or state["webhooks"] == "disconnected":
+                            continue
+                        current, changed = status(), {}
+                        for name, last in subscribed.items():
+                            fields = {k: v for k, v in current.get(name, {}).items() if last.get(k) != v}
+                            if fields:
+                                changed[name] = fields
+                                last.update(fields)
+                        if changed:
+                            self.send_text(lock, {"jsonrpc": "2.0", "method": "notify_status_update", "params": [changed, time.time()]})
+                    except OSError:
+                        return
+
+            threading.Thread(target=notify, daemon=True).start()
+            try:
+                self.websocket_requests(sock, lock, subscribed)
+            finally:
+                closed.set()
+                sockets.remove(events)
+
+        def websocket_requests(self, sock, lock, subscribed):
             while True:
                 head = sock.read(2)
                 if len(head) < 2:
@@ -135,16 +190,32 @@ def main():
                 payload = bytes(b ^ mask[i % 4] for i, b in enumerate(sock.read(length)))
                 if opcode == 8:
                     return
+                if opcode == 9:
+                    with lock:
+                        self.wfile.write(bytes([0x8A, len(payload)]) + payload)
+                        self.wfile.flush()
+                    continue
                 if opcode != 1:
                     continue
                 request = json.loads(payload)
-                if request.get("method") == "camera.start_monitor":
-                    state["monitor"] = time.time()
-                    print(f"camera.start_monitor {request.get('params')}", file=sys.stderr)
-                answer = json.dumps({"jsonrpc": "2.0", "result": {"state": "success"}, "id": request.get("id")}).encode()
-                header = bytes([0x81, len(answer)]) if len(answer) < 126 else bytes([0x81, 126]) + len(answer).to_bytes(2, "big")
-                self.wfile.write(header + answer)
-                self.wfile.flush()
+                method = request.get("method")
+                if method == "printer.objects.subscribe":
+                    if state["webhooks"] == "disconnected":
+                        self.send_text(lock, {"jsonrpc": "2.0", "error": {"code": 503, "message": "Klippy Disconnected"},
+                                              "id": request.get("id")})
+                        continue
+                    wanted = request.get("params", {}).get("objects", {})
+                    current = status()
+                    subscribed.clear()
+                    subscribed.update({k: dict(v) for k, v in current.items() if k in wanted})
+                    print(f"subscribe {sorted(subscribed)}", file=sys.stderr)
+                    result = {"eventtime": time.time(), "status": {k: dict(v) for k, v in subscribed.items()}}
+                else:
+                    if method == "camera.start_monitor" and args.u1 is not None:
+                        state["monitor"] = time.time()
+                        print(f"camera.start_monitor {request.get('params')}", file=sys.stderr)
+                    result = {"state": "success"}
+                self.send_text(lock, {"jsonrpc": "2.0", "result": result, "id": request.get("id")})
 
         def monitor_jpg(self):
             from PIL import Image, ImageDraw
@@ -161,7 +232,7 @@ def main():
         def do_GET(self):
             if not self.authorized():
                 return
-            if self.path == "/websocket" and args.u1 is not None:
+            if self.path == "/websocket":
                 self.websocket()
             elif self.path.startswith("/server/files/camera/monitor.jpg") and args.u1 is not None:
                 if time.time() - state["monitor"] < 30:
@@ -183,6 +254,8 @@ def main():
                     self.reply(404, {"error": {"code": 404, "message": "Metadata not available"}})
                 else:
                     self.reply(200, {"result": result})
+            elif self.path.startswith("/printer/objects/query?") and state["webhooks"] == "disconnected":
+                self.reply(503, {"error": {"code": 503, "message": "Klippy Disconnected"}})
             elif self.path.startswith("/printer/objects/query?"):
                 wanted = self.path.split("?", 1)[1].split("&")
                 self.reply(200, {"result": {"status": {k: v for k, v in status().items() if k in wanted}}})
@@ -195,11 +268,20 @@ def main():
             if self.path in ("/printer/emergency_stop", "/printer/firmware_restart"):
                 stop = self.path == "/printer/emergency_stop"
                 print("parada de emergência" if stop else "reinício do firmware", file=sys.stderr)
-                state.update(webhooks="shutdown" if stop else "ready")
                 if stop:
-                    state.update(print_stats="error", started=None)
-                elif state["print_stats"] == "error":
-                    state.update(print_stats="standby")
+                    state.update(webhooks="shutdown", print_stats="error", started=None)
+                    klippy("notify_klippy_shutdown")
+                else:
+                    state.update(webhooks="disconnected")
+                    klippy("notify_klippy_disconnected")
+
+                    def ready():
+                        state.update(webhooks="ready")
+                        if state["print_stats"] == "error":
+                            state.update(print_stats="standby")
+                        klippy("notify_klippy_ready")
+
+                    threading.Timer(2, ready).start()
                 self.reply(200, {"result": "ok"})
                 return
             if self.path == "/printer/print/start":

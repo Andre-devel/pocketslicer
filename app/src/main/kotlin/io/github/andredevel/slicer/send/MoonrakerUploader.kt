@@ -5,7 +5,12 @@ import io.github.andredevel.slicer.R
 import io.github.andredevel.slicer.send.Http.resolve
 import io.github.andredevel.slicer.send.Http.withPort
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
@@ -29,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap
  * ([slots]) e `SDCARD_PRINT_FILE_WITH_PARAMETERS ... MAP_TABLE` inicia com o mapa, que vale para
  * os `T`/`M104`/`M109` do G-code até o fim da impressão.
  *
- * Nas Creality com CFS (K2, K3) o mapa vai pela interface delas ([CrealitySocket]), como no Creality
+ * Nas Creality com CFS (K2, K3) o mapa vai pela interface delas ([WebSocketClient]), como no Creality
  * Print: `boxsInfo` diz o filamento de cada posição das caixas, `colorMatch` liga cada filamento do
  * G-code (T1A, T1B...) a uma posição e `multiColorPrint` inicia o arquivo enviado pelo Moonraker.
  */
@@ -71,6 +76,12 @@ object MoonrakerUploader : Uploader {
      */
     private const val CREALITY_START_MS = 300_000
     private const val CREALITY_POLL_MS = 5_000
+
+    private const val LIVE_CONNECT_MS = 10_000
+    /** Cada espera por mensagem do WebSocket do Moonraker, para ver o cancelamento e o silêncio. */
+    private const val LIVE_READ_MS = 1_000
+    /** Silêncio do WebSocket do Moonraker que derruba a conexão; na metade, um ping. */
+    private const val LIVE_SILENCE_MS = 20_000L
 
     /** Campos que o Moonraker da U1 repassa ao iniciar (`metadata_fields` de _fill_metadata). */
     private val START_FIELDS = listOf(
@@ -234,7 +245,7 @@ object MoonrakerUploader : Uploader {
      */
     private suspend fun crealitySlots(api: URL): List<Slot> = withContext(Dispatchers.IO) {
         val (info, nozzles) = try {
-            CrealitySocket.open(api.host, CREALITY_CONNECT_MS).use { socket ->
+            WebSocketClient.creality(api.host, CREALITY_CONNECT_MS).use { socket ->
                 socket.get("boxsInfo", CREALITY_READ_MS) to socket.get("nozzleFilament", CREALITY_READ_MS)
             }
         } catch (e: IOException) {
@@ -299,7 +310,7 @@ object MoonrakerUploader : Uploader {
         }
         withContext(Dispatchers.IO) {
             try {
-                CrealitySocket.open(api.host, CREALITY_CONNECT_MS).use { socket ->
+                WebSocketClient.creality(api.host, CREALITY_CONNECT_MS).use { socket ->
                     socket.send(set("colorMatch", JSONObject().put("path", gcode).put("list", list)))
                     socket.send(set("multiColorPrint", JSONObject().put("gcode", gcode).put("enableSelfTest", 0)))
                     // A K2 descarta o pedido se a conexão fecha logo depois do envio (2026-10-30):
@@ -414,13 +425,13 @@ object MoonrakerUploader : Uploader {
             }
             withContext(Dispatchers.IO) {
                 try {
-                    CrealitySocket.open(api.host, CREALITY_CONNECT_MS).use { socket ->
+                    WebSocketClient.creality(api.host, CREALITY_CONNECT_MS).use { socket ->
                         socket.send(JSONObject().put("method", "set").put("params", params))
                         // A K2 ignora o que chega se o WebSocket fecha logo depois (ver crealityStart).
                         socket.awaitMessage(CREALITY_COMMAND_MS) { false }
                     }
                 } catch (e: IOException) {
-                    throw SendException(R.string.send_error_unreachable, "${api.host}:${CrealitySocket.PORT}", cause = e)
+                    throw SendException(R.string.send_error_unreachable, "${api.host}:${WebSocketClient.CREALITY_PORT}", cause = e)
                 }
             }
         } else {
@@ -448,17 +459,25 @@ object MoonrakerUploader : Uploader {
         val response = Http.get(api.resolve("/printer/objects/query?" + STATUS_OBJECTS.joinToString("&") { URLEncoder.encode(it, "UTF-8") }), headers(host))
         check(response, host)
         val objects = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")
+        val creality = if (hasCrealityScreen(objects)) crealityScreen(api) else null
+        return statusOf(objects, api, host, creality)
+    }
+
+    /** Só a K2/K3 (com o objeto `box` do CFS) têm a interface da Creality; com o Klipper parado ela não importa. */
+    private fun hasCrealityScreen(objects: JSONObject?) = objects?.has("box") == true && !halted(objects)
+
+    /** Klipper parado (parada de emergência, erro do firmware): webhooks.state "shutdown" ou "error". */
+    private fun halted(objects: JSONObject?) = objects?.optJSONObject("webhooks")?.optString("state") in setOf("shutdown", "error")
+
+    /** [PrinterStatus] dos objetos de [STATUS_OBJECTS] lidos do Klipper e do estado da tela da Creality. */
+    private suspend fun statusOf(objects: JSONObject?, api: URL, host: PrinterHost, creality: CrealityScreen?): PrinterStatus {
         val stats = objects?.optJSONObject("print_stats")
         val sdcard = objects?.optJSONObject("virtual_sdcard")
-        // Klipper parado (parada de emergência, erro do firmware): webhooks.state "shutdown" ou "error".
-        val webhooks = objects?.optJSONObject("webhooks")
-        val halted = webhooks?.optString("state") in setOf("shutdown", "error")
-        if (halted) {
-            return PrinterStatus(PrinterStatus.State.ERROR, raw = webhooks?.optString("state_message")?.trim()?.takeIf { it.isNotEmpty() }, halted = true)
+        if (halted(objects)) {
+            val message = objects?.optJSONObject("webhooks")?.optString("state_message")?.trim()?.takeIf { it.isNotEmpty() }
+            return PrinterStatus(PrinterStatus.State.ERROR, raw = message, halted = true)
         }
         val raw = stats?.optString("state").orEmpty()
-        // Só a K2/K3 (com o objeto `box` do CFS) têm a interface da Creality.
-        val creality = if (objects?.has("box") == true) crealityScreen(api) else null
         val state = when (raw) {
             "printing" -> PrinterStatus.State.PRINTING
             "paused" -> PrinterStatus.State.PAUSED
@@ -494,6 +513,107 @@ object MoonrakerUploader : Uploader {
         )
     }
 
+    /**
+     * Estado pelo WebSocket do Moonraker (`/websocket`): `printer.objects.subscribe` com os
+     * mesmos objetos de [status] traz tudo de uma vez, e cada `notify_status_update` só os campos
+     * que mudaram, que vão sendo juntados. A tela da Creality continua lida a cada
+     * [CREALITY_POLL_MS] (o WebSocket dela só manda tudo ao conectar). Com o Klipper parado
+     * (`notify_klippy_shutdown`) ou de volta (`notify_klippy_ready`) assina de novo; quando o
+     * Klipper desconecta (reinício do firmware) o fluxo termina. Sem nenhum quadro por
+     * [LIVE_SILENCE_MS], mesmo depois do ping, a conexão é dada como caída.
+     */
+    override fun liveStatus(host: PrinterHost): Flow<PrinterStatus> = channelFlow {
+        val api = api(host)
+        val port = api.port.takeIf { it != -1 } ?: api.defaultPort
+        val socket = try {
+            withContext(Dispatchers.IO) {
+                WebSocketClient.open(api.host, port, "/websocket", headers(host), LIVE_CONNECT_MS, tls = api.protocol == "https")
+            }
+        } catch (e: WebSocketClient.WebSocketRefused) {
+            val code = e.status.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
+            throw if (code == 401 || code == 403) SendException(R.string.send_error_auth, code, cause = e)
+            else SendException(R.string.send_error_http, code, e.status, cause = e)
+        } catch (e: IOException) {
+            throw SendException(R.string.send_error_unreachable, api.authority, cause = e)
+        }
+        val objects = JSONObject()
+        var creality: CrealityScreen? = null
+        var crealityWatch: Job? = null
+        suspend fun publish() {
+            val snapshot = synchronized(objects) { JSONObject(objects.toString()) }
+            send(statusOf(snapshot, api, host, creality))
+        }
+        var request = 0
+        fun subscribe() {
+            val wanted = JSONObject()
+            STATUS_OBJECTS.forEach { wanted.put(it, JSONObject.NULL) }
+            socket.send(
+                JSONObject().put("jsonrpc", "2.0").put("method", "printer.objects.subscribe")
+                    .put("params", JSONObject().put("objects", wanted)).put("id", ++request)
+            )
+        }
+        try {
+            withContext(Dispatchers.IO) {
+                subscribe()
+                var pinged = false
+                while (true) {
+                    ensureActive()
+                    val message = socket.receive(LIVE_READ_MS)
+                    val silent = System.currentTimeMillis() - socket.lastFrameAt
+                    if (message == null) {
+                        if (silent >= LIVE_SILENCE_MS) throw SendException(R.string.send_error_unreachable, api.authority)
+                        if (silent >= LIVE_SILENCE_MS / 2 && !pinged) {
+                            socket.ping()
+                            pinged = true
+                        }
+                        continue
+                    }
+                    pinged = false
+                    when (message.optString("method")) {
+                        "notify_status_update" -> {
+                            val changed = message.optJSONArray("params")?.optJSONObject(0) ?: continue
+                            synchronized(objects) {
+                                for (name in changed.keys()) {
+                                    val fields = changed.optJSONObject(name) ?: continue
+                                    val current = objects.optJSONObject(name) ?: JSONObject().also { objects.put(name, it) }
+                                    for (field in fields.keys()) current.put(field, fields.get(field))
+                                }
+                            }
+                            publish()
+                        }
+                        "notify_klippy_shutdown", "notify_klippy_ready" -> subscribe()
+                        "notify_klippy_disconnected" -> return@withContext
+                        "" -> if (message.optInt("id") == request) {
+                            message.optJSONObject("error")?.let { error ->
+                                throw SendException(R.string.send_error_http, error.optInt("code"), error.optString("message"))
+                            }
+                            val status = message.optJSONObject("result")?.optJSONObject("status") ?: JSONObject()
+                            synchronized(objects) {
+                                objects.keys().asSequence().toList().forEach(objects::remove)
+                                for (name in status.keys()) objects.put(name, status.get(name))
+                            }
+                            if (crealityWatch == null && hasCrealityScreen(status)) {
+                                crealityWatch = this@channelFlow.launch {
+                                    while (true) {
+                                        creality = crealityScreen(api)
+                                        publish()
+                                        delay(CREALITY_POLL_MS.toLong())
+                                    }
+                                }
+                            }
+                            publish()
+                        }
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            throw SendException(R.string.send_error_unreachable, api.authority, cause = e)
+        } finally {
+            crealityWatch?.cancel()
+            socket.close()
+        }
+    }
+
     /** O que a tela da Creality mostra: erro, impressão que o Klipper ainda não começou ([state]) e o arquivo dela. */
     private class CrealityScreen(val alert: PrinterAlert?, val state: PrinterStatus.State?, val file: String?)
 
@@ -505,7 +625,7 @@ object MoonrakerUploader : Uploader {
      */
     private suspend fun crealityScreen(api: URL): CrealityScreen? = withContext(Dispatchers.IO) {
         val message = try {
-            CrealitySocket.open(api.host, CREALITY_CONNECT_MS).use { it.awaitMessage(CREALITY_READ_MS) { m -> m.has("err") } }
+            WebSocketClient.creality(api.host, CREALITY_CONNECT_MS).use { it.awaitMessage(CREALITY_READ_MS) { m -> m.has("err") } }
         } catch (e: IOException) {
             null
         } ?: return@withContext null

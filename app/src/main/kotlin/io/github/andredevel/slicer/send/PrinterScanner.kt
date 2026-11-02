@@ -78,7 +78,7 @@ object PrinterScanner {
         val probed = hosts.map { ip ->
             async(Dispatchers.IO) {
                 val moonraker = gate.withPermit { isOpen(ip, MOONRAKER_PORT) }
-                val creality = gate.withPermit { isOpen(ip, CrealitySocket.PORT) }
+                val creality = gate.withPermit { isOpen(ip, WebSocketClient.CREALITY_PORT) }
                 identify(ip, moonraker, creality)
             }
         }.awaitAll().filterNotNull()
@@ -158,7 +158,7 @@ object PrinterScanner {
      * código do modelo em `model`. Código desconhecido aparece como está.
      */
     private fun crealityModel(ip: String): String? = try {
-        CrealitySocket.open(ip, CONNECT_TIMEOUT_MS).use { socket ->
+        WebSocketClient.creality(ip, CONNECT_TIMEOUT_MS).use { socket ->
             val code = socket.awaitMessage(CREALITY_READ_MS) { it.optString("model").isNotEmpty() }?.optString("model")
             code?.let { CREALITY_MODELS[it] ?: "Creality ($it)" }
         }

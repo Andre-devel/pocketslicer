@@ -59,6 +59,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -68,6 +69,7 @@ import java.io.File
 import java.io.IOException
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Presets de um tipo: [options] para escolher, o [selected], quais são de usuário ([user]) e os
@@ -1135,11 +1137,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 val uploader = uploader(host.kind, app.assets)
                 var learning = host.identity.isEmpty()
                 while (true) {
+                    if (host.id in liveStatus) {
+                        delay(STATUS_INTERVAL_MS)
+                        continue
+                    }
                     val status = try {
                         uploader.status(host)
                     } catch (e: SendException) {
-                        if (e.text == R.string.send_error_unreachable) PrinterStatus(PrinterStatus.State.OFFLINE)
-                        else PrinterStatus(PrinterStatus.State.ERROR, raw = app.getString(e.text, *e.args))
+                        failedStatus(e)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -1157,6 +1162,42 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                     delay(STATUS_INTERVAL_MS)
                 }
             }
+        }
+    }
+
+    private fun failedStatus(e: SendException) =
+        if (e.text == R.string.send_error_unreachable) PrinterStatus(PrinterStatus.State.OFFLINE)
+        else PrinterStatus(PrinterStatus.State.ERROR, raw = app.getString(e.text, *e.args))
+
+    /** Impressoras com o estado ao vivo ([watchLiveStatus]); o [watchPrinterStatus] as pula. */
+    private val liveStatus: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Estado de [host] a cada mudança ([Uploader.liveStatus]) até ser cancelada (a tela da
+     * impressora fecha), no lugar da consulta periódica de [watchPrinterStatus]. Quando a conexão
+     * cai, volta à consulta periódica (que mostra a falha e procura a impressora na rede) e tenta
+     * de novo a cada [LIVE_RETRY_MS]. Sem estado ao vivo no protocolo, não faz nada.
+     */
+    suspend fun watchLiveStatus(host: PrinterHost) {
+        val uploader = uploader(host.kind, app.assets)
+        uploader.liveStatus(host) ?: return
+        while (true) {
+            liveStatus += host.id
+            try {
+                uploader.liveStatus(host)!!.conflate().collect { status ->
+                    _state.update { it.copy(printerStatus = it.printerStatus + (host.id to status)) }
+                }
+            } catch (e: SendException) {
+                Log.w(TAG, "live status of ${host.name}", e.cause ?: e)
+                _state.update { it.copy(printerStatus = it.printerStatus + (host.id to failedStatus(e))) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "live status of ${host.name}", e)
+            } finally {
+                liveStatus -= host.id
+            }
+            delay(LIVE_RETRY_MS)
         }
     }
 
@@ -1496,6 +1537,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val PROJECT_THUMBNAIL_SIZE = 512
         /** Intervalo da consulta do estado das impressoras. */
         const val STATUS_INTERVAL_MS = 5_000L
+        /** Espera para tentar de novo o estado ao vivo depois que a conexão caiu. */
+        const val LIVE_RETRY_MS = 10_000L
         /** Varredura da rede atrás de impressora que mudou de IP ([rediscover]): no máximo uma por minuto. */
         const val REDISCOVERY_INTERVAL_MS = 60_000L
         /** Procura automática por versão nova no máximo a cada 12 h (a API do GitHub limita a 60/h). */

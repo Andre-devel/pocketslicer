@@ -119,6 +119,15 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      leitura de `/printer/gcode/help` (o primeiro recurso que depende dela também é da etapa 3).
      Bambu: sem pausar/parar ainda; a A1 precisa estar na rede para conferir o MQTT.
 2. **Estado por WebSocket no Moonraker.** Substituir o polling da tela aberta; manter o polling da lista.
+   - Feito (2026-11-02): com a tela da impressora aberta e o app visível, o estado vem de
+     `printer.objects.subscribe` no `/websocket` do Moonraker (mesmos objetos da consulta, as
+     mudanças juntadas campo a campo), e a consulta periódica pula essa impressora. A tela da
+     Creality (alerta, impressão antes do Klipper) segue lida a cada 5 s. Klipper parado ou de
+     volta: assina de novo; Klipper desconectado ou conexão caída (20 s sem nenhum quadro, com
+     ping na metade): volta à consulta periódica e tenta o WebSocket de novo em 10 s. O cliente
+     WebSocket da Creality virou o `WebSocketClient` (ping/pong, continuação, fechamento).
+     Testado no emulador com o `fake-moonraker.py` (assinatura, parada de emergência, reinício,
+     queda) e só leitura na K3 real.
 3. **Controle.** Jog, home, motores, temperaturas, ventoinhas, luz; bloqueios durante a impressão.
 4. **Ajustes ao vivo.** Velocidade, fluxo, modo de impressão, babystep Z, pausar numa camada (U1).
 5. **Filamento.** Carregar/descarregar por slot e externo, reler RFID, editar slot da Bambu,

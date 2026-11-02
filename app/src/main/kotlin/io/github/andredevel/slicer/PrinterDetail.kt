@@ -20,11 +20,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,10 +33,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.FilamentBox
-import io.github.andredevel.slicer.send.PrinterCommand
 import io.github.andredevel.slicer.send.PrinterAlert
+import io.github.andredevel.slicer.send.PrinterCommand
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterStatus
 import io.github.andredevel.slicer.send.SendException
@@ -63,7 +66,8 @@ import kotlinx.coroutines.launch
  * Tela de uma impressora salva: câmera, impressão em curso (camada, tempos), temperaturas e
  * filamento (caixas com a umidade, posições carregadas), com a parada de emergência no
  * cabeçalho e o reinício do firmware quando o Klipper parou. O estado vem de
- * [SlicerViewModel.watchPrinterStatus], que a tela de Impressoras já mantém; [onEdit] abre o
+ * [SlicerViewModel.watchPrinterStatus], que a tela de Impressoras já mantém, e enquanto esta tela
+ * está aberta e visível, ao vivo ([SlicerViewModel.watchLiveStatus]); [onEdit] abre o
  * cadastro, [onClose] (tela estreita) volta à lista e [onToggleList] (tela larga) esconde ou
  * mostra a lista ao lado, que [listOpen] diz se está aberta.
  */
@@ -73,6 +77,10 @@ fun PrinterDetail(
     host: PrinterHost, status: PrinterStatus?, viewModel: SlicerViewModel, modifier: Modifier, onEdit: () -> Unit, onClose: (() -> Unit)?,
     listOpen: Boolean = true, onToggleList: (() -> Unit)? = null,
 ) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(host, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { viewModel.watchLiveStatus(host) }
+    }
     // Procurada uma vez por impressora; numa falha de conexão, de novo depois.
     var camera by remember(host) { mutableStateOf<Camera?>(null) }
     LaunchedEffect(host) {

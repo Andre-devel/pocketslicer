@@ -3,6 +3,7 @@ package io.github.andredevel.slicer.send
 import android.content.res.AssetManager
 import androidx.annotation.StringRes
 import io.github.andredevel.slicer.R
+import kotlinx.coroutines.flow.Flow
 import java.io.File
 
 /** Protocolo de envio do G-code (docs/plano-envio.md). */
@@ -80,6 +81,13 @@ interface Uploader {
 
     /** Estado atual da impressora; falha com [SendException]. */
     suspend fun status(host: PrinterHost): PrinterStatus
+
+    /**
+     * Estado ao vivo, a cada mudança, enquanto coletado; null se o protocolo não tem (fica o
+     * [status] periódico). O fluxo falha com [SendException] quando a conexão cai e termina
+     * quando o firmware reinicia; quem coleta volta ao [status] e tenta de novo depois.
+     */
+    fun liveStatus(host: PrinterHost): Flow<PrinterStatus>? = null
 
     /** Câmera da impressora, null se ela não tem (ou o app não sabe mostrar); falha com [SendException]. */
     suspend fun camera(host: PrinterHost): Camera? = null
