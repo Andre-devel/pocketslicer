@@ -3759,6 +3759,10 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
     // o Orca, só nas Bambu, e nas outras roda a troca do filamento inicial para ele mesmo, que
     // na Q2 corta e descarrega o filamento.
     set_bambu_start_sequence(m->vendor.rfind("QIDIStudio/", 0) == 0);
+    // O Creality Print só define a temperatura da câmara (M141) nas impressoras da Creality
+    // (patch 0007); o M191 do Orca espera por ela, e a K3, que não aquece a câmara, para no
+    // início com "chamber waiting" (filamentos da K3 pedem 35 °C).
+    set_chamber_temperature_wait(!creality);
     if (creality) {
         std::set<int> used = m->object_filaments();
         if (auto it = m->model.plates_custom_gcodes.find(m->model.curr_plate_index); it != m->model.plates_custom_gcodes.end())
