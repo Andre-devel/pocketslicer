@@ -201,6 +201,14 @@
     <string name="advanced">Avançado</string>
     <string name="already_saved">Já salva</string>
     <string name="printer_moved">%1$s achada num endereço novo: %2$s</string>
+    <string name="emergency_stop">Parada de emergência</string>
+    <string name="emergency_stop_title">Parada de emergência na %1$s?</string>
+    <string name="emergency_stop_text">Corta motores e aquecimento na hora. A impressão em andamento se perde, e a impressora só volta a responder depois de reiniciar o firmware.</string>
+    <string name="printer_halted">Klipper parado</string>
+    <string name="printer_halted_text">Parada de emergência ou erro do firmware.</string>
+    <string name="firmware_restart">Reiniciar firmware</string>
+    <string name="printers_list_hide">Esconder a lista</string>
+    <string name="printers_list_show">Mostrar a lista</string>
     <string name="back">Voltar</string>
     <string name="back_to_prepare">Voltar a preparar</string>
     <string name="bambu_send_note">Em impressoras Bambu Lab o PocketSlicer só transfere o arquivo pela rede local (FTPS). A impressora pode recusar o início remoto; nesse caso, inicie pela tela da impressora.</string>

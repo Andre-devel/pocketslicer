@@ -204,6 +204,14 @@
     <string name="advanced">Advanced</string>
     <string name="already_saved">Already saved</string>
     <string name="printer_moved">%1$s found at a new address: %2$s</string>
+    <string name="emergency_stop">Emergency stop</string>
+    <string name="emergency_stop_title">Emergency stop on %1$s?</string>
+    <string name="emergency_stop_text">Cuts motors and heaters immediately. The current print is lost, and the printer only responds again after the firmware restart.</string>
+    <string name="printer_halted">Klipper stopped</string>
+    <string name="printer_halted_text">Emergency stop or firmware error.</string>
+    <string name="firmware_restart">Restart firmware</string>
+    <string name="printers_list_hide">Hide list</string>
+    <string name="printers_list_show">Show list</string>
     <string name="back">Back</string>
     <string name="back_to_prepare">Back to prepare</string>
     <string name="bambu_send_note">On Bambu Lab printers PocketSlicer only transfers the file over the local network (FTPS). The printer may refuse a remote start; in that case, start it from the printer screen.</string>

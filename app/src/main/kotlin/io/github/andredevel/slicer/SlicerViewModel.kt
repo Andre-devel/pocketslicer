@@ -37,7 +37,7 @@ import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.Connection
 import io.github.andredevel.slicer.send.Kind
-import io.github.andredevel.slicer.send.PrintAction
+import io.github.andredevel.slicer.send.PrinterCommand
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterScanner
 import io.github.andredevel.slicer.send.PrinterStatus
@@ -1220,11 +1220,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** Câmera de [host] (null se ela não tem uma que o app mostre); falha com [SendException]. */
     suspend fun printerCamera(host: PrinterHost): Camera? = uploader(host.kind, app.assets).camera(host)
 
-    /** Se o app pausa, continua e para a impressão em [host] ([printerControl]). */
-    fun canControlPrinter(host: PrinterHost): Boolean = uploader(host.kind, app.assets).canControl
+    /** Se o app sabe mandar [command] para [host] ([printerCommand]). */
+    fun printerSupports(host: PrinterHost, command: PrinterCommand): Boolean = uploader(host.kind, app.assets).supports(command)
 
-    /** Pausa, continua ou para a impressão em [host]; falha com [SendException]. */
-    suspend fun printerControl(host: PrinterHost, action: PrintAction) = uploader(host.kind, app.assets).control(host, action)
+    /** Manda [command] para [host]; falha com [SendException]. */
+    suspend fun printerCommand(host: PrinterHost, command: PrinterCommand) = uploader(host.kind, app.assets).command(host, command)
 
     /**
      * Envia o G-code fatiado para [host]; com [start], também inicia a impressão, com a posição

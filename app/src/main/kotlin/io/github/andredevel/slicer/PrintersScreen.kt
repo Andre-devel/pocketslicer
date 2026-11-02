@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -73,8 +74,10 @@ import java.util.Locale
 import kotlinx.coroutines.launch
 
 /**
- * Impressoras salvas para o envio do G-code: lista, cadastro/edição e busca na rede. Na tela
- * larga, as três colunas lado a lado; na estreita, a lista e o formulário por cima dela.
+ * Impressoras salvas para o envio do G-code: lista, cadastro/edição, busca na rede e a tela de
+ * cada impressora ([PrinterDetail]). Na tela larga, lista, formulário e busca lado a lado, e a
+ * impressora aberta ocupa o lugar do formulário e da busca, com a lista recolhível; na estreita,
+ * o formulário e a impressora por cima da lista.
  */
 @Composable
 fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier, startNew: Boolean = false) {
@@ -103,6 +106,7 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
     val edited = editing
     val shown = state.printers.find { it.id == showing }
     var deleting by remember { mutableStateOf<PrinterHost?>(null) }
+    var listOpen by remember { mutableStateOf(true) }
     WatchPrinterStatus(state.printers, viewModel)
     val form = @Composable { host: PrinterHost, formModifier: Modifier ->
         PrinterForm(
@@ -124,6 +128,8 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
             host, state.printerStatus[host.id], viewModel, detailModifier,
             onEdit = { edit(host) },
             onClose = if (wide) null else ({ showing = null }),
+            listOpen = listOpen,
+            onToggleList = if (wide) ({ listOpen = !listOpen }) else null,
         )
     }
 
@@ -153,11 +159,14 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
         return
     }
     if (!wide && shown != null) {
+        BackHandler { showing = null }
         detail(shown, modifier)
         return
     }
+    // A lista só recolhe com uma impressora aberta; o cadastro e a busca precisam dela.
+    val showList = !wide || listOpen || edited != null || shown == null
     Row(modifier) {
-        Column(Modifier.then(if (wide) Modifier.width(300.dp) else Modifier.weight(1f)).fillMaxHeight()) {
+        if (showList) Column(Modifier.then(if (wide) Modifier.width(300.dp) else Modifier.weight(1f)).fillMaxHeight()) {
             ScreenHeader(stringResource(R.string.printers)) {
                 AppButton(stringResource(R.string.add), { showing = null; edit(newHost(viewModel)) }, style = ButtonStyle.TONAL, icon = R.drawable.ic_add)
             }
@@ -185,13 +194,12 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
                 if (!wide) NetworkScan(state.printers, pick, Modifier.padding(top = 8.dp))
             }
         }
-        if (wide) {
+        if (wide && edited == null && shown != null) {
+            if (showList) ColumnDivider()
+            detail(shown, Modifier.weight(1f).fillMaxHeight())
+        } else if (wide) {
             ColumnDivider()
-            when {
-                edited != null -> form(edited, Modifier.weight(1f).fillMaxHeight())
-                shown != null -> detail(shown, Modifier.weight(1f).fillMaxHeight())
-                else -> form(newHost(viewModel), Modifier.weight(1f).fillMaxHeight())
-            }
+            form(edited ?: newHost(viewModel), Modifier.weight(1f).fillMaxHeight())
             ColumnDivider()
             Column(Modifier.width(300.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface)) {
                 NetworkScan(state.printers, pick, Modifier.verticalScroll(rememberScrollState()))

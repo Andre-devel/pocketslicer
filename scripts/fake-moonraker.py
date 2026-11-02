@@ -13,6 +13,9 @@ registra o SDCARD_PRINT_FILE_WITH_PARAMETERS recebido e inicia como /printer/pri
 a câmera de fábrica: GET /server/files/camera/monitor.jpg (uma imagem com a hora, precisa do
 Pillow) só responde até 30 s depois do último camera.start_monitor no WebSocket /websocket.
 
+POST /printer/emergency_stop deixa o Klipper parado (webhooks.state "shutdown") até
+POST /printer/firmware_restart.
+
 GET /machine/system_info informa o MAC de --mac (a identidade que o app guarda para reencontrar a
 impressora quando o IP muda) e GET /printer/info o hostname "fake-moonraker".
 
@@ -46,7 +49,7 @@ def main():
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
-    state = {"print_stats": args.state, "filename": "", "started": None, "monitor": 0}
+    state = {"print_stats": args.state, "filename": "", "started": None, "monitor": 0, "webhooks": "ready"}
 
     def status():
         """print_stats e virtual_sdcard; a impressão "termina" em 300 s."""
@@ -55,7 +58,10 @@ def main():
             progress = min((time.time() - state["started"]) / 300, 1.0)
             if progress >= 1.0:
                 state["print_stats"], state["started"] = "complete", None
-        result = {"print_stats": {"state": state["print_stats"], "filename": state["filename"]},
+        shutdown = state["webhooks"] == "shutdown"
+        result = {"webhooks": {"state": state["webhooks"],
+                               "state_message": "Shutdown due to M112 command" if shutdown else "Printer is ready"},
+                  "print_stats": {"state": state["print_stats"], "filename": state["filename"]},
                   "virtual_sdcard": {"progress": progress}}
         if args.u1 is not None:
             heads = [h.split(":") if h else None for h in args.u1.split(",")]
@@ -185,6 +191,16 @@ def main():
 
         def do_POST(self):
             if not self.authorized():
+                return
+            if self.path in ("/printer/emergency_stop", "/printer/firmware_restart"):
+                stop = self.path == "/printer/emergency_stop"
+                print("parada de emergência" if stop else "reinício do firmware", file=sys.stderr)
+                state.update(webhooks="shutdown" if stop else "ready")
+                if stop:
+                    state.update(print_stats="error", started=None)
+                elif state["print_stats"] == "error":
+                    state.update(print_stats="standby")
+                self.reply(200, {"result": "ok"})
                 return
             if self.path == "/printer/print/start":
                 request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))

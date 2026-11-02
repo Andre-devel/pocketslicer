@@ -84,21 +84,42 @@ interface Uploader {
     /** Câmera da impressora, null se ela não tem (ou o app não sabe mostrar); falha com [SendException]. */
     suspend fun camera(host: PrinterHost): Camera? = null
 
-    /** Se [control] pausa, continua e para a impressão. */
-    val canControl: Boolean get() = false
+    /** Se [Uploader.command] sabe mandar [command] para esta impressora. */
+    fun supports(command: PrinterCommand): Boolean = false
 
-    /** Pausa, continua ou para a impressão em andamento; falha com [SendException]. */
-    suspend fun control(host: PrinterHost, action: PrintAction): Unit = throw UnsupportedOperationException()
+    /**
+     * Manda [command] e volta quando a impressora o aceitou (não quando terminou); falha com
+     * [SendException]. Só os que [supports] aceita.
+     */
+    suspend fun command(host: PrinterHost, command: PrinterCommand): Unit = throw UnsupportedOperationException()
 }
 
-enum class PrintAction { PAUSE, RESUME, STOP }
+/** O que o app manda a impressora fazer ([Uploader.command]); cada protocolo traduz. */
+sealed interface PrinterCommand {
+    /** Pausa a impressão em andamento. */
+    data object Pause : PrinterCommand
+
+    /** Continua a impressão pausada. */
+    data object Resume : PrinterCommand
+
+    /** Para a impressão em andamento; não tem volta. */
+    data object Stop : PrinterCommand
+
+    /** Corta motores e aquecimento na hora; o Klipper fica parado ([PrinterStatus.halted]). */
+    data object EmergencyStop : PrinterCommand
+
+    /** Reinicia o firmware do Klipper, para sair de [PrinterStatus.halted]. */
+    data object FirmwareRestart : PrinterCommand
+}
 
 /**
  * Estado ao vivo de uma impressora ([Uploader.status]). [progress] de 0 a 1 e [file] quando há
  * impressão; [raw]: o estado como a impressora o informa ("printing", "RUNNING"...). Quando a
  * impressora informa: [temperatures], [layer] de [layers], [elapsed] e [remaining] em segundos
  * (só durante a impressão) e as caixas de filamento ([boxes]). [alert]: erro que a impressora
- * mostra na tela dela, como o objeto estranho na mesa da detecção por IA da Creality.
+ * mostra na tela dela, como o objeto estranho na mesa da detecção por IA da Creality. [halted]: o
+ * Klipper parou (parada de emergência, erro do firmware) e só volta com
+ * [PrinterCommand.FirmwareRestart]; [raw] traz a mensagem dele.
  */
 data class PrinterStatus(
     val state: State,
@@ -112,6 +133,7 @@ data class PrinterStatus(
     val remaining: Long? = null,
     val boxes: List<FilamentBox> = emptyList(),
     val alert: PrinterAlert? = null,
+    val halted: Boolean = false,
 ) {
     enum class State { IDLE, PRINTING, PAUSED, ERROR, OFFLINE }
 

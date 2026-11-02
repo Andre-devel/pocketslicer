@@ -48,7 +48,7 @@ object MoonrakerUploader : Uploader {
     private val CHAMBERS = listOf("temperature_sensor chamber_temp", "heater_generic chamber", "temperature_sensor chamber")
     /** Sensor de temperatura e umidade de cada Box da QIDI (Q2). */
     private val QIDI_BOXES = (1..4).map { "aht20_f heater_box$it" }
-    private val STATUS_OBJECTS = listOf("print_stats", "virtual_sdcard", "heater_bed", "box") + EXTRUDERS + CHAMBERS + QIDI_BOXES
+    private val STATUS_OBJECTS = listOf("webhooks", "print_stats", "virtual_sdcard", "heater_bed", "box") + EXTRUDERS + CHAMBERS + QIDI_BOXES
 
     /** Sinalização WebRTC da câmera da Creality K2 (`/call/webrtc_local`). */
     private const val CREALITY_WEBRTC_PORT = 8000
@@ -387,23 +387,30 @@ object MoonrakerUploader : Uploader {
 
     override suspend fun status(host: PrinterHost): PrinterStatus = status(api(host), host)
 
-    override val canControl get() = true
+    override fun supports(command: PrinterCommand) = true
 
     /**
-     * Na K2/K3 (objeto `box` do CFS) pela tela da Creality, como o app dela: `set` `pause` 1/0 e
-     * `stop` 1 (de github.com/3dg1luk43/ha_creality_ws); só ela continua a pausa da detecção
-     * por IA, que vem antes de o Klipper começar o arquivo. Nas outras, pela API do Moonraker.
+     * Parada de emergência e reinício pela API do Moonraker (`/printer/emergency_stop`,
+     * `/printer/firmware_restart`). Pausar, continuar e parar: na K2/K3 (objeto `box` do CFS)
+     * pela tela da Creality, como o app dela: `set` `pause` 1/0 e `stop` 1 (de
+     * github.com/3dg1luk43/ha_creality_ws); só ela continua a pausa da detecção por IA, que vem
+     * antes de o Klipper começar o arquivo. Nas outras, pela API do Moonraker.
      */
-    override suspend fun control(host: PrinterHost, action: PrintAction) {
+    override suspend fun command(host: PrinterHost, command: PrinterCommand) {
         val api = api(host)
+        val action = when (command) {
+            PrinterCommand.EmergencyStop -> return check(Http.postJson(api.resolve("/printer/emergency_stop"), headers(host), "{}"), host)
+            PrinterCommand.FirmwareRestart -> return check(Http.postJson(api.resolve("/printer/firmware_restart"), headers(host), "{}"), host)
+            PrinterCommand.Pause, PrinterCommand.Resume, PrinterCommand.Stop -> command
+        }
         val response = Http.get(api.resolve("/printer/objects/query?box"), headers(host))
         check(response, host)
         val creality = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")?.has("box") == true
         if (creality) {
             val params = when (action) {
-                PrintAction.PAUSE -> JSONObject().put("pause", 1)
-                PrintAction.RESUME -> JSONObject().put("pause", 0)
-                PrintAction.STOP -> JSONObject().put("stop", 1)
+                PrinterCommand.Pause -> JSONObject().put("pause", 1)
+                PrinterCommand.Resume -> JSONObject().put("pause", 0)
+                else -> JSONObject().put("stop", 1)
             }
             withContext(Dispatchers.IO) {
                 try {
@@ -418,9 +425,9 @@ object MoonrakerUploader : Uploader {
             }
         } else {
             val path = when (action) {
-                PrintAction.PAUSE -> "/printer/print/pause"
-                PrintAction.RESUME -> "/printer/print/resume"
-                PrintAction.STOP -> "/printer/print/cancel"
+                PrinterCommand.Pause -> "/printer/print/pause"
+                PrinterCommand.Resume -> "/printer/print/resume"
+                else -> "/printer/print/cancel"
             }
             check(Http.postJson(api.resolve(path), headers(host), "{}"), host)
         }
@@ -443,6 +450,12 @@ object MoonrakerUploader : Uploader {
         val objects = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("status")
         val stats = objects?.optJSONObject("print_stats")
         val sdcard = objects?.optJSONObject("virtual_sdcard")
+        // Klipper parado (parada de emergência, erro do firmware): webhooks.state "shutdown" ou "error".
+        val webhooks = objects?.optJSONObject("webhooks")
+        val halted = webhooks?.optString("state") in setOf("shutdown", "error")
+        if (halted) {
+            return PrinterStatus(PrinterStatus.State.ERROR, raw = webhooks?.optString("state_message")?.trim()?.takeIf { it.isNotEmpty() }, halted = true)
+        }
         val raw = stats?.optString("state").orEmpty()
         // Só a K2/K3 (com o objeto `box` do CFS) têm a interface da Creality.
         val creality = if (objects?.has("box") == true) crealityScreen(api) else null

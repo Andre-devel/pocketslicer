@@ -108,6 +108,16 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
 1. **Tela dedicada e capacidades.** Rota nova com cabeçalho e abas; Visão geral = o detalhe atual;
    leitura e cache de `/printer/gcode/help`; `PrinterCommand` no `Uploader`; parada de emergência
    (`/printer/emergency_stop`, recuperação com `FIRMWARE_RESTART`; Bambu `print.stop`).
+   - Feito em parte (2026-11-02): a impressora aberta ocupa a área toda na tela larga, com a
+     lista recolhível (o cadastro e a busca continuam lado a lado); voltar do sistema fecha a
+     impressora na tela estreita. `PrinterCommand` (pausar, continuar, parar, parada de
+     emergência, reiniciar o firmware) substitui `PrintAction`. A parada de emergência fica no
+     cabeçalho, com confirmação; com o Klipper parado (`webhooks.state` "shutdown"/"error") a tela
+     mostra a mensagem dele e "Reiniciar firmware". Testado no emulador com o fake-moonraker;
+     falta numa impressora real.
+   - Ficam para quando tiverem uso: as abas (aparecem com a segunda, Controle, na etapa 3) e a
+     leitura de `/printer/gcode/help` (o primeiro recurso que depende dela também é da etapa 3).
+     Bambu: sem pausar/parar ainda; a A1 precisa estar na rede para conferir o MQTT.
 2. **Estado por WebSocket no Moonraker.** Substituir o polling da tela aberta; manter o polling da lista.
 3. **Controle.** Jog, home, motores, temperaturas, ventoinhas, luz; bloqueios durante a impressão.
 4. **Ajustes ao vivo.** Velocidade, fluxo, modo de impressão, babystep Z, pausar numa camada (U1).

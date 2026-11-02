@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.FilamentBox
-import io.github.andredevel.slicer.send.PrintAction
+import io.github.andredevel.slicer.send.PrinterCommand
 import io.github.andredevel.slicer.send.PrinterAlert
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.PrinterStatus
@@ -54,18 +55,24 @@ import io.github.andredevel.slicer.ui.theme.MonoStyles
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Estado de uma impressora salva: câmera, impressão em curso (camada, tempos), temperaturas e
- * filamento (caixas com a umidade, posições carregadas). O estado vem de
+ * Tela de uma impressora salva: câmera, impressão em curso (camada, tempos), temperaturas e
+ * filamento (caixas com a umidade, posições carregadas), com a parada de emergência no
+ * cabeçalho e o reinício do firmware quando o Klipper parou. O estado vem de
  * [SlicerViewModel.watchPrinterStatus], que a tela de Impressoras já mantém; [onEdit] abre o
- * cadastro e [onClose] (tela estreita) volta à lista.
+ * cadastro, [onClose] (tela estreita) volta à lista e [onToggleList] (tela larga) esconde ou
+ * mostra a lista ao lado, que [listOpen] diz se está aberta.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PrinterDetail(host: PrinterHost, status: PrinterStatus?, viewModel: SlicerViewModel, modifier: Modifier, onEdit: () -> Unit, onClose: (() -> Unit)?) {
+fun PrinterDetail(
+    host: PrinterHost, status: PrinterStatus?, viewModel: SlicerViewModel, modifier: Modifier, onEdit: () -> Unit, onClose: (() -> Unit)?,
+    listOpen: Boolean = true, onToggleList: (() -> Unit)? = null,
+) {
     // Procurada uma vez por impressora; numa falha de conexão, de novo depois.
     var camera by remember(host) { mutableStateOf<Camera?>(null) }
     LaunchedEffect(host) {
@@ -94,20 +101,45 @@ fun PrinterDetail(host: PrinterHost, status: PrinterStatus?, viewModel: SlicerVi
         }
     }
 
+    val commands = rememberCommandRunner(host, viewModel)
+    var confirmEmergency by remember(host) { mutableStateOf(false) }
+    val canEmergencyStop = viewModel.printerSupports(host, PrinterCommand.EmergencyStop) &&
+        status != null && status.state != PrinterStatus.State.OFFLINE && !status.halted
     Column(modifier) {
         ScreenHeader(host.name, subtitle = host.address) {
+            if (onToggleList != null) {
+                if (listOpen) AppIconButton(R.drawable.ic_open_in_full, stringResource(R.string.printers_list_hide), onToggleList)
+                else AppIconButton(R.drawable.ic_close_fullscreen, stringResource(R.string.printers_list_show), onToggleList)
+            }
             if (onClose != null) AppIconButton(R.drawable.ic_close, stringResource(R.string.close), onClose)
-            AppButton(stringResource(R.string.edit), onEdit, style = ButtonStyle.TONAL, icon = R.drawable.ic_edit)
+            // Na tela estreita só o ícone, para caber o nome e a parada de emergência.
+            if (onClose != null) AppIconButton(R.drawable.ic_edit, stringResource(R.string.edit), onEdit)
+            else AppButton(stringResource(R.string.edit), onEdit, style = ButtonStyle.TONAL, icon = R.drawable.ic_edit)
+            if (canEmergencyStop) {
+                AppButton(
+                    stringResource(R.string.emergency_stop), { confirmEmergency = true }, icon = R.drawable.ic_block,
+                    enabled = !commands.sending, color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (status != null) PrinterStatusDot(status) else Text(stringResource(R.string.printer_status_loading), style = MaterialTheme.typography.labelSmall)
+            commands.failure?.let { Banner(Tone.ERROR, it, Modifier.fillMaxWidth()) }
+            if (status?.halted == true && viewModel.printerSupports(host, PrinterCommand.FirmwareRestart)) {
+                Banner(
+                    Tone.ERROR, status.raw ?: stringResource(R.string.printer_halted_text), Modifier.fillMaxWidth(),
+                    title = stringResource(R.string.printer_halted),
+                    actionLabel = stringResource(R.string.firmware_restart).takeIf { !commands.sending },
+                    onAction = { commands.run(PrinterCommand.FirmwareRestart) },
+                )
+            }
             status?.alert?.let { PrinterAlertBanner(it) }
             status?.let { HumidityBanners(it) }
             camera?.let {
                 CameraView(it, Modifier.fillMaxWidth().widthIn(max = 720.dp).aspectRatio(16f / 9f).clip(MaterialTheme.shapes.medium))
             }
             if (status != null && status.busy) PrintProgress(status)
-            if (status != null && status.busy && viewModel.canControlPrinter(host)) PrintControls(host, status, viewModel)
+            if (status != null && status.busy && viewModel.printerSupports(host, PrinterCommand.Stop)) PrintControls(host, status, commands)
             if (status != null && status.temperatures.isNotEmpty()) {
                 SectionLabel(stringResource(R.string.temperatures))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {
@@ -130,6 +162,54 @@ fun PrinterDetail(host: PrinterHost, status: PrinterStatus?, viewModel: SlicerVi
             }
         }
     }
+    // Corta tudo na hora e perde a impressão: confirma, mas com um toque só.
+    if (confirmEmergency) {
+        AlertDialog(
+            onDismissRequest = { confirmEmergency = false },
+            title = { Text(stringResource(R.string.emergency_stop_title, host.name)) },
+            text = { Text(stringResource(R.string.emergency_stop_text)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmEmergency = false
+                    commands.run(PrinterCommand.EmergencyStop)
+                }) { Text(stringResource(R.string.emergency_stop), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmEmergency = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+}
+
+/**
+ * Manda os comandos da tela de uma impressora, um por vez: [sending] enquanto a impressora não
+ * aceitou, [failure] com a resposta dela quando recusou.
+ */
+@Stable
+private class CommandRunner(private val host: PrinterHost, private val viewModel: SlicerViewModel, private val scope: CoroutineScope, private val context: android.content.Context) {
+    var sending by mutableStateOf(false)
+        private set
+    var failure by mutableStateOf<String?>(null)
+        private set
+
+    fun run(command: PrinterCommand) {
+        sending = true
+        failure = null
+        scope.launch {
+            try {
+                viewModel.printerCommand(host, command)
+            } catch (e: SendException) {
+                failure = context.getString(e.text, *e.args)
+            } finally {
+                sending = false
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberCommandRunner(host: PrinterHost, viewModel: SlicerViewModel): CommandRunner {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    return remember(host) { CommandRunner(host, viewModel, scope, context) }
 }
 
 /** Barra de progresso, arquivo, camada e tempos (decorrido, restante e a hora prevista do fim). */
@@ -163,37 +243,20 @@ private fun PrintProgress(status: PrinterStatus) {
  * pede confirmação. Até o estado seguinte chegar os botões ficam desligados.
  */
 @Composable
-private fun PrintControls(host: PrinterHost, status: PrinterStatus, viewModel: SlicerViewModel) {
-    val scope = rememberCoroutineScope()
-    var sending by remember(host) { mutableStateOf(false) }
-    var failure by remember(host) { mutableStateOf<String?>(null) }
+private fun PrintControls(host: PrinterHost, status: PrinterStatus, commands: CommandRunner) {
     var confirmStop by remember(host) { mutableStateOf(false) }
-    val context = LocalContext.current
-    fun run(action: PrintAction) {
-        sending = true
-        failure = null
-        scope.launch {
-            try {
-                viewModel.printerControl(host, action)
-            } catch (e: SendException) {
-                failure = context.getString(e.text, *e.args)
-            } finally {
-                sending = false
-            }
-        }
-    }
+    val sending = commands.sending
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (status.state == PrinterStatus.State.PAUSED) {
-            AppButton(stringResource(R.string.print_resume), { run(PrintAction.RESUME) }, icon = R.drawable.ic_play_arrow, enabled = !sending)
+            AppButton(stringResource(R.string.print_resume), { commands.run(PrinterCommand.Resume) }, icon = R.drawable.ic_play_arrow, enabled = !sending)
         } else {
-            AppButton(stringResource(R.string.print_pause), { run(PrintAction.PAUSE) }, style = ButtonStyle.TONAL, icon = R.drawable.ic_pause, enabled = !sending)
+            AppButton(stringResource(R.string.print_pause), { commands.run(PrinterCommand.Pause) }, style = ButtonStyle.TONAL, icon = R.drawable.ic_pause, enabled = !sending)
         }
         AppButton(
             stringResource(R.string.print_stop), { confirmStop = true }, style = ButtonStyle.OUTLINED, icon = R.drawable.ic_stop,
             enabled = !sending, color = MaterialTheme.colorScheme.error,
         )
     }
-    failure?.let { Banner(Tone.ERROR, it, Modifier.fillMaxWidth()) }
     if (confirmStop) {
         AlertDialog(
             onDismissRequest = { confirmStop = false },
@@ -202,7 +265,7 @@ private fun PrintControls(host: PrinterHost, status: PrinterStatus, viewModel: S
             confirmButton = {
                 TextButton(onClick = {
                     confirmStop = false
-                    run(PrintAction.STOP)
+                    commands.run(PrinterCommand.Stop)
                 }) { Text(stringResource(R.string.print_stop), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.cancel)) } },
