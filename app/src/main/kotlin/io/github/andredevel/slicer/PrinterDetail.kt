@@ -70,7 +70,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Tela de uma impressora salva. Visão geral: câmera, impressão em curso (camada, tempos),
- * temperaturas e filamento (caixas com a umidade, posições carregadas); Controle
+ * temperaturas e filamento (caixas com a umidade, posições carregadas), com os ajustes da
+ * impressão em andamento ([PrintAdjustments]); Controle
  * ([PrinterControlTab]), quando a impressora tem o que mexer. A parada de emergência fica no
  * cabeçalho e o reinício do firmware aparece quando o Klipper parou. O estado vem de
  * [SlicerViewModel.watchPrinterStatus], que a tela de Impressoras já mantém, e enquanto esta tela
@@ -123,7 +124,7 @@ fun PrinterDetail(
         if (halted) return@LaunchedEffect
         while (true) {
             try {
-                controls = viewModel.printerControls(host)?.takeIf { !it.isEmpty }
+                controls = viewModel.printerControls(host)?.takeIf { it.hasControlTab || !it.adjustments.isEmpty }
                 break
             } catch (e: SendException) {
                 Log.w(TAG, "controls of ${host.name}", e)
@@ -168,13 +169,13 @@ fun PrinterDetail(
                 }
                 status?.alert?.let { PrinterAlertBanner(it) }
                 val control = controls
-                if (control != null) {
+                if (control != null && control.hasControlTab) {
                     SegmentedTabs(
                         listOf(Segment(stringResource(R.string.printer_tab_overview)), Segment(stringResource(R.string.printer_tab_control))),
                         tab, { tab = it }, Modifier.widthIn(max = 480.dp).fillMaxWidth(), check = false, compact = true,
                     )
                 }
-                if (control != null && tab == 1) {
+                if (control != null && control.hasControlTab && tab == 1) {
                     PrinterControlTab(host, status, control, commands)
                 } else {
                     status?.let { HumidityBanners(it) }
@@ -183,6 +184,7 @@ fun PrinterDetail(
                     }
                     if (status != null && status.busy) PrintProgress(status)
                     if (status != null && status.busy && viewModel.printerSupports(host, PrinterCommand.Stop)) PrintControls(host, status, commands)
+                    if (status != null && status.busy && control != null && !control.adjustments.isEmpty) PrintAdjustments(status, control.adjustments, commands)
                     if (status != null && status.temperatures.isNotEmpty()) {
                         SectionLabel(stringResource(R.string.temperatures))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {

@@ -27,11 +27,18 @@ configfile (max_temp) de um Klipper comum com toolhead, fan (M106), fan_generic 
 executa G28, G91/G90, G1, M84, SET_HEATER_TEMPERATURE, M106/M107, SET_FAN_SPEED, SET_LED e
 SAVE/RESTORE_GCODE_STATE; mover sem home ou fora da mesa responde o erro do Klipper.
 
+Ajustes da impressão: gcode_move (speed_factor, extrude_factor, homing_origin) com M220, M221 e
+SET_GCODE_OFFSET Z/Z_ADJUST; a macro SET_PAUSE_AT_LAYER do Fluidd (estado na gcode_macro
+SET_PRINT_STATS_INFO), que pausa quando print_stats.info.current_layer chega na camada (a
+impressão tem 100 camadas). --print-modes simula o SET_PRINT_MODE da K3 (objeto e seção
+print_mode, com o speed_factor de cada modo). POST /printer/print/pause, resume e cancel mudam
+o print_stats.state; pausada, a impressão não anda.
+
 GET /machine/system_info informa o MAC de --mac (a identidade que o app guarda para reencontrar a
 impressora quando o IP muda) e GET /printer/info o hostname "fake-moonraker".
 
 Uso: scripts/fake-moonraker.py [--port 7125] [--api-key CHAVE] [--state standby]
-     [--u1 PLA:FF0000,PETG:000000,,] [--mac 02:00:00:00:fa:01] [pasta]
+     [--u1 PLA:FF0000,PETG:000000,,] [--mac 02:00:00:00:fa:01] [--print-modes] [pasta]
 """
 import argparse
 import base64
@@ -59,20 +66,27 @@ def main():
     parser.add_argument("--slow", type=float, default=0, help="KB/s ao receber o upload, para ver o andamento no app")
     parser.add_argument("--u1", help="filamento de cada cabeça, TIPO:RRGGBB separados por vírgula")
     parser.add_argument("--mac", default="02:00:00:00:fa:01", help="MAC da wlan0 em /machine/system_info")
+    parser.add_argument("--print-modes", action="store_true", help="SET_PRINT_MODE da Creality (K3)")
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
-    state = {"print_stats": args.state, "filename": "", "started": None, "monitor": 0, "webhooks": "ready"}
+    state = {"print_stats": args.state, "filename": "", "started": None, "paused_since": None, "monitor": 0, "webhooks": "ready"}
     # Klipper simulado para a aba Controle.
     machine = {"homed": "", "position": [0.0, 0.0, 0.0], "relative": False, "saved": {},
                "target": {"extruder": 0.0, "heater_bed": 0.0, "chamber": 0.0},
-               "fan": 0.0, "exhaust": 0.0, "light": 0.0}
+               "fan": 0.0, "exhaust": 0.0, "light": 0.0,
+               "speed": 1.0, "flow": 1.0, "z_offset": 0.0, "pause_at": None, "mode": "standard"}
+    modes = {"standard": 1.0, "extreme": 1.25, "smooth": 0.5, "silent": 0.5}
     limits = {"x": (0.0, 250.0), "y": (0.0, 250.0), "z": (0.0, 240.0)}
     max_temp = {"extruder": 300.0, "heater_bed": 120.0, "heater_generic chamber": 60.0}
     help_text = {"M106": "Set fan speed", "M107": "Turn fan off", "M84": "Disable steppers",
                  "SET_HEATER_TEMPERATURE": "Sets a heater temperature", "SET_FAN_SPEED": "Sets the speed of a fan",
                  "SET_LED": "Set the color of an LED", "SAVE_GCODE_STATE": "Save G-Code coordinate state",
-                 "RESTORE_GCODE_STATE": "Restore a previously saved G-Code state", "TURN_OFF_HEATERS": "Turn off all heaters"}
+                 "RESTORE_GCODE_STATE": "Restore a previously saved G-Code state", "TURN_OFF_HEATERS": "Turn off all heaters",
+                 "SET_GCODE_OFFSET": "Set a virtual offset to g-code positions",
+                 "SET_PAUSE_AT_LAYER": "Enable/disable a pause if a given layer number is reached"}
+    if args.print_modes:
+        help_text["SET_PRINT_MODE"] = "Set print mode: standard/extreme/smooth/silent"
 
     class KlipperError(Exception):
         pass
@@ -134,6 +148,23 @@ def main():
                 if params.get("FAN") != "exhaust":
                     raise KlipperError(f"Fan {params.get('FAN')} not configured")
                 machine["exhaust"] = float(params.get("SPEED", 0))
+            elif command in ("M220", "M221"):
+                value = float(params.get("S", 100))
+                if value <= 0:
+                    raise KlipperError(f"Error on '{line}': S must be above 0.0")
+                machine["speed" if command == "M220" else "flow"] = value / 100
+            elif command == "SET_GCODE_OFFSET":
+                if "Z" in params:
+                    machine["z_offset"] = float(params["Z"])
+                machine["z_offset"] += float(params.get("Z_ADJUST", 0))
+            elif command == "SET_PAUSE_AT_LAYER":
+                enable = int(params["ENABLE"]) != 0 if "ENABLE" in params else "LAYER" in params
+                machine["pause_at"] = int(params.get("LAYER", machine["pause_at"] or 0)) if enable else None
+            elif command == "SET_PRINT_MODE" and args.print_modes:
+                mode = params.get("MODE", "").lower()
+                if mode not in modes:
+                    raise KlipperError(f"Unknown print mode '{mode}'")
+                machine["mode"], machine["speed"] = mode, modes[mode]
             elif command == "SET_LED":
                 if params.get("LED") != "chamber_light":
                     raise KlipperError(f"Unknown LED '{params.get('LED')}'")
@@ -159,13 +190,24 @@ def main():
         """print_stats e virtual_sdcard; a impressão "termina" em 300 s."""
         progress = 0.0
         if state["started"] is not None:
-            progress = min((time.time() - state["started"]) / 300, 1.0)
+            # Pausada, a impressão não anda.
+            progress = min(((state["paused_since"] or time.time()) - state["started"]) / 300, 1.0)
             if progress >= 1.0:
                 state["print_stats"], state["started"] = "complete", None
+        layer = max(1, math.ceil(progress * 100)) if state["print_stats"] in ("printing", "paused") else None
+        if layer is not None and machine["pause_at"] == layer and state["print_stats"] == "printing":
+            # Como o SET_PRINT_STATS_INFO da macro: pausa e desmarca.
+            state.update(print_stats="paused", paused_since=time.time())
+            machine["pause_at"] = None
         shutdown = state["webhooks"] == "shutdown"
         result = {"webhooks": {"state": state["webhooks"],
                                "state_message": "Shutdown due to M112 command" if shutdown else "Printer is ready"},
-                  "print_stats": {"state": state["print_stats"], "filename": state["filename"]},
+                  "print_stats": {"state": state["print_stats"], "filename": state["filename"],
+                                  "info": {"current_layer": layer, "total_layer": 100 if layer else None}},
+                  "gcode_move": {"speed_factor": machine["speed"], "extrude_factor": machine["flow"],
+                                 "homing_origin": [0.0, 0.0, machine["z_offset"], 0.0]},
+                  "gcode_macro SET_PRINT_STATS_INFO": {"pause_at_layer": {
+                      "enable": machine["pause_at"] is not None, "layer": machine["pause_at"] or 0, "call": "PAUSE"}},
                   "virtual_sdcard": {"progress": progress},
                   "extruder": heater("extruder", 25),
                   "heater_bed": heater("heater_bed", 24),
@@ -179,6 +221,9 @@ def main():
                   "fan_generic exhaust": {"speed": machine["exhaust"], "rpm": None},
                   "led chamber_light": {"color_data": [[machine["light"]] * 4]},
                   "configfile": {"settings": {name: {"max_temp": value} for name, value in max_temp.items()}}}
+        if args.print_modes:
+            result["print_mode"] = {"mode": machine["mode"]}
+            result["configfile"]["settings"]["print_mode"] = {f"{m}_speed_factor": f for m, f in modes.items()}
         if args.u1 is not None:
             heads = [h.split(":") if h else None for h in args.u1.split(",")]
             result["print_task_config"] = {
@@ -393,6 +438,17 @@ def main():
                 request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
                 print(f"iniciar impressão de {request.get('filename')}", file=sys.stderr)
                 state.update(print_stats="printing", filename=request.get("filename", ""), started=time.time())
+                self.reply(200, {"result": "ok"})
+                return
+            if self.path in ("/printer/print/pause", "/printer/print/resume", "/printer/print/cancel"):
+                action = self.path.rsplit("/", 1)[1]
+                print(f"{action}", file=sys.stderr)
+                if action == "pause" and state["print_stats"] == "printing":
+                    state.update(print_stats="paused", paused_since=time.time())
+                elif action == "resume" and state["print_stats"] == "paused":
+                    state.update(print_stats="printing", started=state["started"] + time.time() - state["paused_since"], paused_since=None)
+                elif action == "cancel" and state["print_stats"] in ("printing", "paused"):
+                    state.update(print_stats="cancelled", started=None, paused_since=None)
                 self.reply(200, {"result": "ok"})
                 return
             if self.path == "/printer/gcode/script":

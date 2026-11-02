@@ -147,6 +147,26 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      comandos). Falta: a luz da K3 (não está no Klipper; talvez o WebSocket 9999), a Q2, a U1 e a
      K2 conferidas, e a Bambu (sem controle ainda).
 4. **Ajustes ao vivo.** Velocidade, fluxo, modo de impressão, babystep Z, pausar numa camada (U1).
+   - Feito (2026-11-02), Moonraker: seção Ajustes na Visão geral, imprimindo ou pausada, sem
+     confirmação (mudar a impressão em curso é o propósito). Velocidade e fluxo por `M220`/`M221`
+     (os mesmos que a tela da K3 manda, vistos no `klippy.log` dela; o `gcode/help` não os lista),
+     com o valor atual do `gcode_move`. Modo de impressão da K3 por `SET_PRINT_MODE MODE=`, com os
+     modos da seção `print_mode` do configfile (`<modo>_speed_factor`: standard, extreme, smooth,
+     silent) e o atual no objeto `print_mode`. Babystep por `SET_GCODE_OFFSET Z_ADJUST= MOVE=1`
+     (±0,01/0,05 mm), valor do `gcode_move.homing_origin`. Pausar na camada pela macro
+     `SET_PAUSE_AT_LAYER` do Fluidd/Mainsail (a U1 a tem; estado em
+     `gcode_macro SET_PRINT_STATS_INFO.pause_at_layer`), só camada que ainda não começou.
+   - Testado no emulador (tablet e celular) com o `fake-moonraker.py --print-modes`; nada mandado a
+     uma impressora real. Falta:
+     - **Babystep na K3:** fica escondido. Ela tem `NOZZLE_PRINT_Z_OFFSET` ("Set or adjust global
+       print-time nozzle Z offset") para os quatro bicos, com o valor em
+       `nozzle_manager.print_z_adjust`; o módulo é compilado e os parâmetros não estão no
+       configfile nem no log. O `SET_GCODE_OFFSET` provavelmente se perde na troca de bico.
+     - **Fluxo na K3:** ela guarda o fluxo de cada bico em `nozzle_manager.print_flow`
+       (`NOZZLE_FLOW_SET`); conferir numa impressão real se o `M221` muda o `extrude_factor` que o
+       app mostra.
+     - U1, K2 e Q2 fora da rede hoje: conferir os comandos nelas. A1: `print.print_speed` 1–4, a
+       conferir com ela na rede.
 5. **Filamento.** Carregar/descarregar por slot e externo, reler RFID, editar slot da Bambu,
    secagem da K3. Depende das pendências da Creality e da U1.
    - **Várias operações de uma vez (pedido do usuário).** Na tela da K3 é preciso esperar um

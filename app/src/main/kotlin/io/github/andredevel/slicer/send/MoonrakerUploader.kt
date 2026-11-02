@@ -56,6 +56,9 @@ object MoonrakerUploader : Uploader {
     private val QIDI_BOXES = (1..4).map { "aht20_f heater_box$it" }
     /** Aquecedor da câmara da K3 (módulo da Creality), com o alvo do `M141`. */
     private const val CREALITY_CHAMBER = "heater_chamber chamber"
+    /** Modos de impressão da Creality (`SET_PRINT_MODE`): objeto e seção do configfile. */
+    private const val PRINT_MODE = "print_mode"
+    private const val SPEED_FACTOR = "_speed_factor"
     private val STATUS_OBJECTS = listOf("webhooks", "print_stats", "virtual_sdcard", "heater_bed", "box", CREALITY_CHAMBER) + EXTRUDERS + CHAMBERS + QIDI_BOXES
 
     /** Objetos de luz do Klipper, todos ligados por `SET_LED`. */
@@ -487,6 +490,15 @@ object MoonrakerUploader : Uploader {
             val value = if (command.on) 1 else 0
             "SET_LED LED=${command.light.substringAfter(' ')} RED=$value GREEN=$value BLUE=$value WHITE=$value"
         }
+        // O Klipper recusa 0 (above=0); a tela da K3 manda os mesmos M220/M221.
+        is PrinterCommand.SetSpeed -> "M220 S${command.percent.coerceAtLeast(1)}"
+        is PrinterCommand.SetFlow -> "M221 S${command.percent.coerceAtLeast(1)}"
+        is PrinterCommand.SetPrintMode -> {
+            if (command.mode !in capabilities.controls.adjustments.printModes) throw IllegalArgumentException("no print mode ${command.mode}")
+            "SET_PRINT_MODE MODE=${command.mode}"
+        }
+        is PrinterCommand.AdjustZOffset -> "SET_GCODE_OFFSET Z_ADJUST=${number(command.delta)} MOVE=1"
+        is PrinterCommand.PauseAtLayer -> command.layer?.let { "SET_PAUSE_AT_LAYER ENABLE=1 LAYER=${it.coerceAtLeast(1)}" } ?: "SET_PAUSE_AT_LAYER ENABLE=0"
         else -> throw IllegalArgumentException("not a G-code command: $command")
     }
 
@@ -509,13 +521,15 @@ object MoonrakerUploader : Uploader {
     /**
      * [heaters]: o nome do aquecedor no `SET_HEATER_TEMPERATURE` de cada aquecedor (fonte, índice),
      * null para o `M141` (câmara da K3). [crealityFans]: as ventoinhas da Creality pelo [Fan.id].
-     * [objects]: o que o estado ao vivo assina a mais para os valores da aba.
+     * [objects]: o que o estado ao vivo assina a mais para os valores da aba e dos ajustes;
+     * [statsMacro]: o nome da macro `SET_PRINT_STATS_INFO`, que guarda a pausa na camada.
      */
     private class Capabilities(
         val controls: PrinterControls,
         val heaters: Map<Pair<Temperature.Source, Int>, String?>,
         val crealityFans: Map<String, CrealityFan>,
         val objects: List<String>,
+        val statsMacro: String? = null,
     )
 
     /**
@@ -530,7 +544,13 @@ object MoonrakerUploader : Uploader {
      * ventoinha da peça (`fan`, `M106`), as `fan_generic` (`SET_FAN_SPEED`) e as da Creality
      * (`output_pin fan0`.., quantas a macro PRINTER_PARAM diz: 0 a da peça, 2 a auxiliar como o
      * `M106 P2` do Orca, a que o `heater_chamber` usa em `case_fan_pins` a da câmara); as luzes
-     * do Klipper com `SET_LED`.
+     * do Klipper com `SET_LED`. Ajustes: velocidade e fluxo (`M220`/`M221`, que todo Klipper
+     * tem e o `gcode/help` não lista) e o babystep (`SET_GCODE_OFFSET Z_ADJUST`) pelo
+     * `gcode_move`; o babystep não aparece na K3, que tem o `NOZZLE_PRINT_Z_OFFSET` dela para os
+     * quatro bicos (parâmetros ainda não conferidos). Os modos do `SET_PRINT_MODE` da Creality,
+     * pela seção `print_mode` (`<modo>_speed_factor`), e a pausa na camada da macro
+     * `SET_PAUSE_AT_LAYER` do Mainsail/Fluidd (U1), que guarda o pedido na
+     * `SET_PRINT_STATS_INFO`.
      */
     private suspend fun capabilities(api: URL, host: PrinterHost): Capabilities {
         capabilities[api.toString()]?.let { return it }
@@ -589,9 +609,20 @@ object MoonrakerUploader : Uploader {
         val lights = if ("SET_LED" in help) objects.filter { name -> LED_PREFIXES.any { name.startsWith(it) } }.sorted().map { Light(it, it.substringAfter(' ')) } else emptyList()
 
         val motion = "toolhead" in objects
-        val controls = PrinterControls(motion, heaterList, fans, lights)
-        val subscribed = listOfNotNull("toolhead".takeIf { motion }) + fans.map { it.id } + lights.map { it.id }
-        return Capabilities(controls, heaters, crealityFans, subscribed).also { capabilities[api.toString()] = it }
+        val move = "gcode_move" in objects
+        val printModes = if ("SET_PRINT_MODE" in help && PRINT_MODE in objects) {
+            settings.optJSONObject(PRINT_MODE)?.keys()?.asSequence()?.filter { it.endsWith(SPEED_FACTOR) }?.map { it.removeSuffix(SPEED_FACTOR) }?.toList().orEmpty()
+        } else emptyList()
+        val statsMacro = objects.firstOrNull { it.equals("gcode_macro SET_PRINT_STATS_INFO", ignoreCase = true) }?.takeIf { "SET_PAUSE_AT_LAYER" in help }
+        val adjustments = Adjustments(
+            speed = move, flow = move, printModes = printModes,
+            zOffset = move && "SET_GCODE_OFFSET" in help && "NOZZLE_PRINT_Z_OFFSET" !in help,
+            pauseAtLayer = statsMacro != null,
+        )
+        val controls = PrinterControls(motion, heaterList, fans, lights, adjustments)
+        val subscribed = listOfNotNull("toolhead".takeIf { motion }, "gcode_move".takeIf { move }, PRINT_MODE.takeIf { printModes.isNotEmpty() }, statsMacro) +
+            fans.map { it.id } + lights.map { it.id }
+        return Capabilities(controls, heaters, crealityFans, subscribed, statsMacro).also { capabilities[api.toString()] = it }
     }
 
     /** O `result` de um GET da API; falha com [SendException]. */
@@ -622,7 +653,16 @@ object MoonrakerUploader : Uploader {
             val on = (0 until data.length()).any { i -> data.optJSONArray(i)?.let { c -> (0 until c.length()).any { c.optDouble(it) > 0 } } == true }
             light.id to on
         }.toMap()
-        return status.copy(homedAxes = toolhead?.optString("homed_axes"), position = position?.takeIf { it.size == 3 }, fans = fans, lights = lights)
+        val move = objects.optJSONObject("gcode_move")
+        fun percent(key: String) = move?.optDouble(key)?.takeIf { !it.isNaN() }?.let { (it * 100).roundToInt() }
+        val pause = capabilities.statsMacro?.let { objects.optJSONObject(it)?.optJSONObject("pause_at_layer") }
+        return status.copy(
+            homedAxes = toolhead?.optString("homed_axes"), position = position?.takeIf { it.size == 3 }, fans = fans, lights = lights,
+            speed = percent("speed_factor"), flow = percent("extrude_factor"),
+            printMode = objects.optJSONObject(PRINT_MODE)?.optString("mode")?.takeIf { it.isNotEmpty() },
+            zOffset = move?.optJSONArray("homing_origin")?.optDouble(2)?.takeIf { !it.isNaN() }?.toFloat(),
+            pauseAtLayer = pause?.takeIf { it.optBoolean("enable") }?.optInt("layer")?.takeIf { it > 0 },
+        )
     }
 
     /** Falha se o Klipper estiver imprimindo ou pausado (print_stats.state). */

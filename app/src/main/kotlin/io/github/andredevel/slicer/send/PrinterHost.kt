@@ -142,19 +142,52 @@ sealed interface PrinterCommand {
 
     /** Liga ou desliga [light] ([Light.id]). */
     data class SetLight(val light: String, val on: Boolean) : PrinterCommand
+
+    /** Velocidade da impressão em % da do G-code. */
+    data class SetSpeed(val percent: Int) : PrinterCommand
+
+    /** Fluxo (extrusão) em % do G-code. */
+    data class SetFlow(val percent: Int) : PrinterCommand
+
+    /** Modo de impressão da Creality ([Adjustments.printModes]). */
+    data class SetPrintMode(val mode: String) : PrinterCommand
+
+    /** Soma [delta] mm ao deslocamento Z (babystep), com o bico indo junto. */
+    data class AdjustZOffset(val delta: Float) : PrinterCommand
+
+    /** Pausa quando a impressão chegar na camada [layer] (a partir de 1); null desfaz. */
+    data class PauseAtLayer(val layer: Int?) : PrinterCommand
 }
 
 /**
- * O que a aba Controle mostra ([Uploader.controls]): [motion] = home, mover os eixos e desligar os
- * motores; os aquecedores, ventoinhas e luzes que dá para mudar.
+ * O que a tela da impressora pode mexer ([Uploader.controls]). Aba Controle: [motion] = home,
+ * mover os eixos e desligar os motores; os aquecedores, ventoinhas e luzes que dá para mudar.
+ * [adjustments]: os ajustes ao vivo da impressão, na Visão geral.
  */
 data class PrinterControls(
     val motion: Boolean = false,
     val heaters: List<Heater> = emptyList(),
     val fans: List<Fan> = emptyList(),
     val lights: List<Light> = emptyList(),
+    val adjustments: Adjustments = Adjustments(),
 ) {
-    val isEmpty get() = !motion && heaters.isEmpty() && fans.isEmpty() && lights.isEmpty()
+    /** Se a aba Controle tem o que mostrar. */
+    val hasControlTab get() = motion || heaters.isNotEmpty() || fans.isNotEmpty() || lights.isNotEmpty()
+}
+
+/**
+ * Ajustes durante a impressão: velocidade e fluxo em %, os modos de impressão da Creality
+ * ([printModes], como `SET_PRINT_MODE` os nomeia: "standard", "silent"...), babystep Z e pausar
+ * numa camada.
+ */
+data class Adjustments(
+    val speed: Boolean = false,
+    val flow: Boolean = false,
+    val printModes: List<String> = emptyList(),
+    val zOffset: Boolean = false,
+    val pauseAtLayer: Boolean = false,
+) {
+    val isEmpty get() = !speed && !flow && printModes.isEmpty() && !zOffset && !pauseAtLayer
 }
 
 /** Aquecedor que dá para ligar, como em [Temperature] ([source], [index]); [max] em °C, quando a impressora informa. */
@@ -181,7 +214,8 @@ data class Light(val id: String, val name: String)
  * [PrinterCommand.FirmwareRestart]; [raw] traz a mensagem dele. Só no estado ao vivo
  * ([Uploader.liveStatus]), para a aba Controle: [homedAxes] ("xyz", vazio sem home),
  * [position] XYZ em mm, a velocidade de cada ventoinha ([Fan.id], 0 a 1) e se cada luz está
- * acesa ([Light.id]).
+ * acesa ([Light.id]); para os [Adjustments], [speed] e [flow] em %, [printMode], [zOffset] em mm
+ * e a camada de [pauseAtLayer] (null sem pausa marcada).
  */
 data class PrinterStatus(
     val state: State,
@@ -200,6 +234,11 @@ data class PrinterStatus(
     val position: List<Float>? = null,
     val fans: Map<String, Float> = emptyMap(),
     val lights: Map<String, Boolean> = emptyMap(),
+    val speed: Int? = null,
+    val flow: Int? = null,
+    val printMode: String? = null,
+    val zOffset: Float? = null,
+    val pauseAtLayer: Int? = null,
 ) {
     enum class State { IDLE, PRINTING, PAUSED, ERROR, OFFLINE }
 
