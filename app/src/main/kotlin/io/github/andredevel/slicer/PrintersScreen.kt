@@ -241,9 +241,9 @@ fun WatchPrinterStatus(printers: List<PrinterHost>, viewModel: SlicerViewModel) 
 
 /** "Livre", "Imprimindo 42% · arquivo", "Pausada", "Sem resposta" ou o erro, com a cor do estado. */
 @Composable
-fun PrinterStatusDot(status: PrinterStatus, modifier: Modifier = Modifier) {
+fun PrinterStatusDot(status: PrinterStatus, modifier: Modifier = Modifier, withFile: Boolean = true) {
     val percent = status.progress?.let { " ${(it * 100).toInt()}%" }.orEmpty()
-    val file = status.file?.let { " · $it" }.orEmpty()
+    val file = status.file?.takeIf { withFile }?.let { " · $it" }.orEmpty()
     val (text, color) = when (status.state) {
         PrinterStatus.State.IDLE -> stringResource(R.string.printer_status_idle) to PocketTheme.colors.success
         PrinterStatus.State.PRINTING -> stringResource(R.string.printer_status_printing) + percent + file to MaterialTheme.colorScheme.primary

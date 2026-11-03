@@ -1,12 +1,14 @@
 package io.github.andredevel.slicer
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +36,7 @@ import io.github.andredevel.slicer.send.PrinterCommand
 import io.github.andredevel.slicer.send.PrinterStatus
 import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.ButtonStyle
-import io.github.andredevel.slicer.ui.components.SectionLabel
+import io.github.andredevel.slicer.ui.components.ContentCard
 import io.github.andredevel.slicer.ui.theme.MonoStyles
 import kotlin.math.hypot
 
@@ -45,16 +47,18 @@ import kotlin.math.hypot
  * ([PrinterCommand.ExcludeObject]); a lista serve para os pequenos demais para o dedo.
  */
 @Composable
-internal fun PrintObjects(status: PrinterStatus, commands: CommandRunner) {
+internal fun PrintObjects(status: PrinterStatus, commands: CommandRunner, modifier: Modifier = Modifier) {
     val enabled = !status.halted && status.state != PrinterStatus.State.OFFLINE && !commands.sending
     var confirm by remember { mutableStateOf<String?>(null) }
-    SectionLabel(stringResource(R.string.print_objects))
+    ContentCard(modifier, title = stringResource(R.string.print_objects), subtitle = stringResource(R.string.print_objects_hint)) {
     val bed = status.bed ?: boundsOf(status.objects)
     if (bed != null && status.objects.any { it.polygon.size >= 3 || it.center != null }) {
         BedMap(bed, status.objects, Modifier.widthIn(max = 480.dp).fillMaxWidth()) { name -> if (enabled) confirm = name }
     }
     for (obj in status.objects) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // O que está sendo impresso agora em destaque, como na mesa.
+        val row = if (obj.current) Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small) else Modifier
+        Row(Modifier.fillMaxWidth().then(row).heightIn(min = 52.dp).padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(obj.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             when {
                 obj.excluded -> Text(stringResource(R.string.print_object_excluded), style = MonoStyles.small, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -64,6 +68,7 @@ internal fun PrintObjects(status: PrinterStatus, commands: CommandRunner) {
                 }
             }
         }
+    }
     }
     // Não tem volta: confirma com o nome.
     confirm?.let { name ->

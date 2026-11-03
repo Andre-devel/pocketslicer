@@ -60,6 +60,49 @@ fun FloatingCard(
     )
 }
 
+/**
+ * Bloco de conteúdo de uma tela (tela da impressora): fundo do painel, borda fina, [title] com
+ * [subtitle] e [trailing] à direita no topo.
+ */
+@Composable
+fun ContentCard(
+    modifier: Modifier = Modifier,
+    title: String? = null,
+    subtitle: String? = null,
+    trailing: @Composable RowScope.() -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (title != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(title, style = MaterialTheme.typography.titleSmall)
+                        if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    trailing()
+                }
+            }
+            content()
+        }
+    }
+}
+
+/** Medida solta (dentro de um [ContentCard]): rótulo pequeno, valor mono e um detalhe embaixo. */
+@Composable
+fun Metric(label: String, value: String, modifier: Modifier = Modifier, detail: String? = null) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, style = MonoStyles.value, maxLines = 1)
+        if (detail != null) Text(detail, style = MonoStyles.small, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    }
+}
+
 /** Bloco de informação discreto (fundo um tom acima do painel), opcionalmente com ícone. */
 @Composable
 fun InfoCard(text: String, modifier: Modifier = Modifier, title: String? = null, @DrawableRes icon: Int? = null) {

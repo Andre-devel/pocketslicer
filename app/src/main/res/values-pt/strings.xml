@@ -226,7 +226,7 @@
     <string name="control_while_printing_title">Mudar durante a impressão?</string>
     <string name="control_while_printing_text">%1$s está imprimindo. A mudança vale na hora para a impressão em andamento.</string>
     <string name="control_apply">Mudar</string>
-    <string name="print_adjustments">Ajustes</string>
+    <string name="print_adjustments">Ajustes ao vivo</string>
     <string name="print_speed">Velocidade</string>
     <string name="print_flow">Fluxo</string>
     <string name="print_mode">Modo de impressão</string>
@@ -401,7 +401,7 @@
     <string name="filament_clear">Limpar</string>
     <string name="filament_error_box">A caixa de filamento informa o erro %1$d. Limpe o erro na tela da impressora e tente de novo.</string>
     <string name="filament_timeout">A impressora não terminou em %1$d minutos. Confira nela antes de tentar de novo.</string>
-    <string name="print_objects">Objetos</string>
+    <string name="print_objects">Objetos na mesa</string>
     <string name="print_objects_map">Mesa com os objetos da impressão; toque num para cancelá-lo</string>
     <string name="print_object_current">imprimindo</string>
     <string name="print_object_excluded">cancelado</string>
@@ -648,4 +648,6 @@
     <string name="calib_damping_start">Amortecimento inicial</string>
     <string name="calib_damping_end">Amortecimento final</string>
     <string name="calib_frequency_hint">Use as frequências encontradas no teste de frequência.</string>
+    <string name="print_adjustments_hint">Valem na hora, sem confirmação.</string>
+    <string name="print_objects_hint">Toque num objeto para cancelar só ele.</string>
 </resources>

@@ -168,9 +168,9 @@ fun AxisFields(
     }
 }
 
-/** Número inteiro com botões − e +; o valor digitado vale ao confirmar. */
+/** Número inteiro com botões − e + (de [step] em [step]); o valor digitado vale ao confirmar. */
 @Composable
-fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modifier, min: Int? = null, enabled: Boolean = true) {
+fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modifier, min: Int? = null, enabled: Boolean = true, step: Int = 1, suffix: String? = null) {
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier
@@ -179,7 +179,7 @@ fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modif
             .border(1.dp, scheme.outlineVariant, MaterialTheme.shapes.small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { onCommit(value - 1) }, Modifier.size(LocalFieldHeight.current), enabled = enabled && (min == null || value > min)) {
+        IconButton(onClick = { onCommit(min?.let { maxOf(it, value - step) } ?: (value - step)) }, Modifier.size(LocalFieldHeight.current), enabled = enabled && (min == null || value > min)) {
             Icon(painterResource(R.drawable.ic_remove), stringResource(R.string.decrease))
         }
         CommitField(
@@ -188,8 +188,9 @@ fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modif
             modifier = Modifier.weight(1f),
             enabled = enabled,
             keyboardType = KeyboardType.Number,
+            suffix = suffix,
         )
-        IconButton(onClick = { onCommit(value + 1) }, Modifier.size(LocalFieldHeight.current), enabled = enabled) {
+        IconButton(onClick = { onCommit(value + step) }, Modifier.size(LocalFieldHeight.current), enabled = enabled) {
             Icon(painterResource(R.drawable.ic_add), stringResource(R.string.increase))
         }
     }

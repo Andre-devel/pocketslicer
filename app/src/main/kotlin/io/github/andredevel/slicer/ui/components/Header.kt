@@ -23,7 +23,8 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Barra superior de uma tela: [title] com o ponto laranja de alterado ([modified]), [subtitle]
- * ou, durante uma operação, o indicador de ocupado com [busy]; [actions] à direita.
+ * ou, durante uma operação, o indicador de ocupado com [busy]; [titleTrailing] logo depois do
+ * título (o estado da impressora) e [actions] à direita.
  */
 @Composable
 fun ScreenHeader(
@@ -32,6 +33,7 @@ fun ScreenHeader(
     subtitle: String? = null,
     modified: Boolean = false,
     busy: String? = null,
+    titleTrailing: @Composable (RowScope.() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -50,6 +52,7 @@ fun ScreenHeader(
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (modified) Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                    titleTrailing?.invoke(this)
                 }
                 when {
                     busy != null -> BusyLine(busy)

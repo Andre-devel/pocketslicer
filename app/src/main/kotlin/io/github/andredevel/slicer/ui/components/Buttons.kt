@@ -26,6 +26,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -44,6 +45,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.R
+
+/** Fundo dos botões tonais com cor própria: o tom dela bem apagado. */
+private const val TONAL_ALPHA = 0.16f
 
 /** Hierarquia de botões: um só [PRIMARY] (laranja) por tela. */
 enum class ButtonStyle { PRIMARY, TONAL, OUTLINED, TEXT }
@@ -75,9 +79,10 @@ fun AppButton(
         ) { content() }
         ButtonStyle.TONAL -> FilledTonalButton(
             onClick, sized, enabled, contentPadding = padding,
+            // Com [color] (parada de emergência): o tom dela no fundo e no texto.
             colors = ButtonDefaults.filledTonalButtonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                containerColor = color?.copy(alpha = TONAL_ALPHA) ?: MaterialTheme.colorScheme.primaryContainer,
+                contentColor = color ?: MaterialTheme.colorScheme.onPrimaryContainer,
             ),
         ) { content() }
         ButtonStyle.OUTLINED -> OutlinedButton(
@@ -104,7 +109,9 @@ fun AppIconButton(
     tint: Color? = null,
 ) {
     if (tonal) {
-        FilledTonalIconButton(onClick, modifier, enabled) { Icon(painterResource(icon), contentDescription) }
+        val colors = if (tint != null) IconButtonDefaults.filledTonalIconButtonColors(containerColor = tint.copy(alpha = TONAL_ALPHA), contentColor = tint)
+        else IconButtonDefaults.filledTonalIconButtonColors()
+        FilledTonalIconButton(onClick, modifier, enabled, colors = colors) { Icon(painterResource(icon), contentDescription) }
     } else {
         IconButton(onClick, modifier, enabled) {
             // O tint fixo apagaria o estado desligado do IconButton.

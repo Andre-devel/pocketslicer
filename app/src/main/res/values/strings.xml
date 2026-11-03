@@ -226,7 +226,7 @@
     <string name="control_while_printing_title">Change while printing?</string>
     <string name="control_while_printing_text">%1$s is printing. The change applies right away to the current print.</string>
     <string name="control_apply">Change</string>
-    <string name="print_adjustments">Adjustments</string>
+    <string name="print_adjustments">Live adjustments</string>
     <string name="print_speed">Speed</string>
     <string name="print_flow">Flow</string>
     <string name="print_mode">Print mode</string>
@@ -404,7 +404,7 @@
     <string name="filament_clear">Clear</string>
     <string name="filament_error_box">The filament box reports error %1$d. Clear it on the printer screen and try again.</string>
     <string name="filament_timeout">The printer did not finish within %1$d minutes. Check it before trying again.</string>
-    <string name="print_objects">Objects</string>
+    <string name="print_objects">Objects on the bed</string>
     <string name="print_objects_map">Bed with the objects of the print; tap one to cancel it</string>
     <string name="print_object_current">printing</string>
     <string name="print_object_excluded">cancelled</string>
@@ -651,4 +651,6 @@
     <string name="calib_damping_start">Damping start</string>
     <string name="calib_damping_end">Damping end</string>
     <string name="calib_frequency_hint">Use the frequencies found in the frequency test.</string>
+    <string name="print_adjustments_hint">Applied right away, no confirmation.</string>
+    <string name="print_objects_hint">Tap an object to cancel just that one.</string>
 </resources>

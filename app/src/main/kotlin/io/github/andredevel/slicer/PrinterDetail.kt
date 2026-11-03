@@ -5,6 +5,13 @@ import android.util.Log
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
+import io.github.andredevel.slicer.ui.components.Metric
+import io.github.andredevel.slicer.ui.components.ContentCard
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -56,9 +63,7 @@ import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.Banner
 import io.github.andredevel.slicer.ui.components.ButtonStyle
-import io.github.andredevel.slicer.ui.components.MetricTile
 import io.github.andredevel.slicer.ui.components.ScreenHeader
-import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.IconTab
 import io.github.andredevel.slicer.ui.components.IconTabs
 import io.github.andredevel.slicer.ui.components.Tone
@@ -157,7 +162,11 @@ fun PrinterDetail(
     val canEmergencyStop = viewModel.printerSupports(host, PrinterCommand.EmergencyStop) &&
         status != null && status.state != PrinterStatus.State.OFFLINE && !status.halted
     Column(modifier) {
-        ScreenHeader(host.name, subtitle = host.address) {
+        val headerStatus: @Composable RowScope.() -> Unit = {
+            if (status != null) PrinterStatusDot(status, Modifier.weight(1f, fill = false), withFile = false)
+            else Text(stringResource(R.string.printer_status_loading), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        ScreenHeader(host.name, subtitle = host.address, titleTrailing = headerStatus) {
             if (onToggleList != null) {
                 if (listOpen) AppIconButton(R.drawable.ic_open_in_full, stringResource(R.string.printers_list_hide), onToggleList)
                 else AppIconButton(R.drawable.ic_close_fullscreen, stringResource(R.string.printers_list_show), onToggleList)
@@ -166,9 +175,15 @@ fun PrinterDetail(
             // Na tela estreita só o ícone, para caber o nome e a parada de emergência.
             if (onClose != null) AppIconButton(R.drawable.ic_edit, stringResource(R.string.edit), onEdit)
             else AppButton(stringResource(R.string.edit), onEdit, style = ButtonStyle.TONAL, icon = R.drawable.ic_edit)
-            if (canEmergencyStop) {
+            // Vermelho tonal, sempre à vista; na tela estreita só o ícone.
+            if (canEmergencyStop && onClose != null) {
+                AppIconButton(
+                    R.drawable.ic_block, stringResource(R.string.emergency_stop), { confirmEmergency = true },
+                    enabled = !commands.sending, tonal = true, tint = MaterialTheme.colorScheme.error,
+                )
+            } else if (canEmergencyStop) {
                 AppButton(
-                    stringResource(R.string.emergency_stop), { confirmEmergency = true }, icon = R.drawable.ic_block,
+                    stringResource(R.string.emergency_stop), { confirmEmergency = true }, style = ButtonStyle.TONAL, icon = R.drawable.ic_block,
                     enabled = !commands.sending, color = MaterialTheme.colorScheme.error,
                 )
             }
@@ -176,7 +191,6 @@ fun PrinterDetail(
         // A recusa de um comando aparece por cima, no rodapé: não muda o lugar dos botões sob o dedo.
         Box(Modifier.weight(1f)) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (status != null) PrinterStatusDot(status) else Text(stringResource(R.string.printer_status_loading), style = MaterialTheme.typography.labelSmall)
                 if (status?.halted == true && viewModel.printerSupports(host, PrinterCommand.FirmwareRestart)) {
                     Banner(
                         Tone.ERROR, status.raw ?: stringResource(R.string.printer_halted_text), Modifier.fillMaxWidth(),
@@ -200,34 +214,7 @@ fun PrinterDetail(
                 } else if (tab == PrinterTab.FILES) {
                     PrinterFilesTab(host, status, viewModel, commands) { chosen = PrinterTab.OVERVIEW }
                 } else {
-                    status?.let { HumidityBanners(it) }
-                    camera?.let {
-                        CameraView(it, Modifier.fillMaxWidth().widthIn(max = 720.dp).aspectRatio(16f / 9f).clip(MaterialTheme.shapes.medium))
-                    }
-                    if (status != null && status.busy) PrintProgress(status)
-                    if (status != null && status.busy && viewModel.printerSupports(host, PrinterCommand.Stop)) PrintControls(host, status, commands)
-                    if (status != null && status.busy && control != null && !control.adjustments.isEmpty) PrintAdjustments(status, control.adjustments, commands)
-                    if (status != null && status.busy && control?.excludeObject == true && status.objects.isNotEmpty()) PrintObjects(status, commands)
-                    if (status != null && status.temperatures.isNotEmpty()) {
-                        SectionLabel(stringResource(R.string.temperatures))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {
-                            for (temperature in status.temperatures) {
-                                MetricTile(
-                                    temperatureName(temperature, status.temperatures),
-                                    "%.0f °C".format(Locale.ROOT, temperature.current),
-                                    Modifier.weight(1f).fillMaxRowHeight(),
-                                    detail = temperature.target?.let {
-                                        if (it > 0) stringResource(R.string.temperature_target, "%.0f".format(Locale.ROOT, it)) else stringResource(R.string.heater_off)
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    if (slots.isNotEmpty() || status?.boxes?.isNotEmpty() == true) {
-                        SectionLabel(stringResource(R.string.filament))
-                        for (box in status?.boxes.orEmpty()) BoxRow(box)
-                        PrinterFilament(host, status, slots, control?.filament ?: FilamentControls(), filamentQueue, viewModel, commands)
-                    }
+                    PrinterOverview(host, status, camera, control, slots, filamentQueue, viewModel, commands)
                 }
             }
             commands.failure?.let {
@@ -301,28 +288,106 @@ private fun rememberCommandRunner(host: PrinterHost, viewModel: SlicerViewModel)
     return remember(host) { CommandRunner(host, viewModel, scope, context) }
 }
 
-/** Barra de progresso, arquivo, camada e tempos (decorrido, restante e a hora prevista do fim). */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Visão geral: câmera, impressão em curso e temperaturas na coluna principal; ajustes, objetos e
+ * filamento ao lado na tela larga (até três colunas) ou embaixo na estreita.
+ */
 @Composable
-private fun PrintProgress(status: PrinterStatus) {
-    SectionLabel(stringResource(R.string.current_print))
-    status.file?.let { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-    status.progress?.let { progress ->
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            LinearProgressIndicator({ progress }, Modifier.weight(1f))
-            Text("${(progress * 100).toInt()}%", style = MonoStyles.small)
+private fun PrinterOverview(
+    host: PrinterHost, status: PrinterStatus?, camera: Camera?, control: PrinterControls?, slots: List<Slot>,
+    filamentQueue: List<FilamentTask>, viewModel: SlicerViewModel, commands: CommandRunner,
+) {
+    val printing = status?.takeIf { it.busy }
+    val main: @Composable (Modifier) -> Unit = { modifier ->
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            status?.let { HumidityBanners(it) }
+            camera?.let { CameraView(it, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp))) }
+            printing?.let { PrintProgress(host, it, viewModel, commands) }
+            status?.takeIf { it.temperatures.isNotEmpty() }?.let { TemperaturesCard(it) }
         }
     }
-    val context = LocalContext.current
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {
-        if (status.layer != null) {
-            MetricTile(stringResource(R.string.layer), status.layers?.let { "${status.layer} / $it" } ?: "${status.layer}", Modifier.weight(1f).fillMaxRowHeight())
+    val side = buildList<@Composable (Modifier) -> Unit> {
+        if (printing != null && control != null && !control.adjustments.isEmpty) add { PrintAdjustments(printing, control.adjustments, commands, it) }
+        if (printing != null && control?.excludeObject == true && printing.objects.isNotEmpty()) add { PrintObjects(printing, commands, it) }
+        if (slots.isNotEmpty() || status?.boxes?.isNotEmpty() == true) {
+            add {
+                ContentCard(it, title = stringResource(R.string.filament)) {
+                    for (box in status?.boxes.orEmpty()) BoxRow(box)
+                    PrinterFilament(host, status, slots, control?.filament ?: FilamentControls(), filamentQueue, viewModel, commands)
+                }
+            }
         }
-        status.elapsed?.let { MetricTile(stringResource(R.string.elapsed_time), formatDuration(it.toDouble()), Modifier.weight(1f).fillMaxRowHeight()) }
-        status.remaining?.let {
-            // A hora do fim só imprimindo: pausada, ela não anda.
-            val end = if (status.state == PrinterStatus.State.PRINTING) DateFormat.getTimeFormat(context).format(Date(System.currentTimeMillis() + it * 1000)) else null
-            MetricTile(stringResource(R.string.remaining_time), formatDuration(it.toDouble()), Modifier.weight(1f).fillMaxRowHeight(), detail = end?.let { time -> stringResource(R.string.ends_at, time) })
+    }
+    BoxWithConstraints {
+        val gap = Arrangement.spacedBy(16.dp)
+        when {
+            maxWidth >= THREE_COLUMNS && side.size >= 2 -> Row(horizontalArrangement = gap) {
+                main(Modifier.weight(1.3f))
+                side[0](Modifier.weight(1f))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) { side.drop(1).forEach { it(Modifier) } }
+            }
+            maxWidth >= TWO_COLUMNS && side.isNotEmpty() -> Row(horizontalArrangement = gap) {
+                main(Modifier.weight(1.2f))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) { side.forEach { it(Modifier) } }
+            }
+            // Uma coluna: sem largura demais para a câmera numa tela larga sem nada ao lado.
+            else -> Column(Modifier.widthIn(max = 720.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                main(Modifier.fillMaxWidth())
+                side.forEach { it(Modifier) }
+            }
+        }
+    }
+}
+
+private val TWO_COLUMNS = 720.dp
+private val THREE_COLUMNS = 1000.dp
+
+/** Arquivo, porcentagem, barra, camada e tempos (decorrido, restante e a hora do fim) e os botões da impressão. */
+@Composable
+private fun PrintProgress(host: PrinterHost, status: PrinterStatus, viewModel: SlicerViewModel, commands: CommandRunner) {
+    val context = LocalContext.current
+    ContentCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                status.file ?: stringResource(R.string.current_print), style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+            status.progress?.let { Text("${(it * 100).toInt()}%", style = MonoStyles.title) }
+        }
+        status.progress?.let { progress ->
+            LinearProgressIndicator({ progress }, Modifier.fillMaxWidth().height(8.dp), strokeCap = StrokeCap.Round, gapSize = 0.dp, drawStopIndicator = {})
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (status.layer != null) {
+                Metric(stringResource(R.string.layer), status.layers?.let { "${status.layer} / $it" } ?: "${status.layer}", Modifier.weight(1f))
+            }
+            status.elapsed?.let { Metric(stringResource(R.string.elapsed_time), formatDuration(it.toDouble()), Modifier.weight(1f)) }
+            status.remaining?.let {
+                // A hora do fim só imprimindo: pausada, ela não anda.
+                val end = if (status.state == PrinterStatus.State.PRINTING) DateFormat.getTimeFormat(context).format(Date(System.currentTimeMillis() + it * 1000)) else null
+                Metric(stringResource(R.string.remaining_time), formatDuration(it.toDouble()), Modifier.weight(1f), detail = end?.let { time -> stringResource(R.string.ends_at, time) })
+            }
+        }
+        if (viewModel.printerSupports(host, PrinterCommand.Stop)) PrintControls(host, status, commands)
+    }
+}
+
+/** Temperatura atual de cada aquecedor e o alvo (ou desligado). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TemperaturesCard(status: PrinterStatus) {
+    ContentCard(title = stringResource(R.string.temperatures)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {
+            for (temperature in status.temperatures) {
+                Metric(
+                    temperatureName(temperature, status.temperatures),
+                    "%.0f °C".format(Locale.ROOT, temperature.current),
+                    Modifier.weight(1f),
+                    detail = temperature.target?.let {
+                        if (it > 0) stringResource(R.string.temperature_target, "%.0f".format(Locale.ROOT, it)) else stringResource(R.string.heater_off)
+                    },
+                )
+            }
         }
     }
 }
@@ -335,14 +400,14 @@ private fun PrintProgress(status: PrinterStatus) {
 private fun PrintControls(host: PrinterHost, status: PrinterStatus, commands: CommandRunner) {
     var confirmStop by remember(host) { mutableStateOf(false) }
     val sending = commands.sending
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (status.state == PrinterStatus.State.PAUSED) {
-            AppButton(stringResource(R.string.print_resume), { commands.run(PrinterCommand.Resume) }, icon = R.drawable.ic_play_arrow, enabled = !sending)
+            AppButton(stringResource(R.string.print_resume), { commands.run(PrinterCommand.Resume) }, Modifier.weight(1f), icon = R.drawable.ic_play_arrow, enabled = !sending)
         } else {
-            AppButton(stringResource(R.string.print_pause), { commands.run(PrinterCommand.Pause) }, style = ButtonStyle.TONAL, icon = R.drawable.ic_pause, enabled = !sending)
+            AppButton(stringResource(R.string.print_pause), { commands.run(PrinterCommand.Pause) }, Modifier.weight(1f), style = ButtonStyle.TONAL, icon = R.drawable.ic_pause, enabled = !sending)
         }
         AppButton(
-            stringResource(R.string.print_stop), { confirmStop = true }, style = ButtonStyle.OUTLINED, icon = R.drawable.ic_stop,
+            stringResource(R.string.print_stop), { confirmStop = true }, Modifier.weight(1f), style = ButtonStyle.OUTLINED, icon = R.drawable.ic_stop,
             enabled = !sending, color = MaterialTheme.colorScheme.error,
         )
     }
