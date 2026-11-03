@@ -263,5 +263,16 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      - K2 (os mesmos nomes, macros a conferir no configfile dela), U1 (`SHAPER_CALIBRATE`,
        `AUTO_BED_MESH_CALIBRATE`, `ROUGHLY_CLEAN_NOZZLE`...), Q2 e A1 (`print.calibration`).
 9. **Console.** Histórico e envio de G-code livre, com a lista de comandos da impressora como sugestão.
+   - Feito (2026-11-02), Moonraker: aba Console com as últimas 200 linhas de `/server/gcode_store`
+     (comandos e respostas, lidas a cada 2 s com a aba aberta; erros `!!` em vermelho) e um campo
+     de G-code livre (`/printer/gcode/script`, até 15 min de resposta), com os comandos do
+     `/printer/gcode/help` sugeridos enquanto se digita (acima do campo, para o teclado não cobrir)
+     e a descrição do comando digitado. Aviso fixo de que vai sem as verificações das outras abas;
+     durante a impressão pede confirmação. O envio não usa o `CommandRunner`, então a parada de
+     emergência segue livre enquanto um comando demora. As abas da impressora viraram `IconTabs`
+     (ícone e rolagem), porque cinco não cabiam no celular.
+   - Testado no emulador (tablet e celular) com o `fake-moonraker.py` (que agora guarda o
+     `gcode_store`); na K3 só a leitura do `gcode_store` por curl. Falta: mandar um comando a uma
+     impressora real (pede OK do usuário).
 10. **Notificações.** Fim de impressão e erro com o app em segundo plano (serviço com o WebSocket
     ou MQTT; avaliar bateria).

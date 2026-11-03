@@ -141,6 +141,21 @@ interface Uploader {
 
     /** Últimas impressões e totais; null se o protocolo não guarda. Falha com [SendException]. */
     suspend fun history(host: PrinterHost): PrintHistory? = null
+
+    /** Se a impressora tem console de G-code ([console], [sendGcode], [gcodeCommands]). */
+    val hasConsole: Boolean get() = false
+
+    /** As últimas [count] linhas do console (comandos e respostas), a mais antiga primeiro; falha com [SendException]. */
+    suspend fun console(host: PrinterHost, count: Int): List<ConsoleLine> = throw UnsupportedOperationException()
+
+    /**
+     * Manda [script] (G-code livre, uma ou mais linhas) e volta quando a impressora o executou;
+     * falha com [SendException] com a resposta dela. Só com [hasConsole].
+     */
+    suspend fun sendGcode(host: PrinterHost, script: String): Unit = throw UnsupportedOperationException()
+
+    /** Os comandos que a impressora informa ter, com a descrição de cada um; falha com [SendException]. */
+    suspend fun gcodeCommands(host: PrinterHost): Map<String, String> = throw UnsupportedOperationException()
 }
 
 /** O que o app manda a impressora fazer ([Uploader.command]); cada protocolo traduz. */
@@ -257,6 +272,9 @@ enum class Maintenance(val bed: Boolean, val saves: Boolean) {
     BED_PID(bed = false, saves = true),
     NOZZLE_CLEAN(bed = true, saves = false),
 }
+
+/** Linha do console ([Uploader.console]): [command] = o que foi mandado, senão a resposta; [time] em ms do relógio. */
+data class ConsoleLine(val message: String, val time: Long, val command: Boolean)
 
 /** Aquecedor que dá para ligar, como em [Temperature] ([source], [index]); [max] em °C, quando a impressora informa. */
 data class Heater(val source: Temperature.Source, val index: Int = 0, val max: Float? = null) {

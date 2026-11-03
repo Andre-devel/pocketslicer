@@ -37,6 +37,7 @@ import io.github.andredevel.slicer.render.StrokeLock
 import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.Connection
+import io.github.andredevel.slicer.send.ConsoleLine
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.Maintenance
 import io.github.andredevel.slicer.send.PrinterCommand
@@ -1330,6 +1331,18 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     /** [Uploader.history]. */
     suspend fun printerHistory(host: PrinterHost): PrintHistory? = uploader(host.kind, app.assets).history(host)
+
+    /** [Uploader.hasConsole]. */
+    fun printerHasConsole(host: PrinterHost): Boolean = uploader(host.kind, app.assets).hasConsole
+
+    /** [Uploader.console]. */
+    suspend fun printerConsole(host: PrinterHost, count: Int): List<ConsoleLine> = uploader(host.kind, app.assets).console(host, count)
+
+    /** [Uploader.sendGcode]. */
+    suspend fun sendPrinterGcode(host: PrinterHost, script: String) = uploader(host.kind, app.assets).sendGcode(host, script)
+
+    /** [Uploader.gcodeCommands]. */
+    suspend fun printerGcodeCommands(host: PrinterHost): Map<String, String> = uploader(host.kind, app.assets).gcodeCommands(host)
 
     /** A fila de filamento que roda em cada impressora ([PrinterHost.id]). */
     private val filamentJobs = mutableMapOf<String, Job>()

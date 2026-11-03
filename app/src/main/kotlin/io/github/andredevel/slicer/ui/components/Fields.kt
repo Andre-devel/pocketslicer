@@ -209,6 +209,7 @@ fun FormField(
     isError: Boolean = false,
     monospace: Boolean = false,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailingIcon: @Composable (() -> Unit)? = null,
 ) {
@@ -225,6 +226,7 @@ fun FormField(
         placeholder = placeholder?.let { { Text(it) } },
         supportingText = supportingText?.let { { Text(it) } },
         keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
         visualTransformation = visualTransformation,
         trailingIcon = trailingIcon,
         shape = MaterialTheme.shapes.small,

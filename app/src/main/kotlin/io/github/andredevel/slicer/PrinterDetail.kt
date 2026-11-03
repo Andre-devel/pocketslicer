@@ -2,6 +2,7 @@ package io.github.andredevel.slicer
 
 import android.text.format.DateFormat
 import android.util.Log
+import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,8 +59,8 @@ import io.github.andredevel.slicer.ui.components.ButtonStyle
 import io.github.andredevel.slicer.ui.components.MetricTile
 import io.github.andredevel.slicer.ui.components.ScreenHeader
 import io.github.andredevel.slicer.ui.components.SectionLabel
-import io.github.andredevel.slicer.ui.components.Segment
-import io.github.andredevel.slicer.ui.components.SegmentedTabs
+import io.github.andredevel.slicer.ui.components.IconTab
+import io.github.andredevel.slicer.ui.components.IconTabs
 import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.color
 import io.github.andredevel.slicer.ui.theme.MonoStyles
@@ -75,7 +76,7 @@ import kotlinx.coroutines.launch
  * temperaturas e filamento (caixas com a umidade, posições carregadas), com os ajustes da
  * impressão em andamento ([PrintAdjustments]); Controle
  * ([PrinterControlTab]), quando a impressora tem o que mexer; Arquivos ([PrinterFilesTab]); Manutenção
- * ([PrinterMaintenanceTab]), com a calibração em andamento ([maintenance]). A parada de emergência fica no
+ * ([PrinterMaintenanceTab]), com a calibração em andamento ([maintenance]); Console ([PrinterConsoleTab]). A parada de emergência fica no
  * cabeçalho e o reinício do firmware aparece quando o Klipper parou. O estado vem de
  * [SlicerViewModel.watchPrinterStatus], que a tela de Impressoras já mantém, e enquanto esta tela
  * está aberta e visível, ao vivo ([SlicerViewModel.watchLiveStatus]); [onEdit] abre o
@@ -146,6 +147,7 @@ fun PrinterDetail(
         PrinterTab.CONTROL.takeIf { controls?.hasControlTab == true },
         PrinterTab.FILES.takeIf { viewModel.printerHasFiles(host) },
         PrinterTab.MAINTENANCE.takeIf { controls?.maintenance?.isNotEmpty() == true },
+        PrinterTab.CONSOLE.takeIf { viewModel.printerHasConsole(host) },
     )
     var chosen by rememberSaveable(host.id) { mutableStateOf(PrinterTab.OVERVIEW) }
     val tab = chosen.takeIf { it in tabs } ?: PrinterTab.OVERVIEW
@@ -186,15 +188,15 @@ fun PrinterDetail(
                 status?.alert?.let { PrinterAlertBanner(it) }
                 val control = controls
                 if (tabs.size > 1) {
-                    SegmentedTabs(
-                        tabs.map { Segment(stringResource(it.label)) },
-                        tabs.indexOf(tab), { chosen = tabs[it] }, Modifier.widthIn(max = 480.dp).fillMaxWidth(), check = false, compact = true,
-                    )
+                    // Com ícone e rolando na horizontal: cinco abas não cabem lado a lado no celular.
+                    IconTabs(tabs.map { IconTab(it.icon, stringResource(it.label)) }, tabs.indexOf(tab), { chosen = tabs[it] })
                 }
                 if (tab == PrinterTab.CONTROL && control != null) {
                     PrinterControlTab(host, status, control, commands)
                 } else if (tab == PrinterTab.MAINTENANCE && control != null) {
                     PrinterMaintenanceTab(host, status, control.maintenance, maintenance, filamentQueue.any { it.state == FilamentTask.State.RUNNING }, viewModel)
+                } else if (tab == PrinterTab.CONSOLE) {
+                    PrinterConsoleTab(host, status, viewModel)
                 } else if (tab == PrinterTab.FILES) {
                     PrinterFilesTab(host, status, viewModel, commands) { chosen = PrinterTab.OVERVIEW }
                 } else {
@@ -253,9 +255,10 @@ fun PrinterDetail(
     }
 }
 
-private enum class PrinterTab(@StringRes val label: Int) {
-    OVERVIEW(R.string.printer_tab_overview), CONTROL(R.string.printer_tab_control), FILES(R.string.printer_tab_files),
-    MAINTENANCE(R.string.printer_tab_maintenance),
+private enum class PrinterTab(@StringRes val label: Int, @DrawableRes val icon: Int) {
+    OVERVIEW(R.string.printer_tab_overview, R.drawable.ic_info), CONTROL(R.string.printer_tab_control, R.drawable.ic_open_with),
+    FILES(R.string.printer_tab_files, R.drawable.ic_folder_open), MAINTENANCE(R.string.printer_tab_maintenance, R.drawable.ic_build),
+    CONSOLE(R.string.printer_tab_console, R.drawable.ic_terminal),
 }
 
 /**

@@ -85,6 +85,9 @@ object MoonrakerUploader : Uploader {
     /** Uma calibração leva minutos (a malha da K3 aquece a mesa antes); o limite é de quem chama. */
     private const val MAINTENANCE_RESPONSE_MS = 60 * 60_000
 
+    /** Um comando do console pode demorar (G28, aquecer com M109...). */
+    private const val CONSOLE_RESPONSE_MS = 15 * 60_000
+
     /** Quanto o Klipper pode levar para voltar depois do `SAVE_CONFIG`. */
     private const val RESTART_WAIT_MS = 120_000L
     private const val RESTART_POLL_MS = 2_000L
@@ -704,6 +707,22 @@ object MoonrakerUploader : Uploader {
             val restarted = e.text == R.string.send_error_io || e.text == R.string.send_error_http && e.args.firstOrNull() == 503
             if (!task.saves || !restarted || !awaitKlippyReady(api, host)) throw e
         }
+    }
+
+    override val hasConsole = true
+
+    override suspend fun console(host: PrinterHost, count: Int): List<ConsoleLine> {
+        val list = result(api(host), host, "/server/gcode_store?count=$count").optJSONArray("gcode_store") ?: return emptyList()
+        return (0 until list.length()).mapNotNull { list.optJSONObject(it) }.map {
+            ConsoleLine(it.optString("message"), (it.optDouble("time", 0.0) * 1000).toLong(), it.optString("type") == "command")
+        }
+    }
+
+    override suspend fun sendGcode(host: PrinterHost, script: String) = gcode(api(host), host, script, CONSOLE_RESPONSE_MS)
+
+    override suspend fun gcodeCommands(host: PrinterHost): Map<String, String> {
+        val help = result(api(host), host, "/printer/gcode/help")
+        return help.keys().asSequence().associate { it.uppercase() to help.optString(it) }
     }
 
     /** Espera o Klipper voltar ao estado "ready" (até [RESTART_WAIT_MS]); false se não voltou. */

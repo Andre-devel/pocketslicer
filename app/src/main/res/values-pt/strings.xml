@@ -142,6 +142,13 @@
     <string name="printer_tab_control">Controle</string>
     <string name="printer_tab_files">Arquivos</string>
     <string name="printer_tab_maintenance">Manutenção</string>
+    <string name="printer_tab_console">Console</string>
+    <string name="console_warning">O G-code vai direto para a impressora, sem as verificações das outras abas.</string>
+    <string name="console_command">G-code</string>
+    <string name="console_send">Enviar</string>
+    <string name="console_empty">Nenhuma linha ainda.</string>
+    <string name="console_confirm_title">Enviar durante a impressão?</string>
+    <string name="console_confirm_text">%1$s vai para a impressora agora e pode mudar a impressão em andamento.</string>
     <string name="maintenance_calibration">Calibração e limpeza</string>
     <string name="maintenance_start">Iniciar</string>
     <string name="maintenance_busy">As calibrações só rodam com a impressora sem imprimir.</string>

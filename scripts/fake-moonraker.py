@@ -54,6 +54,9 @@ G29, Z_AXIS_CALIBRATION, INPUTSHAPER, NOZZLE_PID, BEDPID e NOZZLE_CLEAR no gcode
 só responde no fim, ~8 s depois; NOZZLE_PID e BEDPID terminam como o SAVE_CONFIG, reiniciando o
 Klipper (503 "Klippy Disconnected" e de volta em 3 s). --calibration-fail G29 faz essa dar erro.
 
+Console: GET /server/gcode_store?count=N devolve os scripts recebidos (type "command") e as
+respostas ("ok" ou "!! <erro>", type "response"), as N últimas.
+
 GET /machine/system_info informa o MAC de --mac (a identidade que o app guarda para reencontrar a
 impressora quando o IP muda) e GET /printer/info o hostname "fake-moonraker".
 
@@ -222,6 +225,13 @@ def main():
             cfs["slots"][index]["loaded"] = False
         cfs.update(status=100, slot_status={name: "done"}, busy=False)
         print(f"CFS {name}: {'carregado' if load else 'descarregado'}", file=sys.stderr)
+
+    # Console (/server/gcode_store): comandos e respostas, os mais antigos primeiro.
+    gcode_store = [{"message": "// Klipper falso pronto", "time": time.time(), "type": "response"}]
+
+    def store(message, kind):
+        gcode_store.append({"message": message, "time": time.time(), "type": kind})
+        del gcode_store[:-1000]
 
     class KlipperError(Exception):
         pass
@@ -619,6 +629,10 @@ def main():
             elif self.path == "/machine/system_info":
                 self.reply(200, {"result": {"system_info": {"network": {
                     "wlan0": {"mac_address": args.mac, "ip_addresses": []}}}}})
+            elif self.path.startswith("/server/gcode_store"):
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                count = int(query.get("count", ["100"])[0])
+                self.reply(200, {"result": {"gcode_store": gcode_store[-count:]}})
             elif self.path == "/printer/info":
                 klippy_state = "ready" if state["webhooks"] == "ready" else "startup" if state["webhooks"] == "disconnected" else state["webhooks"]
                 self.reply(200, {"result": {"state": klippy_state, "hostname": "fake-moonraker"}})
@@ -708,9 +722,13 @@ def main():
             if self.path == "/printer/gcode/script":
                 script = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))["script"]
                 print(f"script: {script!r}", file=sys.stderr)
+                for line in script.splitlines():
+                    store(line, "command")
                 try:
                     gcode(script)
+                    store("ok", "response")
                 except KlipperError as e:
+                    store(f"!! {e}", "response")
                     print(f"  erro: {e}", file=sys.stderr)
                     self.reply(400, {"error": {"code": 400, "message": str(e)}})
                     return
