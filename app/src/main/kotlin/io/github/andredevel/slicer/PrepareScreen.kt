@@ -169,11 +169,11 @@ private fun FileMenu(state: SlicerUiState, pickers: FilePickers, openRecent: (Re
 }
 
 /**
- * Pede a permissão de notificações (Android 13+) para o andamento do fatiamento em segundo plano;
- * sem ela o fatiamento continua, só sem notificação.
+ * Pede a permissão de notificações (Android 13+) para o andamento do fatiamento em segundo plano
+ * e os avisos das impressões ([PrintWatchService]); sem ela tudo continua, só sem notificação.
  */
 @Composable
-private fun rememberNotificationPermission(): () -> Unit {
+internal fun rememberNotificationPermission(): () -> Unit {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     return {

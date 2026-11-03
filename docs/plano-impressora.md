@@ -276,3 +276,21 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      impressora real (pede OK do usuário).
 10. **Notificações.** Fim de impressão e erro com o app em segundo plano (serviço com o WebSocket
     ou MQTT; avaliar bateria).
+    - Feito (2026-11-02), escolha do usuário: serviço em primeiro plano só durante a impressão
+      (`PrintWatchService`, tipo `connectedDevice`, sem o limite de 6 h do `dataSync`), com a
+      notificação fixa que o Android exige ("Acompanhando 1 impressão", impressora e progresso).
+      Consulta todas as impressoras salvas a cada 30 s pelo `Uploader.status` (Moonraker e Bambu),
+      sem WebSocket. Liga ao abrir o app (consulta uma vez e para se nenhuma imprime; a notificação
+      fixa é adiada 10 s, então não aparece), quando a lista vê uma imprimindo e depois de iniciar
+      uma impressão pelo app; para sozinho quando nenhuma imprime. O Android não deixa ligar com o
+      app em segundo plano: impressão iniciada na impressora com o app fechado só é acompanhada
+      depois que o app abre.
+    - Avisos (um por impressora, o novo substitui o antigo): terminou (`complete`/`FINISH`),
+      cancelada (`cancelled`), falhou (`error`/`FAILED`, Klipper parado), acabou (outro estado);
+      pausou sozinha (com o alerta da Creality, quando há); saiu da rede (1 min sem resposta no
+      meio da impressão; segue olhando por 1 h). Pausa, parada e parada de emergência pedidas pelo
+      app nos últimos 2 min não avisam. A permissão de notificação é pedida na aba Impressoras
+      quando uma imprime.
+    - Testado no emulador com o `fake-moonraker.py` (pausa, cancelamento, fim, queda e volta) com
+      o app em segundo plano. Falta: uma impressão real (K3) e a Bambu; medir a bateria numa
+      impressão longa.

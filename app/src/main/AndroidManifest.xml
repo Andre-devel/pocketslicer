@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Acompanhar as impressões com o app em segundo plano (PrintWatchService): impressoras na rede
+         local são dispositivos conectados; o tipo pede CHANGE_WIFI_MULTICAST_STATE, que o app já tem. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- Atualização pelo GitHub Releases (update/AppUpdater): instalar o APK baixado e, do Android 12
          em diante, sem confirmar a cada versão. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -75,6 +78,10 @@
             android:name=".SliceService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".PrintWatchService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
         <receiver
             android:name=".update.UpdateReceiver"
             android:exported="false" />

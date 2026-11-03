@@ -67,6 +67,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.TimeoutCancellationException
@@ -352,6 +354,15 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             _state.update { it.copy(printers = printers, recents = recents, currency = currency, autoUpdate = autoUpdate) }
             val due = System.currentTimeMillis() - withContext(Dispatchers.IO) { settings.lastUpdateCheck } >= UPDATE_CHECK_INTERVAL_MS
             if (autoUpdate && due) checkUpdate(automatic = true)
+        }
+        // Alguma impressora imprimindo com o app aberto: liga o acompanhamento em segundo plano,
+        // que avisa do fim e dos erros com o app fechado e para sozinho (PrintWatchService).
+        viewModelScope.launch {
+            // A cada estado, não só na mudança: o último guardado pode seguir "imprimindo" depois
+            // que o serviço já parou (a lista não consulta com o app em segundo plano).
+            state.map { it.printerStatus }.distinctUntilChanged().collect { statuses ->
+                if (statuses.values.any { it.busy } && !PrintWatchService.running) PrintWatchService.start(app)
+            }
         }
         // Resultado da instalação (UpdateReceiver): recusada na confirmação do sistema volta a
         // oferecer Instalar; falha vira mensagem. Sucesso não chega, o Android fecha o app.
@@ -1312,7 +1323,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     suspend fun printerControls(host: PrinterHost): PrinterControls? = uploader(host.kind, app.assets).controls(host)
 
     /** Manda [command] para [host]; falha com [SendException]. */
-    suspend fun printerCommand(host: PrinterHost, command: PrinterCommand) = uploader(host.kind, app.assets).command(host, command)
+    suspend fun printerCommand(host: PrinterHost, command: PrinterCommand) {
+        // Pausa ou parada pedida aqui não vira aviso do acompanhamento.
+        if (command == PrinterCommand.Pause || command == PrinterCommand.Stop || command == PrinterCommand.EmergencyStop) PrintWatchService.expect(host)
+        uploader(host.kind, app.assets).command(host, command)
+    }
 
     /** [Uploader.hasFiles]. */
     fun printerHasFiles(host: PrinterHost): Boolean = uploader(host.kind, app.assets).hasFiles
@@ -1327,7 +1342,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     suspend fun deletePrinterFile(host: PrinterHost, file: PrinterFile) = uploader(host.kind, app.assets).deleteFile(host, file)
 
     /** [Uploader.startFile]. */
-    suspend fun startPrinterFile(host: PrinterHost, path: String, mapping: List<Slot?>?) = uploader(host.kind, app.assets).startFile(host, path, mapping)
+    suspend fun startPrinterFile(host: PrinterHost, path: String, mapping: List<Slot?>?) {
+        uploader(host.kind, app.assets).startFile(host, path, mapping)
+        PrintWatchService.start(app)
+    }
 
     /** [Uploader.history]. */
     suspend fun printerHistory(host: PrinterHost): PrintHistory? = uploader(host.kind, app.assets).history(host)
@@ -1482,6 +1500,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         )
         if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD) // arquivo vazio: sem progresso
         while (steps.current != null) advance(all.getOrNull(all.indexOf(steps.current) + 1))
+        if (start) PrintWatchService.start(app)
         SendState.Done(if (start) R.string.send_started else R.string.send_done, host.name, steps = steps)
     }
 

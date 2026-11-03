@@ -144,6 +144,21 @@
     <string name="printer_tab_files">Files</string>
     <string name="printer_tab_maintenance">Maintenance</string>
     <string name="printer_tab_console">Console</string>
+    <string name="watch_channel">Print tracking</string>
+    <string name="watch_events_channel">Print end and errors</string>
+    <plurals name="watch_ongoing">
+        <item quantity="one">Tracking %1$d print</item>
+        <item quantity="other">Tracking %1$d prints</item>
+    </plurals>
+    <string name="watch_ongoing_offline">%1$s (offline)</string>
+    <string name="watch_done_title">%1$s finished printing</string>
+    <string name="watch_cancelled_title">Print cancelled on %1$s</string>
+    <string name="watch_error_title">Print failed on %1$s</string>
+    <string name="watch_ended_title">Print ended on %1$s</string>
+    <string name="watch_paused_title">%1$s paused</string>
+    <string name="watch_paused_text">The printer paused the print on its own.</string>
+    <string name="watch_offline_title">%1$s left the network</string>
+    <string name="watch_offline_text">No answer for a minute during the print. %1$s</string>
     <string name="console_warning">G-code goes straight to the printer, without the checks of the other tabs.</string>
     <string name="console_command">G-code</string>
     <string name="console_send">Send</string>

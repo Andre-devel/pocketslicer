@@ -365,13 +365,16 @@ private fun PrintControls(host: PrinterHost, status: PrinterStatus, commands: Co
 /** Erro que a impressora mostra na tela dela, com o texto dos códigos que o app conhece. */
 @Composable
 private fun PrinterAlertBanner(alert: PrinterAlert) {
-    val text = when (alert.number) {
-        101, 500 -> R.string.printer_alert_ai_quality
-        103, 503 -> R.string.printer_alert_ai_first_layer
-        104 -> R.string.printer_alert_ai_foreign_object
-        else -> R.string.printer_alert_unknown
-    }
-    Banner(Tone.ERROR, stringResource(text), Modifier.fillMaxWidth(), title = stringResource(R.string.printer_alert_title, alert.code))
+    Banner(Tone.ERROR, stringResource(alertText(alert)), Modifier.fillMaxWidth(), title = stringResource(R.string.printer_alert_title, alert.code))
+}
+
+/** O que o alerta da tela da impressora quer dizer (também no aviso de [PrintWatchService]). */
+@StringRes
+internal fun alertText(alert: PrinterAlert) = when (alert.number) {
+    101, 500 -> R.string.printer_alert_ai_quality
+    103, 503 -> R.string.printer_alert_ai_first_layer
+    104 -> R.string.printer_alert_ai_foreign_object
+    else -> R.string.printer_alert_unknown
 }
 
 /** Aviso de cada caixa de filamento úmida ([FilamentBox.humid]). */

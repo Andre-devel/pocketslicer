@@ -82,6 +82,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: Modifier, startNew: Boolean = false) {
     val wide = LocalConfiguration.current.screenWidthDp >= WIDE_DP
+    // Com uma impressora imprimindo, o app avisa do fim e dos erros em segundo plano: pede a permissão.
+    val requestNotifications = rememberNotificationPermission()
+    val printing = state.printerStatus.values.any { it.busy }
+    LaunchedEffect(printing) { if (printing) requestNotifications() }
     // Impressora em edição (salva ou nova), com [startNew] um cadastro novo; senão a impressora
     // salva cujo estado aparece ([showing], na tela larga a primeira da lista).
     var editing by remember(startNew) {

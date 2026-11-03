@@ -143,6 +143,22 @@
     <string name="printer_tab_files">Arquivos</string>
     <string name="printer_tab_maintenance">Manutenção</string>
     <string name="printer_tab_console">Console</string>
+    <string name="watch_channel">Acompanhamento das impressões</string>
+    <string name="watch_events_channel">Fim e erros das impressões</string>
+    <plurals name="watch_ongoing">
+        <item quantity="one">Acompanhando %1$d impressão</item>
+        <item quantity="many">Acompanhando %1$d impressões</item>
+        <item quantity="other">Acompanhando %1$d impressões</item>
+    </plurals>
+    <string name="watch_ongoing_offline">%1$s (fora da rede)</string>
+    <string name="watch_done_title">%1$s terminou a impressão</string>
+    <string name="watch_cancelled_title">Impressão cancelada em %1$s</string>
+    <string name="watch_error_title">Impressão falhou em %1$s</string>
+    <string name="watch_ended_title">Impressão acabou em %1$s</string>
+    <string name="watch_paused_title">%1$s pausou</string>
+    <string name="watch_paused_text">A impressora pausou a impressão sozinha.</string>
+    <string name="watch_offline_title">%1$s saiu da rede</string>
+    <string name="watch_offline_text">Sem resposta há um minuto, no meio da impressão. %1$s</string>
     <string name="console_warning">O G-code vai direto para a impressora, sem as verificações das outras abas.</string>
     <string name="console_command">G-code</string>
     <string name="console_send">Enviar</string>
