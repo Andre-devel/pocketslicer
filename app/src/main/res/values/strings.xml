@@ -165,9 +165,14 @@
     <string name="console_empty">No lines yet.</string>
     <string name="console_confirm_title">Send while printing?</string>
     <string name="console_confirm_text">%1$s goes to the printer now and can change the print in progress.</string>
-    <string name="maintenance_calibration">Calibration and cleaning</string>
     <string name="maintenance_start">Start</string>
     <string name="maintenance_busy">Calibrations only run while the printer is not printing.</string>
+    <string name="maintenance_note">Only the calibrations this printer has are shown. Locked while printing and during a filament operation.</string>
+    <string name="maintenance_tag_running">Running</string>
+    <string name="maintenance_tag_bed">Clear bed</string>
+    <string name="maintenance_tag_restart">Restarts the firmware</string>
+    <string name="maintenance_running_button">Running…</string>
+    <string name="maintenance_one_at_a_time">One at a time</string>
     <string name="maintenance_confirm_title">Start %1$s?</string>
     <string name="maintenance_confirm_bed">Clear the bed first: the nozzle goes down onto it.</string>
     <string name="maintenance_confirm_stop">The printer works on its own until it finishes. To interrupt, use the emergency stop at the top.</string>

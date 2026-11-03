@@ -165,9 +165,14 @@
     <string name="console_empty">Nenhuma linha ainda.</string>
     <string name="console_confirm_title">Enviar durante a impressão?</string>
     <string name="console_confirm_text">%1$s vai para a impressora agora e pode mudar a impressão em andamento.</string>
-    <string name="maintenance_calibration">Calibração e limpeza</string>
     <string name="maintenance_start">Iniciar</string>
     <string name="maintenance_busy">As calibrações só rodam com a impressora sem imprimir.</string>
+    <string name="maintenance_note">Só aparecem as calibrações que esta impressora tem. Bloqueadas durante a impressão e com operação de filamento em andamento.</string>
+    <string name="maintenance_tag_running">Rodando</string>
+    <string name="maintenance_tag_bed">Mesa livre</string>
+    <string name="maintenance_tag_restart">Reinicia o firmware</string>
+    <string name="maintenance_running_button">Rodando…</string>
+    <string name="maintenance_one_at_a_time">Uma por vez</string>
     <string name="maintenance_confirm_title">Iniciar %1$s?</string>
     <string name="maintenance_confirm_bed">Tire tudo da mesa antes: o bico desce nela.</string>
     <string name="maintenance_confirm_stop">A impressora trabalha sozinha até terminar. Para interromper, use a parada de emergência no topo.</string>
