@@ -3,10 +3,23 @@ package io.github.andredevel.slicer
 import android.text.format.DateFormat
 import android.util.Log
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,7 +30,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,7 +66,8 @@ private const val CONSOLE_LINES = 200
 private const val CONSOLE_POLL_MS = 2_000L
 
 /** Sugestões de comando mostradas enquanto se digita. */
-private const val SUGGESTIONS = 8
+private const val SUGGESTIONS = 4
+private const val SUGGESTIONS_NARROW = 2
 
 /**
  * Aba Console da tela da impressora: as últimas linhas do console (comandos e respostas,
@@ -63,7 +76,6 @@ private const val SUGGESTIONS = 8
  * abas; durante a impressão pede confirmação. O envio não ocupa os comandos da tela, então a
  * parada de emergência segue livre enquanto um comando demora.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PrinterConsoleTab(host: PrinterHost, status: PrinterStatus?, console: ConsoleSend, viewModel: SlicerViewModel) {
     var lines by remember(host) { mutableStateOf(emptyList<ConsoleLine>()) }
@@ -113,30 +125,40 @@ internal fun PrinterConsoleTab(host: PrinterHost, status: PrinterStatus?, consol
         if (status?.busy == true) confirm = script else send(script)
     }
 
-    Banner(Tone.WARNING, stringResource(R.string.console_warning), Modifier.widthIn(max = 720.dp).fillMaxWidth())
-    ConsoleLog(lines, Modifier.widthIn(max = 720.dp).fillMaxWidth())
-    // Acima do campo, para o teclado não cobrir. O comando que se digita: as que começam assim, e a descrição quando é exatamente um.
-    val word = text.trimStart().substringBefore(' ').uppercase()
-    if (word.isNotEmpty() && !text.trimStart().contains(' ')) {
-        val matches = commands.keys.filter { it.startsWith(word) && it != word }.sorted().take(SUGGESTIONS)
-        if (matches.isNotEmpty()) {
-            FlowRow(Modifier.widthIn(max = 720.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (match in matches) AssistChip(onClick = { text = "$match " }, label = { Text(match, style = MonoStyles.small) })
+    BoxWithConstraints {
+        val wide = maxWidth >= 600.dp
+        // O console ocupa o que sobra da tela; o campo e as sugestões ficam embaixo dele, acima do teclado.
+        val logHeight = (LocalConfiguration.current.screenHeightDp.dp - if (wide) 340.dp else 520.dp).coerceAtLeast(220.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(if (wide) 12.dp else 8.dp)) {
+            Banner(Tone.WARNING, stringResource(R.string.console_warning), Modifier.fillMaxWidth())
+            ConsoleLog(lines, Modifier.fillMaxWidth().height(logHeight))
+            // O comando que se digita: os que começam assim, com a descrição; o primeiro em destaque.
+            val word = text.trimStart().substringBefore(' ').uppercase()
+            if (word.isNotEmpty() && !text.trimStart().contains(' ')) {
+                val matches = commands.keys.filter { it.startsWith(word) && it != word }.sorted().take(if (wide) SUGGESTIONS else SUGGESTIONS_NARROW)
+                if (matches.isNotEmpty()) Suggestions(matches, commands, Modifier.widthIn(max = 620.dp).fillMaxWidth()) { text = "$it " }
             }
+            commands[word]?.takeIf { it.isNotBlank() }?.let {
+                Text("$word — $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FormField(
+                    text, { text = it }, stringResource(R.string.console_command), Modifier.weight(1f), monospace = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { submit() }),
+                )
+                val canSend = ready && !sending && text.isNotBlank()
+                if (wide) {
+                    AppButton(stringResource(R.string.console_send), ::submit, icon = R.drawable.ic_send, enabled = canSend)
+                } else {
+                    FilledIconButton(::submit, Modifier.size(52.dp), enabled = canSend) {
+                        Icon(painterResource(R.drawable.ic_send), stringResource(R.string.console_send))
+                    }
+                }
+            }
+            console.error?.let { Banner(Tone.ERROR, it, Modifier.fillMaxWidth(), onDismiss = { viewModel.dismissConsoleFailure(host) }) }
         }
     }
-    commands[word]?.takeIf { it.isNotBlank() }?.let {
-        Text("$word — $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    Row(Modifier.widthIn(max = 720.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FormField(
-            text, { text = it }, stringResource(R.string.console_command), Modifier.weight(1f), monospace = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { submit() }),
-        )
-        AppButton(stringResource(R.string.console_send), ::submit, icon = R.drawable.ic_send, enabled = ready && !sending && text.isNotBlank())
-    }
-    console.error?.let { Banner(Tone.ERROR, it, Modifier.widthIn(max = 720.dp).fillMaxWidth(), onDismiss = { viewModel.dismissConsoleFailure(host) }) }
 
     confirm?.let { script ->
         AlertDialog(
@@ -154,6 +176,30 @@ internal fun PrinterConsoleTab(host: PrinterHost, status: PrinterStatus?, consol
     }
 }
 
+/** Comandos que começam com o que se digita, com a descrição da impressora; tocar completa o campo. */
+@Composable
+private fun Suggestions(matches: List<String>, commands: Map<String, String>, modifier: Modifier, onPick: (String) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(modifier, shape = RoundedCornerShape(14.dp), color = colors.surfaceContainerHigh, border = BorderStroke(1.dp, colors.outlineVariant)) {
+        Column(Modifier.padding(4.dp)) {
+            matches.forEachIndexed { i, match ->
+                val first = i == 0
+                Column(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp))
+                        .background(if (first) colors.primaryContainer else Color.Transparent)
+                        .clickable { onPick(match) }.padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(match, style = MonoStyles.value, color = if (first) colors.onPrimaryContainer else colors.onSurface, maxLines = 1)
+                    commands[match]?.takeIf { it.isNotBlank() }?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** As linhas, a mais nova embaixo e à vista; os comandos destacados, os erros do Klipper (`!!`) em vermelho. */
 @Composable
 private fun ConsoleLog(lines: List<ConsoleLine>, modifier: Modifier) {
@@ -161,9 +207,10 @@ private fun ConsoleLog(lines: List<ConsoleLine>, modifier: Modifier) {
     val scroll = rememberScrollState()
     LaunchedEffect(lines.lastOrNull()) { scroll.scrollTo(scroll.maxValue) }
     Column(
-        modifier.height(360.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small)
-            .verticalScroll(scroll).padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+            .verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Bottom),
     ) {
         if (lines.isEmpty()) Text(stringResource(R.string.console_empty), style = MonoStyles.small, color = MaterialTheme.colorScheme.onSurfaceVariant)
         val time = DateFormat.getTimeFormat(context)
@@ -175,7 +222,7 @@ private fun ConsoleLog(lines: List<ConsoleLine>, modifier: Modifier) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(time.format(Date(line.time)), style = MonoStyles.small, color = MaterialTheme.colorScheme.outline)
-                Text(if (line.command) "> ${line.message}" else line.message, style = MonoStyles.small, color = color)
+                Text(if (line.command) "› ${line.message}" else line.message, style = MonoStyles.small, color = color)
             }
         }
     }
