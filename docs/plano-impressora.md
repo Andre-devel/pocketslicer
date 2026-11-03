@@ -168,7 +168,7 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      - U1, K2 e Q2 fora da rede hoje: conferir os comandos nelas. A1: `print.print_speed` 1–4, a
        conferir com ela na rede.
 5. **Filamento.** Carregar/descarregar por slot e externo, reler RFID, editar slot da Bambu,
-   secagem da K3. Depende das pendências da Creality e da U1.
+   secagem da K3 (não tem caixa de secagem). Depende das pendências da Creality e da U1.
    - **Várias operações de uma vez (pedido do usuário).** Na tela da K3 é preciso esperar um
      descarregamento terminar para escolher o próximo. No app o usuário marca vários slots (ou
      cabeças) e toca uma vez; o app monta uma fila e manda uma operação por vez: manda a
@@ -197,12 +197,13 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      começaram, tenta de novo a que falhou e limpa.
    - Testado no emulador com `fake-moonraker.py --cfs` (o comando respondendo na hora e com
      `--cfs-blocking` só no fim; `--cfs-fail` para o erro). Falta:
-     - **Conferir na K3 real** uma descarga e uma carga pelo app (com OK do usuário).
+     - Conferido na K3 real (2026-11-02, com OK do usuário): descarga e carga do T1A pelo app,
+       ~75 s cada, a fila marcou as duas como concluídas no fim certo.
      - O que a K3 mostra num erro de verdade (`err_status`, `err_slot_status`) e se o comando
        `_STEP` responde no começo ou no fim.
      - Externo da K3 (`LOAD_MATERIAL`/`QUIT_MATERIAL`): o usuário não usa, fica de fora.
-     - Secagem da K3: `CHAMBER_BOX_DRY ENABLE=0|1` sem os parâmetros de temperatura e tempo; ver o
-       que a tela manda antes.
+     - Secagem: a K3 do usuário não tem caixa de secagem (o `CHAMBER_BOX_DRY` do firmware fica
+       sem uso).
      - K2 (mesmos comandos, a conferir), U1, Q2 e A1 quando estiverem na rede.
 6. **Cancelar objeto.** Desenho da placa com os polígonos de `exclude_object` (Moonraker) ou dos
    objetos do 3MF (Bambu); tocar no objeto pede confirmação e cancela.
