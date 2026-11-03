@@ -166,6 +166,12 @@ struct Engine::Impl {
     };
     static constexpr size_t HISTORY_SIZE = 50;
     std::deque<Snapshot>    undo_stack, redo_stack;
+    // O que o último checkpoint() tirou do histórico, para discard_checkpoint() devolver.
+    struct Checkpoint {
+        std::deque<Snapshot>    redo;
+        std::optional<Snapshot> evicted;
+    };
+    std::optional<Checkpoint> last_checkpoint;
 
     Snapshot snapshot() const
     {
@@ -196,6 +202,7 @@ struct Engine::Impl {
     {
         if (from.empty())
             return false;
+        last_checkpoint.reset();
         to.push_back(snapshot());
         restore_snapshot(std::move(from.back()));
         from.pop_back();
@@ -206,6 +213,7 @@ struct Engine::Impl {
     {
         undo_stack.clear();
         redo_stack.clear();
+        last_checkpoint.reset();
     }
     PaintVolume &paint_volume(const ModelObject &object, PaintKind kind, const ModelVolume &volume);
 
@@ -1510,10 +1518,27 @@ void Engine::arrange()
 
 void Engine::checkpoint()
 {
+    Impl::Checkpoint taken;
     m->undo_stack.push_back(m->snapshot());
-    if (m->undo_stack.size() > Impl::HISTORY_SIZE)
+    if (m->undo_stack.size() > Impl::HISTORY_SIZE) {
+        taken.evicted = std::move(m->undo_stack.front());
         m->undo_stack.pop_front();
+    }
+    taken.redo = std::move(m->redo_stack);
     m->redo_stack.clear();
+    m->last_checkpoint = std::move(taken);
+}
+
+void Engine::discard_checkpoint()
+{
+    if (!m->last_checkpoint)
+        return;
+    Impl::Checkpoint taken = std::move(*m->last_checkpoint);
+    m->last_checkpoint.reset();
+    m->undo_stack.pop_back();
+    if (taken.evicted)
+        m->undo_stack.push_front(std::move(*taken.evicted));
+    m->redo_stack = std::move(taken.redo);
 }
 
 bool Engine::undo() { return m->step_history(m->undo_stack, m->redo_stack); }

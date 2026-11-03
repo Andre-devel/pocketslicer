@@ -221,6 +221,15 @@ class SlicerEngineTest {
         assertEquals(moved.offset.toList(), engine.placements()[0].offset.toList())
         assertTrue(!engine.redo())
 
+        // Alteração que falhou: discardCheckpoint() tira o passo e devolve o refazer.
+        assertTrue(engine.undo())
+        engine.checkpoint()
+        assertEquals(History(canUndo = true), engine.history())
+        engine.discardCheckpoint()
+        assertEquals(History(canUndo = true, canRedo = true), engine.history())
+        assertTrue(engine.redo())
+        assertEquals(moved.offset.toList(), engine.placements()[0].offset.toList())
+
         // Placas: desfazer volta à placa da alteração.
         engine.checkpoint()
         engine.selectPlate(engine.addPlate())

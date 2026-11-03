@@ -59,6 +59,7 @@ import io.github.andredevel.slicer.update.Release
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -737,8 +738,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setObjectFilament(objectIndex: Int, filament: Int) = editFilaments { engine ->
-        engine.checkpoint()
-        engine.setObjectFilament(objectIndex, filament)
+        engine.undoable { engine.setObjectFilament(objectIndex, filament) }
     }
 
     /** Purga da troca de [from] para [to] no extrusor [nozzle]. */
@@ -895,8 +895,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     fun clearPaint() {
         val painting = _state.value.painting ?: return
         launchEngine(null) { engine ->
-            engine.checkpoint()
-            engine.clearPaint(painting.objectIndex, painting.kind)
+            engine.undoable { engine.clearPaint(painting.objectIndex, painting.kind) }
             markChanged(StaleReason(app.getString(paintLabel(painting.kind))))
             refreshPainting(engine)
             refreshHistory(engine)
@@ -990,8 +989,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun editLayerChanges(edit: (List<LayerChange>) -> List<LayerChange>) = launchEngine(null) { engine ->
         try {
-            engine.checkpoint()
-            engine.setLayerChanges(edit(engine.layerChanges()))
+            engine.undoable { engine.setLayerChanges(edit(engine.layerChanges())) }
             markChanged(StaleReason(app.getString(R.string.layer_changes)))
         } finally {
             refreshScene(engine)
@@ -1017,8 +1015,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun editSettings(reason: String, edit: suspend (SlicerEngine) -> Unit) = launchEngine(null) { engine ->
         try {
-            engine.checkpoint()
-            edit(engine)
+            engine.undoable { edit(engine) }
             markChanged(StaleReason(reason))
         } finally {
             refreshScene(engine)
@@ -1071,8 +1068,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     private fun editParts(objectIndex: Int, type: Part.Type?, edit: suspend (SlicerEngine) -> Int?) = launchEngine(null) { engine ->
         var selectPart: Int? = _state.value.scene?.selectedPart
         try {
-            engine.checkpoint()
-            selectPart = edit(engine)
+            selectPart = engine.undoable { edit(engine) }
             markChanged(StaleReason(app.getString(R.string.parts)))
         } finally {
             refreshScene(engine, if (type == Part.Type.MODEL) engine.objects() else null, keepSelection = true)
@@ -1670,6 +1666,20 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         _state.value.optionDefs[kind]?.firstOrNull { it.key == key }?.label ?: key
 
     /**
+     * [edit] como um passo do desfazer: guarda a mesa antes ([SlicerEngine.checkpoint]) e, se
+     * [edit] falhar, tira o que guardou, para não deixar um passo vazio nem apagar o refazer.
+     */
+    private suspend fun <T> SlicerEngine.undoable(edit: suspend () -> T): T {
+        checkpoint()
+        try {
+            return edit()
+        } catch (e: Throwable) {
+            withContext(NonCancellable) { discardCheckpoint() }
+            throw e
+        }
+    }
+
+    /**
      * Altera a cena no motor; [edit] devolve as malhas novas, ou null se só posições mudaram.
      * [modifies]: há o que salvar no projeto; ![samePlate]: outra placa na mesa, e o G-code,
      * que era da anterior, é descartado. [keepSelection]: a seleção fica mesmo com malhas novas.
@@ -1679,8 +1689,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     ) = launchEngine(null) { engine ->
         var meshes: List<ObjectMesh>? = null
         try {
-            if (modifies) engine.checkpoint()
-            meshes = edit(engine)
+            meshes = if (modifies) engine.undoable { edit(engine) } else edit(engine)
             if (samePlate) markChanged(StaleReason(null))
             else _state.update { it.copy(slice = SliceState.Idle, dirty = it.dirty || modifies) }
         } finally {

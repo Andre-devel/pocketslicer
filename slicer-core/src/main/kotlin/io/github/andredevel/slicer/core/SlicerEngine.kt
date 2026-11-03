@@ -452,6 +452,12 @@ class SlicerEngine private constructor(private val handle: Long) : AutoCloseable
      */
     suspend fun checkpoint() = call { nativeCheckpoint(handle) }
 
+    /**
+     * A alteração depois do último [checkpoint] falhou: tira a mesa guardada e devolve o que
+     * havia para [redo]. A mesa atual fica como está. Sem efeito depois de [undo] ou [redo].
+     */
+    suspend fun discardCheckpoint() = call { nativeDiscardCheckpoint(handle) }
+
     /** Volta à mesa anterior (a placa dela fica na mesa); false se não havia. */
     suspend fun undo(): Boolean = call { nativeUndo(handle) }
 
@@ -825,6 +831,7 @@ private external fun nativeRepair(handle: Long, objectIndex: Int): Int
 private external fun nativeRemove(handle: Long, objectIndex: Int)
 private external fun nativeArrange(handle: Long)
 private external fun nativeCheckpoint(handle: Long)
+private external fun nativeDiscardCheckpoint(handle: Long)
 private external fun nativeUndo(handle: Long): Boolean
 private external fun nativeRedo(handle: Long): Boolean
 private external fun nativeHistory(handle: Long): Int

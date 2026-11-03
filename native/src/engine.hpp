@@ -331,6 +331,10 @@ public:
     // e esquece o que havia para refazer. Abrir outra mesa, excluir ou reordenar filamentos, ou
     // trocar para uma impressora com menos filamentos esquece o histórico.
     void checkpoint();
+    // Desfaz o último checkpoint() quando a alteração falhou: tira a mesa guardada e devolve o
+    // que havia para refazer. A mesa atual fica como está. Sem efeito depois de undo(), redo()
+    // ou de esquecer o histórico.
+    void discard_checkpoint();
     // Voltam à mesa anterior/seguinte (a placa dela fica na mesa); false se não havia.
     bool undo();
     bool redo();

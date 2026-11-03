@@ -376,6 +376,12 @@ Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeCheckpoint(JNIEnv *en
     guarded(env, [&] { engine(handle)->checkpoint(); });
 }
 
+JNIEXPORT void JNICALL
+Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeDiscardCheckpoint(JNIEnv *env, jclass, jlong handle)
+{
+    guarded(env, [&] { engine(handle)->discard_checkpoint(); });
+}
+
 JNIEXPORT jboolean JNICALL
 Java_io_github_andredevel_slicer_core_SlicerEngineKt_nativeUndo(JNIEnv *env, jclass, jlong handle)
 {
