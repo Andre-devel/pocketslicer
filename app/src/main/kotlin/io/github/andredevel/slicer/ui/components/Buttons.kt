@@ -107,7 +107,9 @@ fun AppIconButton(
         FilledTonalIconButton(onClick, modifier, enabled) { Icon(painterResource(icon), contentDescription) }
     } else {
         IconButton(onClick, modifier, enabled) {
-            Icon(painterResource(icon), contentDescription, tint = tint ?: MaterialTheme.colorScheme.onSurfaceVariant)
+            // O tint fixo apagaria o estado desligado do IconButton.
+            val color = if (enabled) tint ?: MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            Icon(painterResource(icon), contentDescription, tint = color)
         }
     }
 }

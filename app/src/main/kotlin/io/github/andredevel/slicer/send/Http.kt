@@ -52,6 +52,20 @@ internal object Http {
         headers.forEach(connection::setRequestProperty)
     }
 
+    /**
+     * Parte de um arquivo: `Range: bytes=[range]` ("0-65535" do começo, "-131072" do fim), lendo
+     * no máximo [maxBytes] mesmo se o servidor ignorar o pedido e mandar tudo.
+     */
+    suspend fun getRange(url: URL, headers: Map<String, String>, range: String, maxBytes: Int): Response = request(url, limit = maxBytes) { connection ->
+        headers.forEach(connection::setRequestProperty)
+        connection.setRequestProperty("Range", "bytes=$range")
+    }
+
+    suspend fun delete(url: URL, headers: Map<String, String>): Response = request(url) { connection ->
+        connection.requestMethod = "DELETE"
+        headers.forEach(connection::setRequestProperty)
+    }
+
     /** [readTimeoutMs]: para o comando que só responde quando acaba (carregar filamento, por exemplo). */
     suspend fun postJson(url: URL, headers: Map<String, String>, json: String, readTimeoutMs: Int = READ_TIMEOUT_MS): Response = request(url, readTimeoutMs) { connection ->
         connection.requestMethod = "POST"
@@ -112,10 +126,22 @@ internal object Http {
         }
     }
 
+    /** `InputStream.readNBytes` só existe no Android 13. */
+    private fun readAtMost(input: java.io.InputStream, limit: Int): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(BUFFER)
+        while (out.size() < limit) {
+            val read = input.read(buffer, 0, minOf(buffer.size, limit - out.size()))
+            if (read < 0) break
+            out.write(buffer, 0, read)
+        }
+        return out.toByteArray()
+    }
+
     /** Aspas e quebras de linha quebrariam o cabeçalho do multipart. */
     private fun quote(name: String) = name.replace(Regex("[\"\\r\\n]"), "_")
 
-    private suspend fun request(url: URL, readTimeoutMs: Int = READ_TIMEOUT_MS, send: (HttpURLConnection) -> Unit): Response = withContext(Dispatchers.IO) {
+    private suspend fun request(url: URL, readTimeoutMs: Int = READ_TIMEOUT_MS, limit: Int? = null, send: (HttpURLConnection) -> Unit): Response = withContext(Dispatchers.IO) {
         val connection = url.openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
@@ -124,7 +150,12 @@ internal object Http {
             send(connection)
             val code = connection.responseCode
             val stream = if (code >= 400) connection.errorStream else connection.inputStream
-            Response(code, stream?.bufferedReader()?.use { it.readText() }.orEmpty())
+            val body = when {
+                stream == null -> ""
+                limit == null -> stream.bufferedReader().use { it.readText() }
+                else -> stream.use { String(readAtMost(it, limit)) }
+            }
+            Response(code, body)
         } catch (e: IOException) {
             // Sem rota, recusada ou sem resposta: quase sempre IP errado ou rede diferente.
             val unreachable = e is UnknownHostException || e is SocketTimeoutException || e is ConnectException || e is NoRouteToHostException

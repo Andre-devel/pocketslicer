@@ -270,10 +270,8 @@ private sealed interface SlotsLoad {
 }
 
 /**
- * Confirmação de "Enviar e imprimir": só libera depois de conferir mesa e filamento. Numa
- * impressora que mapeia filamentos ([SlicerViewModel.printerSlots]), mostra a posição de cada
- * filamento usado, já escolhida pela cor, e [onConfirm] recebe o mapeamento; senão, null. Se a
- * cor de um filamento difere da posição escolhida, [onRecolor] recebe as cores das posições
+ * Confirmação de "Enviar e imprimir" do projeto fatiado ([PrintConfirmDialog]). Se a cor de um
+ * filamento difere da posição escolhida, [onRecolor] recebe as cores das posições
  * (filamento -> "#RRGGBB") para fatiar de novo com elas. Com bicos fixos (K3), uma posição que
  * não alimenta o bico do filamento pede outra ordem de filamentos: [onReorder] recebe a ordem
  * ([SlicerViewModel.reorderFilamentsAndSlice]).
@@ -282,6 +280,32 @@ private sealed interface SlotsLoad {
 private fun ConfirmPrint(
     host: PrinterHost, state: SlicerUiState, viewModel: SlicerViewModel, onDismiss: () -> Unit,
     onRecolor: (Map<Int, String>) -> Unit, onReorder: (IntArray) -> Unit, onConfirm: (List<Slot?>?) -> Unit,
+) {
+    // Filamentos com gasto no fatiamento; um G-code sem esse dado usa o primeiro.
+    val used = (state.slice as? SliceState.Done)?.stats?.filaments?.filter { it.meters > 0 || it.grams > 0 }?.map { it.index }
+        ?.takeIf { it.isNotEmpty() } ?: listOf(0)
+    val filament = state.presets[PresetKind.FILAMENT]?.selected
+    PrintConfirmDialog(
+        host, viewModel, maxOf(state.filaments.size, used.max() + 1), used, state.scene?.filamentColors.orEmpty(), state.filaments,
+        state.filamentTypes, filament?.let { stringResource(R.string.check_filament_named, it) } ?: stringResource(R.string.check_filament),
+        onDismiss, onRecolor, onReorder, onConfirm,
+    )
+}
+
+/**
+ * Confirmação antes de iniciar uma impressão: só libera depois de conferir mesa e filamento
+ * ([filamentCheck] é o texto da segunda, sem mapeamento). Numa impressora que mapeia filamentos
+ * ([SlicerViewModel.printerSlots]), mostra a posição de cada filamento de [used] (de [count]
+ * filamentos, com [colors], [names] e [types] pelo índice), já escolhida pela cor, e [onConfirm]
+ * recebe o mapeamento; senão, null. [onRecolor] e [onReorder] (ver [ConfirmPrint]) só valem para
+ * um projeto que dá para fatiar de novo; sem eles (um arquivo já na impressora), a posição fora
+ * do bico do filamento só mostra o erro.
+ */
+@Composable
+internal fun PrintConfirmDialog(
+    host: PrinterHost, viewModel: SlicerViewModel, count: Int, used: List<Int>, colors: List<FloatArray?>, names: List<String?>,
+    types: List<String?>, filamentCheck: String, onDismiss: () -> Unit,
+    onRecolor: ((Map<Int, String>) -> Unit)?, onReorder: ((IntArray) -> Unit)?, onConfirm: (List<Slot?>?) -> Unit,
 ) {
     var bedClear by remember { mutableStateOf(false) }
     var filamentLoaded by remember { mutableStateOf(false) }
@@ -296,18 +320,14 @@ private fun ConfirmPrint(
             SlotsLoad.Failed(context.getString(e.text, *e.args))
         }
     }
-    val colors = state.scene?.filamentColors.orEmpty()
-    // Filamentos com gasto no fatiamento; um G-code sem esse dado usa o primeiro.
-    val used = (state.slice as? SliceState.Done)?.stats?.filaments?.filter { it.meters > 0 || it.grams > 0 }?.map { it.index }
-        ?.takeIf { it.isNotEmpty() } ?: listOf(0)
     val slots = (load as? SlotsLoad.Loaded)?.slots.orEmpty()
     val mapping = remember(slots) {
-        mutableStateListOf<Int>().apply { if (slots.isNotEmpty()) addAll(defaultMapping(maxOf(state.filaments.size, used.max() + 1), used, colors, state.filamentTypes, slots)) }
+        mutableStateListOf<Int>().apply { if (slots.isNotEmpty()) addAll(defaultMapping(count, used, colors, types, slots)) }
     }
     val fixed = slots.any { it.nozzle != null }
     // Bicos fixos: a ordem de filamentos que leva cada um ao bico da posição escolhida, null se já
     // está assim; vazia se dois escolheram posições do mesmo bico.
-    val order = if (fixed && mapping.isNotEmpty()) nozzleOrder(state.filaments.size, used, mapping, slots) else null
+    val order = if (fixed && mapping.isNotEmpty()) nozzleOrder(count, used, mapping, slots) else null
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(painterResource(R.drawable.ic_play_circle), null) },
@@ -323,14 +343,15 @@ private fun ConfirmPrint(
                     is SlotsLoad.Loaded -> if (mapping.isNotEmpty()) {
                         SectionLabel(stringResource(R.string.filament_mapping))
                         for (filament in used) {
-                            MappingRow(filament, colors.getOrNull(filament), state.filaments.getOrNull(filament), l.slots, mapping[filament], enabled = true) { mapping[filament] = it }
+                            MappingRow(filament, colors.getOrNull(filament), names.getOrNull(filament), l.slots, mapping[filament], enabled = true) { mapping[filament] = it }
                         }
                         if (fixed) {
-                            Text(stringResource(R.string.mapping_fixed_nozzles), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(if (onReorder != null) R.string.mapping_fixed_nozzles else R.string.mapping_fixed_nozzles_file), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         when {
                             order == null -> {}
                             order.isEmpty() -> Banner(Tone.ERROR, stringResource(R.string.mapping_nozzle_conflict), Modifier.fillMaxWidth())
+                            onReorder == null -> Banner(Tone.ERROR, stringResource(R.string.mapping_file_nozzles), Modifier.fillMaxWidth())
                             else -> {
                                 Banner(Tone.INFO, stringResource(R.string.mapping_reorder_needed), Modifier.fillMaxWidth())
                                 AppButton(stringResource(R.string.mapping_reorder), { onReorder(order) }, style = ButtonStyle.TEXT)
@@ -344,7 +365,7 @@ private fun ConfirmPrint(
                         }
                         for (filament in used) {
                             val slot = l.slots.getOrNull(mapping[filament])?.takeIf { it.loaded } ?: continue
-                            val type = state.filamentTypes.getOrNull(filament)
+                            val type = types.getOrNull(filament)
                             if (type != null && slot.type != null && !sameType(type, slot.type)) {
                                 Banner(
                                     Tone.WARNING, stringResource(R.string.mapping_type_differs, filament + 1, type, slotName(slot), slot.type),
@@ -356,23 +377,15 @@ private fun ConfirmPrint(
                         val slotColors = used.mapNotNull { f ->
                             l.slots.getOrNull(mapping[f])?.takeIf { it.loaded }?.color?.let { f to it.uppercase() }
                         }.filter { (f, hex) -> colorDistance(colors.getOrNull(f), hex) > COLOR_SAME }.toMap()
-                        if (slotColors.isNotEmpty()) {
+                        if (slotColors.isNotEmpty() && onRecolor != null) {
                             Text(stringResource(R.string.mapping_colors_differ), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             AppButton(stringResource(R.string.mapping_use_printer_colors), { onRecolor(slotColors) }, style = ButtonStyle.TEXT)
                         }
                     }
                 }
                 CheckRow(stringResource(R.string.check_bed_clear), bedClear) { bedClear = it }
-                val filament = state.presets[PresetKind.FILAMENT]?.selected
-                CheckRow(
-                    when {
-                        mapping.isNotEmpty() -> stringResource(R.string.check_mapping)
-                        filament != null -> stringResource(R.string.check_filament_named, filament)
-                        else -> stringResource(R.string.check_filament)
-                    },
-                    filamentLoaded,
-                ) { filamentLoaded = it }
-                Text(stringResource(R.string.print_heats_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                CheckRow(if (mapping.isNotEmpty()) stringResource(R.string.check_mapping) else filamentCheck, filamentLoaded) { filamentLoaded = it }
+                Text(stringResource(if (onReorder != null) R.string.print_heats_note else R.string.print_heats_now), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         confirmButton = {
@@ -434,7 +447,7 @@ internal fun slotName(slot: Slot): String = when {
  * carregada, vão para a de mesmo número. Com bicos fixos ([Slot.nozzle]), é a posição do bico do
  * filamento, ou -1 se nenhuma o alimenta.
  */
-private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?>, types: List<String>, slots: List<Slot>): List<Int> {
+private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?>, types: List<String?>, slots: List<Slot>): List<Int> {
     if (slots.any { it.nozzle != null }) return List(count) { i -> slots.indexOfFirst { it.nozzle == i + 1 } }
     val taken = mutableSetOf<Int>()
     return List(count) { i ->

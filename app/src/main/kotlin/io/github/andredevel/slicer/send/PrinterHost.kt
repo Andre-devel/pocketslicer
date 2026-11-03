@@ -113,6 +113,27 @@ interface Uploader {
      * [FilamentControls.loadUnload].
      */
     suspend fun changeFilament(host: PrinterHost, slot: Slot, load: Boolean): Unit = throw UnsupportedOperationException()
+
+    /** Se a impressora lista os arquivos guardados nela ([files], [fileInfo], [deleteFile], [startFile], [history]). */
+    val hasFiles: Boolean get() = false
+
+    /** Arquivos guardados na impressora, o mais novo primeiro; falha com [SendException]. */
+    suspend fun files(host: PrinterHost): List<PrinterFile> = throw UnsupportedOperationException()
+
+    /** Miniatura, tempo e filamentos de [file], lidos do próprio arquivo; falha com [SendException]. */
+    suspend fun fileInfo(host: PrinterHost, file: PrinterFile): GcodeInfo = throw UnsupportedOperationException()
+
+    /** Apaga [file] da impressora; falha com [SendException]. Só com [hasFiles]. */
+    suspend fun deleteFile(host: PrinterHost, file: PrinterFile): Unit = throw UnsupportedOperationException()
+
+    /**
+     * Inicia [path], já na impressora, como o `start` de [upload] (com o mesmo [mapping]):
+     * confere antes que ela está livre. Só com [hasFiles].
+     */
+    suspend fun startFile(host: PrinterHost, path: String, mapping: List<Slot?>?): Unit = throw UnsupportedOperationException()
+
+    /** Últimas impressões e totais; null se o protocolo não guarda. Falha com [SendException]. */
+    suspend fun history(host: PrinterHost): PrintHistory? = null
 }
 
 /** O que o app manda a impressora fazer ([Uploader.command]); cada protocolo traduz. */

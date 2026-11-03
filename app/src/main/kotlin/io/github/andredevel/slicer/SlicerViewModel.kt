@@ -41,6 +41,9 @@ import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterCommand
 import io.github.andredevel.slicer.send.PrinterControls
 import io.github.andredevel.slicer.send.PrinterHost
+import io.github.andredevel.slicer.send.PrinterFile
+import io.github.andredevel.slicer.send.GcodeInfo
+import io.github.andredevel.slicer.send.PrintHistory
 import io.github.andredevel.slicer.send.PrinterScanner
 import io.github.andredevel.slicer.send.PrinterStatus
 import io.github.andredevel.slicer.send.PrinterStore
@@ -1306,6 +1309,24 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Manda [command] para [host]; falha com [SendException]. */
     suspend fun printerCommand(host: PrinterHost, command: PrinterCommand) = uploader(host.kind, app.assets).command(host, command)
+
+    /** [Uploader.hasFiles]. */
+    fun printerHasFiles(host: PrinterHost): Boolean = uploader(host.kind, app.assets).hasFiles
+
+    /** [Uploader.files]. */
+    suspend fun printerFiles(host: PrinterHost): List<PrinterFile> = uploader(host.kind, app.assets).files(host)
+
+    /** [Uploader.fileInfo]. */
+    suspend fun printerFileInfo(host: PrinterHost, file: PrinterFile): GcodeInfo = uploader(host.kind, app.assets).fileInfo(host, file)
+
+    /** [Uploader.deleteFile]. */
+    suspend fun deletePrinterFile(host: PrinterHost, file: PrinterFile) = uploader(host.kind, app.assets).deleteFile(host, file)
+
+    /** [Uploader.startFile]. */
+    suspend fun startPrinterFile(host: PrinterHost, path: String, mapping: List<Slot?>?) = uploader(host.kind, app.assets).startFile(host, path, mapping)
+
+    /** [Uploader.history]. */
+    suspend fun printerHistory(host: PrinterHost): PrintHistory? = uploader(host.kind, app.assets).history(host)
 
     /** A fila de filamento que roda em cada impressora ([PrinterHost.id]). */
     private val filamentJobs = mutableMapOf<String, Job>()

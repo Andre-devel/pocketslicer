@@ -218,6 +218,21 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      impressão) e a Bambu (`print.skip_objects`).
 7. **Arquivos e histórico.** Lista com miniatura, reimprimir, apagar (confirmação), histórico e totais;
    timelapses (U1, K2, A1) para baixar.
+   - Feito (2026-11-02), Moonraker: aba Arquivos com os G-codes da raiz `gcodes`
+     (`/server/files/list`, o mais novo primeiro, de 20 em 20). Miniatura, tempo estimado e gasto
+     lidos do próprio arquivo por `Range` (64 KB do começo, 128 KB do fim), porque o Moonraker da
+     K3 não reconhece o Orca e os metadados dele vêm sem miniatura nem tempo. Imprimir de novo usa
+     a mesma confirmação do envio (`PrintConfirmDialog`), com o mapeamento pelos filamentos do
+     rodapé (`filament used [g]`, `filament_colour`, `filament_type`) e o início de cada
+     impressora (`Uploader.startFile`: CFS pelo WebSocket 9999, U1 com `MAP_TABLE`, QIDI); com
+     bicos fixos a posição fora do bico só mostra o erro (o arquivo não dá para reordenar).
+     Apagar (`DELETE /server/files/gcodes/...`) com confirmação, desligado no arquivo em
+     impressão. Histórico (`/server/history/list`, as 50 últimas, e `/totals`) com o estado de
+     cada uma e imprimir de novo se o arquivo ainda existe.
+   - Testado no emulador com o `fake-moonraker.py --sample-files --cfs` (lista, miniaturas,
+     reimprimir com o mapa do CFS, apagar, histórico) e só leitura na K3 real (28 arquivos com
+     miniatura, tempo e gasto). Falta: reimprimir e apagar numa impressora real (pedem OK do
+     usuário), timelapses (a K3 não tem a raiz `timelapse`; U1 e K2 fora da rede), a Bambu (FTPS).
 8. **Calibração e manutenção.** Os comandos da tabela, um por vez, com o tempo estimado e o aviso
    de mesa livre; limpeza do bico; câmara da K3.
 9. **Console.** Histórico e envio de G-code livre, com a lista de comandos da impressora como sugestão.

@@ -2,6 +2,7 @@ package io.github.andredevel.slicer
 
 import android.text.format.DateFormat
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,7 +74,7 @@ import kotlinx.coroutines.launch
  * Tela de uma impressora salva. Visão geral: câmera, impressão em curso (camada, tempos),
  * temperaturas e filamento (caixas com a umidade, posições carregadas), com os ajustes da
  * impressão em andamento ([PrintAdjustments]); Controle
- * ([PrinterControlTab]), quando a impressora tem o que mexer. A parada de emergência fica no
+ * ([PrinterControlTab]), quando a impressora tem o que mexer; Arquivos ([PrinterFilesTab]). A parada de emergência fica no
  * cabeçalho e o reinício do firmware aparece quando o Klipper parou. O estado vem de
  * [SlicerViewModel.watchPrinterStatus], que a tela de Impressoras já mantém, e enquanto esta tela
  * está aberta e visível, ao vivo ([SlicerViewModel.watchLiveStatus]); [onEdit] abre o
@@ -135,7 +136,14 @@ fun PrinterDetail(
             delay(SLOTS_INTERVAL_MS)
         }
     }
-    var tab by rememberSaveable(host.id) { mutableStateOf(0) }
+    // As abas que esta impressora tem; a escolhida fica pelo nome (a Controle aparece depois de ler as capacidades).
+    val tabs = listOfNotNull(
+        PrinterTab.OVERVIEW,
+        PrinterTab.CONTROL.takeIf { controls?.hasControlTab == true },
+        PrinterTab.FILES.takeIf { viewModel.printerHasFiles(host) },
+    )
+    var chosen by rememberSaveable(host.id) { mutableStateOf(PrinterTab.OVERVIEW) }
+    val tab = chosen.takeIf { it in tabs } ?: PrinterTab.OVERVIEW
 
     val commands = rememberCommandRunner(host, viewModel)
     var confirmEmergency by remember(host) { mutableStateOf(false) }
@@ -172,14 +180,16 @@ fun PrinterDetail(
                 }
                 status?.alert?.let { PrinterAlertBanner(it) }
                 val control = controls
-                if (control != null && control.hasControlTab) {
+                if (tabs.size > 1) {
                     SegmentedTabs(
-                        listOf(Segment(stringResource(R.string.printer_tab_overview)), Segment(stringResource(R.string.printer_tab_control))),
-                        tab, { tab = it }, Modifier.widthIn(max = 480.dp).fillMaxWidth(), check = false, compact = true,
+                        tabs.map { Segment(stringResource(it.label)) },
+                        tabs.indexOf(tab), { chosen = tabs[it] }, Modifier.widthIn(max = 480.dp).fillMaxWidth(), check = false, compact = true,
                     )
                 }
-                if (control != null && control.hasControlTab && tab == 1) {
+                if (tab == PrinterTab.CONTROL && control != null) {
                     PrinterControlTab(host, status, control, commands)
+                } else if (tab == PrinterTab.FILES) {
+                    PrinterFilesTab(host, status, viewModel, commands) { chosen = PrinterTab.OVERVIEW }
                 } else {
                     status?.let { HumidityBanners(it) }
                     camera?.let {
@@ -236,6 +246,10 @@ fun PrinterDetail(
     }
 }
 
+private enum class PrinterTab(@StringRes val label: Int) {
+    OVERVIEW(R.string.printer_tab_overview), CONTROL(R.string.printer_tab_control), FILES(R.string.printer_tab_files),
+}
+
 /**
  * Manda os comandos da tela de uma impressora, um por vez: [sending] enquanto a impressora não
  * aceitou, [failure] com a resposta dela quando recusou.
@@ -251,12 +265,15 @@ internal class CommandRunner(private val host: PrinterHost, private val viewMode
         failure = null
     }
 
-    fun run(command: PrinterCommand) {
+    fun run(command: PrinterCommand) = run { viewModel.printerCommand(host, command) }
+
+    /** Outro pedido à impressora com o mesmo [sending] e [failure] (apagar um arquivo, iniciar um). */
+    fun run(action: suspend () -> Unit) {
         sending = true
         failure = null
         scope.launch {
             try {
-                viewModel.printerCommand(host, command)
+                action()
             } catch (e: SendException) {
                 failure = context.getString(e.text, *e.args)
             } finally {

@@ -43,12 +43,15 @@ import kotlin.math.roundToInt
  */
 object MoonrakerUploader : Uploader {
     override val canStart = true
+    override val hasFiles = true
 
     /** Porta própria do Moonraker, quando o nginx do Fluidd/Mainsail (porta 80) não repassa a API. */
     private const val TAG = "Moonraker"
     private const val MOONRAKER_PORT = 7125
 
     private const val METADATA_RETRIES = 5
+    /** Impressões que a aba Arquivos mostra do histórico. */
+    private const val HISTORY_JOBS = 50
 
     /** Bicos que [status] lê (a U1 tem quatro cabeças). */
     private val EXTRUDERS = listOf("extruder", "extruder1", "extruder2", "extruder3")
@@ -172,20 +175,109 @@ object MoonrakerUploader : Uploader {
             starting()
             // O servidor pode renomear o arquivo (nome repetido): vale o caminho da resposta.
             val path = jsonOrNull(response.body)?.optJSONObject("result")?.optJSONObject("item")?.optString("path")?.takeIf { it.isNotEmpty() } ?: name
-            when {
-                mapping == null ->
-                    check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)
-                mapping.any { it?.cfsBox != null } -> crealityStart(api, host, path, mapping)
-                mapping.any { it?.qidiSlot != null } -> {
-                    check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", qidiMapping(mapping)).toString()), host)
-                    check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)
-                }
-                else -> {
-                    val script = mappedStart(path, metadata(api, host, path), mapping)
-                    check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", script).toString()), host)
-                }
+            start(api, host, path, mapping)
+        }
+    }
+
+    override suspend fun startFile(host: PrinterHost, path: String, mapping: List<Slot?>?) {
+        val api = api(host)
+        checkIdle(api, host)
+        start(api, host, path, mapping)
+    }
+
+    /** Inicia [path] da raiz `gcodes` com o mapa de filamentos de cada impressora. */
+    private suspend fun start(api: URL, host: PrinterHost, path: String, mapping: List<Slot?>?) {
+        when {
+            mapping == null ->
+                check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)
+            mapping.any { it?.cfsBox != null } -> crealityStart(api, host, path, mapping)
+            mapping.any { it?.qidiSlot != null } -> {
+                check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", qidiMapping(mapping)).toString()), host)
+                check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)
+            }
+            else -> {
+                val script = mappedStart(path, metadata(api, host, path), mapping)
+                check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", script).toString()), host)
             }
         }
+    }
+
+    /** `/server/files/list` da raiz `gcodes`, sem pastas ocultas (miniaturas `.thumbs`). */
+    override suspend fun files(host: PrinterHost): List<PrinterFile> {
+        val api = api(host)
+        val response = Http.get(api.resolve("/server/files/list?root=gcodes"), headers(host))
+        check(response, host)
+        val list = jsonOrNull(response.body)?.optJSONArray("result") ?: return emptyList()
+        return (0 until list.length()).mapNotNull { i ->
+            val item = list.optJSONObject(i) ?: return@mapNotNull null
+            val path = item.optString("path").takeIf { p -> p.isNotEmpty() && p.split('/').none { it.startsWith('.') } } ?: return@mapNotNull null
+            PrinterFile(path, (item.optDouble("modified", 0.0) * 1000).toLong(), item.optLong("size"))
+        }.sortedByDescending { it.modified }
+    }
+
+    /**
+     * Começo e fim do arquivo por `Range` ([GcodeInfo.HEAD_BYTES], [GcodeInfo.TAIL_BYTES]), guardado
+     * por arquivo e data: os metadados do Moonraker da K3 não têm miniatura nem tempo.
+     */
+    override suspend fun fileInfo(host: PrinterHost, file: PrinterFile): GcodeInfo {
+        val key = "${host.id}/${file.path}/${file.modified}"
+        fileInfos[key]?.let { return it }
+        val api = api(host)
+        val url = fileUrl(api, file.path)
+        val head = Http.getRange(url, headers(host), "0-${GcodeInfo.HEAD_BYTES - 1}", GcodeInfo.HEAD_BYTES)
+        check(head, host)
+        val tail = if (file.size > GcodeInfo.HEAD_BYTES) {
+            Http.getRange(url, headers(host), "-${GcodeInfo.TAIL_BYTES}", GcodeInfo.TAIL_BYTES).also { check(it, host) }.body
+        } else head.body
+        return GcodeInfo.parse(head.body, tail).also { fileInfos[key] = it }
+    }
+
+    private val fileInfos = ConcurrentHashMap<String, GcodeInfo>()
+
+    override suspend fun deleteFile(host: PrinterHost, file: PrinterFile) {
+        val api = api(host)
+        check(Http.delete(fileUrl(api, file.path), headers(host)), host)
+        fileInfos.remove("${host.id}/${file.path}/${file.modified}")
+    }
+
+    /** `/server/files/gcodes/<caminho>`, cada parte codificada (nomes com espaço, acento, `#`). */
+    private fun fileUrl(api: URL, path: String) =
+        api.resolve("/server/files/gcodes/" + path.split('/').joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") })
+
+    /**
+     * `/server/history/list` (as [HISTORY_JOBS] últimas) e `/server/history/totals`; null num
+     * Moonraker sem o componente `history` (404).
+     */
+    override suspend fun history(host: PrinterHost): PrintHistory? {
+        val api = api(host)
+        val list = Http.get(api.resolve("/server/history/list?limit=$HISTORY_JOBS&order=desc"), headers(host))
+        if (list.code == 404) return null
+        check(list, host)
+        val totals = Http.get(api.resolve("/server/history/totals"), headers(host))
+        check(totals, host)
+        val jobs = jsonOrNull(list.body)?.optJSONObject("result")?.optJSONArray("jobs") ?: JSONArray()
+        val sum = jsonOrNull(totals.body)?.optJSONObject("result")?.optJSONObject("job_totals")
+        fun ms(json: JSONObject, key: String) = json.optDouble(key).takeIf { !it.isNaN() && it > 0 }?.let { (it * 1000).toLong() }
+        return PrintHistory(
+            (0 until jobs.length()).mapNotNull { i ->
+                val job = jobs.optJSONObject(i) ?: return@mapNotNull null
+                PrintJob(
+                    job.optString("job_id"), job.optString("filename"),
+                    when (job.optString("status")) {
+                        "completed" -> PrintJob.State.COMPLETED
+                        "cancelled" -> PrintJob.State.CANCELLED
+                        "error" -> PrintJob.State.ERROR
+                        "in_progress" -> PrintJob.State.IN_PROGRESS
+                        // klippy_shutdown, klippy_disconnect, interrupted, server_exit
+                        else -> PrintJob.State.INTERRUPTED
+                    },
+                    ms(job, "start_time") ?: 0L, ms(job, "end_time"),
+                    job.optDouble("print_duration", 0.0).toLong(), job.optDouble("filament_used", 0.0), job.optBoolean("exists", false),
+                )
+            },
+            sum?.optInt("total_jobs") ?: 0, sum?.optDouble("total_print_time", 0.0)?.toLong() ?: 0L,
+            sum?.optDouble("total_filament_used", 0.0) ?: 0.0, sum?.optDouble("longest_print", 0.0)?.toLong() ?: 0L,
+        )
     }
 
     override suspend fun slots(host: PrinterHost): List<Slot> {
