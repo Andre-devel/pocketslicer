@@ -74,7 +74,8 @@ import kotlinx.coroutines.launch
  * Tela de uma impressora salva. Visão geral: câmera, impressão em curso (camada, tempos),
  * temperaturas e filamento (caixas com a umidade, posições carregadas), com os ajustes da
  * impressão em andamento ([PrintAdjustments]); Controle
- * ([PrinterControlTab]), quando a impressora tem o que mexer; Arquivos ([PrinterFilesTab]). A parada de emergência fica no
+ * ([PrinterControlTab]), quando a impressora tem o que mexer; Arquivos ([PrinterFilesTab]); Manutenção
+ * ([PrinterMaintenanceTab]), com a calibração em andamento ([maintenance]). A parada de emergência fica no
  * cabeçalho e o reinício do firmware aparece quando o Klipper parou. O estado vem de
  * [SlicerViewModel.watchPrinterStatus], que a tela de Impressoras já mantém, e enquanto esta tela
  * está aberta e visível, ao vivo ([SlicerViewModel.watchLiveStatus]); [onEdit] abre o
@@ -86,6 +87,7 @@ import kotlinx.coroutines.launch
 fun PrinterDetail(
     host: PrinterHost, status: PrinterStatus?, viewModel: SlicerViewModel, modifier: Modifier, onEdit: () -> Unit, onClose: (() -> Unit)?,
     listOpen: Boolean = true, onToggleList: (() -> Unit)? = null, filamentQueue: List<FilamentTask> = emptyList(),
+    maintenance: MaintenanceRun? = null,
 ) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(host, lifecycle) {
@@ -128,7 +130,9 @@ fun PrinterDetail(
         if (halted) return@LaunchedEffect
         while (true) {
             try {
-                controls = viewModel.printerControls(host)?.takeIf { it.hasControlTab || !it.adjustments.isEmpty || !it.filament.isEmpty || it.excludeObject }
+                controls = viewModel.printerControls(host)?.takeIf {
+                    it.hasControlTab || !it.adjustments.isEmpty || !it.filament.isEmpty || it.excludeObject || it.maintenance.isNotEmpty()
+                }
                 break
             } catch (e: SendException) {
                 Log.w(TAG, "controls of ${host.name}", e)
@@ -141,6 +145,7 @@ fun PrinterDetail(
         PrinterTab.OVERVIEW,
         PrinterTab.CONTROL.takeIf { controls?.hasControlTab == true },
         PrinterTab.FILES.takeIf { viewModel.printerHasFiles(host) },
+        PrinterTab.MAINTENANCE.takeIf { controls?.maintenance?.isNotEmpty() == true },
     )
     var chosen by rememberSaveable(host.id) { mutableStateOf(PrinterTab.OVERVIEW) }
     val tab = chosen.takeIf { it in tabs } ?: PrinterTab.OVERVIEW
@@ -188,6 +193,8 @@ fun PrinterDetail(
                 }
                 if (tab == PrinterTab.CONTROL && control != null) {
                     PrinterControlTab(host, status, control, commands)
+                } else if (tab == PrinterTab.MAINTENANCE && control != null) {
+                    PrinterMaintenanceTab(host, status, control.maintenance, maintenance, filamentQueue.any { it.state == FilamentTask.State.RUNNING }, viewModel)
                 } else if (tab == PrinterTab.FILES) {
                     PrinterFilesTab(host, status, viewModel, commands) { chosen = PrinterTab.OVERVIEW }
                 } else {
@@ -248,6 +255,7 @@ fun PrinterDetail(
 
 private enum class PrinterTab(@StringRes val label: Int) {
     OVERVIEW(R.string.printer_tab_overview), CONTROL(R.string.printer_tab_control), FILES(R.string.printer_tab_files),
+    MAINTENANCE(R.string.printer_tab_maintenance),
 }
 
 /**

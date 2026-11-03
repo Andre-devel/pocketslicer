@@ -239,6 +239,29 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      o Creality Print lista e baixa os vídeos: gravar um timelapse curto na K3 e olhar só lendo.
 8. **Calibração e manutenção.** Os comandos da tabela, um por vez, com o tempo estimado e o aviso
    de mesa livre; limpeza do bico; câmara da K3.
+   - Feito (2026-11-02), Creality pelo Moonraker: aba Manutenção com as macros da K3 sem
+     parâmetros (configfile lido nela): `G29` (nivelamento: aquece, `Z_TILT_ADJUST`, malha e
+     `CXSAVE_CONFIG`, que grava sem reiniciar), `Z_AXIS_CALIBRATION` (o mesmo sem a malha),
+     `INPUTSHAPER` (`SHAPER_CALIBRATE` em X, Y e Z e `CXSAVE_CONFIG`), `NOZZLE_PID` e `BEDPID`
+     (230 e 100 °C e `SAVE_CONFIG`, que reinicia o Klipper) e `NOZZLE_CLEAR` (a tela da K3 manda
+     esse, visto no `klippy.log`). Cada uma aparece se está no `gcode/help` e a impressora tem a
+     macro `PRINTER_PARAM` da Creality. Uma por vez, com confirmação (aviso de mesa livre nas que
+     descem o bico), só com a impressora livre e sem operação de filamento; roda no ViewModel
+     (`runMaintenance`), então a parada de emergência segue livre e a tela pode fechar. O
+     `/printer/gcode/script` responde no fim (limite de 60 min); depois do `SAVE_CONFIG` o
+     Moonraker devolve 503 "Klippy Disconnected" (ou a conexão cai) e o app conta como concluída
+     quando o Klipper volta "ready" em até 2 min. A tela mostra há quanto tempo roda e como
+     terminou (tempo ou o erro do Klipper); sem tempo estimado, porque não há medida real ainda.
+   - Testado no emulador com `fake-moonraker.py --calibration` (PID com o reinício e
+     `--calibration-fail` para o erro); nada rodado numa impressora real. Falta:
+     - Rodar cada uma na K3 com o OK do usuário e anotar o tempo (para mostrar a estimativa) e o
+       que a resposta traz.
+     - Calibração dos bicos da K3 (`XYZ_OFFSET_CALC`, módulo compilado; o `help` cita `MODE` 0/1/2
+       e `WIPE`) e `BELT_TENSION`: ficam de fora até ver o que a tela da K3 manda.
+     - Câmara da K3 (`CHAMBER_MODE MODE=off|auto|outer_cool|inner_fast_heat|inner_keep`): o
+       significado de cada modo não está conferido; o alvo da câmara já está no Controle (`M141`).
+     - K2 (os mesmos nomes, macros a conferir no configfile dela), U1 (`SHAPER_CALIBRATE`,
+       `AUTO_BED_MESH_CALIBRATE`, `ROUGHLY_CLEAN_NOZZLE`...), Q2 e A1 (`print.calibration`).
 9. **Console.** Histórico e envio de G-code livre, com a lista de comandos da impressora como sugestão.
 10. **Notificações.** Fim de impressão e erro com o app em segundo plano (serviço com o WebSocket
     ou MQTT; avaliar bateria).

@@ -82,6 +82,22 @@ object MoonrakerUploader : Uploader {
     /** O comando já respondeu e a posição não começou a carregar: o firmware não fez nada. */
     private const val FILAMENT_START_MS = 15_000L
 
+    /** Uma calibração leva minutos (a malha da K3 aquece a mesa antes); o limite é de quem chama. */
+    private const val MAINTENANCE_RESPONSE_MS = 60 * 60_000
+
+    /** Quanto o Klipper pode levar para voltar depois do `SAVE_CONFIG`. */
+    private const val RESTART_WAIT_MS = 120_000L
+    private const val RESTART_POLL_MS = 2_000L
+
+    private val CREALITY_MAINTENANCE = linkedMapOf(
+        Maintenance.BED_LEVELING to "G29",
+        Maintenance.Z_AXIS to "Z_AXIS_CALIBRATION",
+        Maintenance.INPUT_SHAPING to "INPUTSHAPER",
+        Maintenance.NOZZLE_PID to "NOZZLE_PID",
+        Maintenance.BED_PID to "BEDPID",
+        Maintenance.NOZZLE_CLEAN to "NOZZLE_CLEAR",
+    )
+
     /** Sinalização WebRTC da câmera da Creality K2 (`/call/webrtc_local`). */
     private const val CREALITY_WEBRTC_PORT = 8000
 
@@ -668,6 +684,49 @@ object MoonrakerUploader : Uploader {
         }
     }
 
+    /**
+     * As macros da Creality (K3, configfile de 2026-11-02) para cada [Maintenance], sem
+     * parâmetros: `G29` (aquece, home, `Z_TILT_ADJUST`, malha e `CXSAVE_CONFIG`, que grava sem
+     * reiniciar), `Z_AXIS_CALIBRATION` (o mesmo sem a malha), `INPUTSHAPER` (`SHAPER_CALIBRATE`
+     * nos três eixos e `CXSAVE_CONFIG`), `NOZZLE_PID` e `BEDPID` (`PID_CALIBRATE` a 230 e 100 °C e
+     * `SAVE_CONFIG`, que reinicia o Klipper) e `NOZZLE_CLEAR` (o que a tela da K3 manda, visto no
+     * `klippy.log`). O `/printer/gcode/script` só responde no fim.
+     */
+    override suspend fun runMaintenance(host: PrinterHost, task: Maintenance) {
+        val api = api(host)
+        if (task !in capabilities(api, host).controls.maintenance) throw IllegalArgumentException("no $task")
+        checkIdle(api, host)
+        try {
+            gcode(api, host, CREALITY_MAINTENANCE.getValue(task), MAINTENANCE_RESPONSE_MS)
+        } catch (e: SendException) {
+            // O SAVE_CONFIG reinicia o Klipper antes de responder: o Moonraker devolve
+            // "Klippy Disconnected" (503) ou a conexão cai. Terminou se ele voltar pronto.
+            val restarted = e.text == R.string.send_error_io || e.text == R.string.send_error_http && e.args.firstOrNull() == 503
+            if (!task.saves || !restarted || !awaitKlippyReady(api, host)) throw e
+        }
+    }
+
+    /** Espera o Klipper voltar ao estado "ready" (até [RESTART_WAIT_MS]); false se não voltou. */
+    private suspend fun awaitKlippyReady(api: URL, host: PrinterHost): Boolean {
+        val end = System.currentTimeMillis() + RESTART_WAIT_MS
+        while (System.currentTimeMillis() < end) {
+            delay(RESTART_POLL_MS)
+            val state = try {
+                jsonOrNull(Http.get(api.resolve("/printer/info"), headers(host)).body)?.optJSONObject("result")?.optString("state")
+            } catch (e: SendException) {
+                null
+            }
+            when (state) {
+                "ready" -> {
+                    capabilities.remove(api.toString())
+                    return true
+                }
+                "shutdown", "error" -> return false
+            }
+        }
+        return false
+    }
+
     private suspend fun boxState(api: URL, host: PrinterHost): JSONObject =
         result(api, host, "/printer/objects/query?box").optJSONObject("status")?.optJSONObject("box") ?: JSONObject()
 
@@ -790,7 +849,9 @@ object MoonrakerUploader : Uploader {
             refresh = cfs && "BOX_INFO_REFRESH" in help,
         )
         val exclude = EXCLUDE_OBJECT in objects && "EXCLUDE_OBJECT" in help
-        val controls = PrinterControls(motion, heaterList, fans, lights, adjustments, filament, exclude)
+        // Só na Creality (macro PRINTER_PARAM): os nomes são dela e outro Klipper pode ter um G29 diferente.
+        val maintenance = if (param != null) CREALITY_MAINTENANCE.filter { (_, script) -> script in help }.keys.toList() else emptyList()
+        val controls = PrinterControls(motion, heaterList, fans, lights, adjustments, filament, exclude, maintenance)
         val subscribed = listOfNotNull(
             "toolhead".takeIf { motion || exclude }, "gcode_move".takeIf { move }, PRINT_MODE.takeIf { printModes.isNotEmpty() }, statsMacro,
             EXCLUDE_OBJECT.takeIf { exclude },

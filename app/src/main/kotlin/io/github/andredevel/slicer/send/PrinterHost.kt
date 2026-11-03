@@ -114,6 +114,13 @@ interface Uploader {
      */
     suspend fun changeFilament(host: PrinterHost, slot: Slot, load: Boolean): Unit = throw UnsupportedOperationException()
 
+    /**
+     * Roda [task] e volta só quando a impressora terminou (também depois do reinício do firmware
+     * que algumas fazem para salvar o resultado); falha com [SendException] se ela recusar, der
+     * erro ou não estiver livre. Só as de [PrinterControls.maintenance].
+     */
+    suspend fun runMaintenance(host: PrinterHost, task: Maintenance): Unit = throw UnsupportedOperationException()
+
     /** Se a impressora lista os arquivos guardados nela ([files], [fileInfo], [deleteFile], [startFile], [history]). */
     val hasFiles: Boolean get() = false
 
@@ -198,7 +205,7 @@ sealed interface PrinterCommand {
  * mover os eixos e desligar os motores; os aquecedores, ventoinhas e luzes que dá para mudar.
  * [adjustments]: os ajustes ao vivo da impressão, na Visão geral; [filament]: o que dá para
  * fazer com as posições de filamento; [excludeObject]: cancelar um objeto da impressão
- * ([PrinterStatus.objects]).
+ * ([PrinterStatus.objects]); [maintenance]: as calibrações e a limpeza da aba Manutenção.
  */
 data class PrinterControls(
     val motion: Boolean = false,
@@ -208,6 +215,7 @@ data class PrinterControls(
     val adjustments: Adjustments = Adjustments(),
     val filament: FilamentControls = FilamentControls(),
     val excludeObject: Boolean = false,
+    val maintenance: List<Maintenance> = emptyList(),
 ) {
     /** Se a aba Controle tem o que mostrar. */
     val hasControlTab get() = motion || heaters.isNotEmpty() || fans.isNotEmpty() || lights.isNotEmpty()
@@ -234,6 +242,20 @@ data class Adjustments(
  */
 data class FilamentControls(val loadUnload: Boolean = false, val refresh: Boolean = false) {
     val isEmpty get() = !loadUnload && !refresh
+}
+
+/**
+ * Calibração ou manutenção que a impressora faz sozinha ([Uploader.runMaintenance]), pela macro
+ * do fabricante. [bed]: o bico desce na mesa, que precisa estar livre; [saves]: grava o
+ * resultado na configuração da impressora.
+ */
+enum class Maintenance(val bed: Boolean, val saves: Boolean) {
+    BED_LEVELING(bed = true, saves = true),
+    Z_AXIS(bed = true, saves = false),
+    INPUT_SHAPING(bed = false, saves = true),
+    NOZZLE_PID(bed = false, saves = true),
+    BED_PID(bed = false, saves = true),
+    NOZZLE_CLEAN(bed = true, saves = false),
 }
 
 /** Aquecedor que dá para ligar, como em [Temperature] ([source], [index]); [max] em °C, quando a impressora informa. */

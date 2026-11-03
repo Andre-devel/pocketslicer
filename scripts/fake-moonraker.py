@@ -49,12 +49,18 @@ in_progress e termina completed, cancelled ou klippy_shutdown. --sample-files gr
 G-codes no formato do Orca (miniatura, rodapé, um com 1 filamento e outro com 4). No --cfs, o
 set multiColorPrint do WebSocket 9999 inicia o arquivo e responde printFileName.
 
+--calibration simula as calibrações da K3 (gcode_macro printer_param no configfile e as macros
+G29, Z_AXIS_CALIBRATION, INPUTSHAPER, NOZZLE_PID, BEDPID e NOZZLE_CLEAR no gcode/help): cada uma
+só responde no fim, ~8 s depois; NOZZLE_PID e BEDPID terminam como o SAVE_CONFIG, reiniciando o
+Klipper (503 "Klippy Disconnected" e de volta em 3 s). --calibration-fail G29 faz essa dar erro.
+
 GET /machine/system_info informa o MAC de --mac (a identidade que o app guarda para reencontrar a
 impressora quando o IP muda) e GET /printer/info o hostname "fake-moonraker".
 
 Uso: scripts/fake-moonraker.py [--port 7125] [--api-key CHAVE] [--state standby]
      [--u1 PLA:FF0000,PETG:000000,,] [--mac 02:00:00:00:fa:01] [--print-modes]
-     [--cfs PLA:01B04A,PLA:3DDF57,,PETG:000000 [--cfs-blocking] [--cfs-fail T1C]] [--sample-files] [pasta]
+     [--cfs PLA:01B04A,PLA:3DDF57,,PETG:000000 [--cfs-blocking] [--cfs-fail T1C]] [--sample-files]
+     [--calibration [--calibration-fail G29]] [pasta]
 """
 import argparse
 import base64
@@ -129,6 +135,8 @@ def main():
     parser.add_argument("--cfs", help="CFS da K3: filamento de cada posição, TIPO:RRGGBB separados por vírgula")
     parser.add_argument("--cfs-blocking", action="store_true", help="carga e descarga só respondem no fim")
     parser.add_argument("--cfs-fail", help="posição (T1A..T1D) em que a carga ou descarga dá erro")
+    parser.add_argument("--calibration", action="store_true", help="macros de calibração da K3")
+    parser.add_argument("--calibration-fail", help="macro de calibração que dá erro")
     parser.add_argument("--sample-files", action="store_true", help="grava dois G-codes do Orca de exemplo na pasta")
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
@@ -170,6 +178,14 @@ def main():
         # Como a K3: as macros aparecem no gcode/help, os _STEP que a tela manda não.
         for name in ("BOX_LOAD_MATERIAL", "BOX_QUIT_MATERIAL", "BOX_INFO_REFRESH", "BOX_ERROR_CLEAR"):
             help_text[name] = "G-Code macro"
+
+    calibrations = ("G29", "Z_AXIS_CALIBRATION", "INPUTSHAPER", "NOZZLE_PID", "BEDPID", "NOZZLE_CLEAR")
+    if args.calibration:
+        for name in calibrations:
+            help_text[name] = "G-Code macro"
+
+    class KlippyRestart(Exception):
+        """O SAVE_CONFIG: o Klipper reinicia antes de responder."""
 
     def begin(filename):
         """Começa a impressão de filename e a põe no histórico."""
@@ -312,6 +328,13 @@ def main():
                 print(f"CFS: reler RFID {params}", file=sys.stderr)
             elif command == "BOX_ERROR_CLEAR" and cfs is not None:
                 cfs["err"] = 0
+            elif command in calibrations and args.calibration:
+                time.sleep(8)
+                if args.calibration_fail == command:
+                    raise KlipperError(f"{command}: probe triggered prior to movement")
+                print(f"calibração {command} concluída", file=sys.stderr)
+                if command in ("NOZZLE_PID", "BEDPID"):
+                    raise KlippyRestart()
             elif command.startswith("SDCARD_PRINT_FILE_WITH_PARAMETERS") and args.u1 is not None:
                 m = re.match(r'SDCARD_PRINT_FILE_WITH_PARAMETERS FILENAME="((?:[^"\\]|\\.)*)"', line)
                 if m:
@@ -374,6 +397,8 @@ def main():
                   "fan_generic exhaust": {"speed": machine["exhaust"], "rpm": None},
                   "led chamber_light": {"color_data": [[machine["light"]] * 4]},
                   "configfile": {"settings": {name: {"max_temp": value} for name, value in max_temp.items()}}}
+        if args.calibration:
+            result["configfile"]["settings"]["gcode_macro printer_param"] = {"description": "G-Code macro"}
         if args.print_modes:
             result["print_mode"] = {"mode": machine["mode"]}
             result["configfile"]["settings"]["print_mode"] = {f"{m}_speed_factor": f for m, f in modes.items()}
@@ -595,7 +620,8 @@ def main():
                 self.reply(200, {"result": {"system_info": {"network": {
                     "wlan0": {"mac_address": args.mac, "ip_addresses": []}}}}})
             elif self.path == "/printer/info":
-                self.reply(200, {"result": {"state": "ready", "hostname": "fake-moonraker"}})
+                klippy_state = "ready" if state["webhooks"] == "ready" else "startup" if state["webhooks"] == "disconnected" else state["webhooks"]
+                self.reply(200, {"result": {"state": klippy_state, "hostname": "fake-moonraker"}})
             elif self.path.startswith("/server/files/metadata?") and args.u1 is not None:
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 result = metadata(query.get("filename", [""])[0])
@@ -687,6 +713,17 @@ def main():
                 except KlipperError as e:
                     print(f"  erro: {e}", file=sys.stderr)
                     self.reply(400, {"error": {"code": 400, "message": str(e)}})
+                    return
+                except KlippyRestart:
+                    state.update(webhooks="disconnected")
+                    klippy("notify_klippy_disconnected")
+
+                    def back():
+                        state.update(webhooks="ready")
+                        klippy("notify_klippy_ready")
+
+                    threading.Timer(3, back).start()
+                    self.reply(503, {"error": {"code": 503, "message": "Klippy Disconnected"}})
                     return
                 self.reply(200, {"result": "ok"})
                 return

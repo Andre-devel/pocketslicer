@@ -38,6 +38,7 @@ import io.github.andredevel.slicer.render.Tool
 import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.Connection
 import io.github.andredevel.slicer.send.Kind
+import io.github.andredevel.slicer.send.Maintenance
 import io.github.andredevel.slicer.send.PrinterCommand
 import io.github.andredevel.slicer.send.PrinterControls
 import io.github.andredevel.slicer.send.PrinterHost
@@ -258,6 +259,8 @@ data class SlicerUiState(
     val printerStatus: Map<String, PrinterStatus> = emptyMap(),
     /** Fila de carga e descarga de filamento por [PrinterHost.id] ([SlicerViewModel.queueFilament]). */
     val filamentQueues: Map<String, List<FilamentTask>> = emptyMap(),
+    /** Calibração ou manutenção em andamento ou a última por [PrinterHost.id] ([SlicerViewModel.runMaintenance]). */
+    val maintenance: Map<String, MaintenanceRun> = emptyMap(),
     /** Arquivos abertos recentemente, o mais novo primeiro. */
     val recents: List<RecentFile> = emptyList(),
     /** Cena ou perfis mudaram desde que o projeto foi aberto ou salvo. */
@@ -1399,6 +1402,41 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
+     * Roda [task] em [host], se nenhuma outra roda nela, e guarda como terminou; continua com a
+     * tela fechada, enquanto o app está aberto.
+     */
+    fun runMaintenance(host: PrinterHost, task: Maintenance) {
+        if (_state.value.maintenance[host.id]?.state == MaintenanceRun.State.RUNNING) return
+        _state.update { it.copy(maintenance = it.maintenance + (host.id to MaintenanceRun(task, System.currentTimeMillis()))) }
+        viewModelScope.launch {
+            val error = try {
+                withTimeout(MAINTENANCE_TIMEOUT_MS) { uploader(host.kind, app.assets).runMaintenance(host, task) }
+                null
+            } catch (e: TimeoutCancellationException) {
+                app.getString(R.string.maintenance_timeout, MAINTENANCE_TIMEOUT_MS / 60_000)
+            } catch (e: SendException) {
+                app.getString(e.text, *e.args)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "maintenance ${host.name}", e)
+                e.toString()
+            }
+            if (error != null) Log.w(TAG, "maintenance ${host.name} $task: $error")
+            _state.update { state ->
+                val run = state.maintenance[host.id] ?: return@update state
+                val done = run.copy(state = if (error == null) MaintenanceRun.State.DONE else MaintenanceRun.State.FAILED, endedAt = System.currentTimeMillis(), error = error)
+                state.copy(maintenance = state.maintenance + (host.id to done))
+            }
+        }
+    }
+
+    /** Esquece a última calibração de [host], se já terminou. */
+    fun dismissMaintenance(host: PrinterHost) = _state.update { state ->
+        if (state.maintenance[host.id]?.state == MaintenanceRun.State.RUNNING) state else state.copy(maintenance = state.maintenance - host.id)
+    }
+
+    /**
      * Envia o G-code fatiado para [host]; com [start], também inicia a impressão, com a posição
      * da impressora de cada filamento do projeto em [mapping] (Uploader.upload).
      */
@@ -1677,6 +1715,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val STATUS_INTERVAL_MS = 5_000L
         /** Limite de uma carga ou descarga; na K3 levaram ~100 s (2026-11-02). */
         const val FILAMENT_TIMEOUT_MS = 8 * 60_000L
+
+        /** Limite de uma calibração; a malha da K3 com a mesa fria leva bem menos. */
+        const val MAINTENANCE_TIMEOUT_MS = 60 * 60_000L
         /** Espera para tentar de novo o estado ao vivo depois que a conexão caiu. */
         const val LIVE_RETRY_MS = 10_000L
         /** Varredura da rede atrás de impressora que mudou de IP ([rediscover]): no máximo uma por minuto. */
