@@ -67,7 +67,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -360,7 +359,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             // A cada estado, não só na mudança: o último guardado pode seguir "imprimindo" depois
             // que o serviço já parou (a lista não consulta com o app em segundo plano).
-            state.map { it.printerStatus }.distinctUntilChanged().collect { statuses ->
+            state.map { it.printerStatus }.collect { statuses ->
                 if (statuses.values.any { it.busy } && !PrintWatchService.running) PrintWatchService.start(app)
             }
         }
@@ -1344,7 +1343,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** [Uploader.startFile]. */
     suspend fun startPrinterFile(host: PrinterHost, path: String, mapping: List<Slot?>?) {
         uploader(host.kind, app.assets).startFile(host, path, mapping)
-        PrintWatchService.start(app)
+        PrintWatchService.start(app, printStarted = true)
     }
 
     /** [Uploader.history]. */
@@ -1500,7 +1499,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         )
         if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD) // arquivo vazio: sem progresso
         while (steps.current != null) advance(all.getOrNull(all.indexOf(steps.current) + 1))
-        if (start) PrintWatchService.start(app)
+        if (start) PrintWatchService.start(app, printStarted = true)
         SendState.Done(if (start) R.string.send_started else R.string.send_done, host.name, steps = steps)
     }
 

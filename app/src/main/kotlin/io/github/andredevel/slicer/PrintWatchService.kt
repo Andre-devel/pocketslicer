@@ -51,10 +51,14 @@ class PrintWatchService : Service() {
 
     private val watches = mutableMapOf<String, Watch>()
 
+    /** Até quando segue olhando mesmo sem nenhuma imprimindo: a impressão recém-mandada pode demorar a começar. */
+    private var graceUntil = 0L
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         running = true
+        if (intent?.getBooleanExtra(EXTRA_PRINT_STARTED, false) == true) graceUntil = System.currentTimeMillis() + START_GRACE_MS
         createChannels(this)
         ServiceCompat.startForeground(this, ONGOING_ID, ongoing(emptyList()), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         if (loop == null) loop = scope.launch { watch() }
@@ -82,7 +86,7 @@ class PrintWatchService : Service() {
             watches.keys.retainAll(printers.map { it.id }.toSet())
             // Sumiu no meio da impressão: segue olhando por um tempo, para avisar e ver se volta.
             val waiting = watches.values.any { it.offlineSince != null && now - it.offlineSince < OFFLINE_WATCH_MS }
-            if (printing.isEmpty() && !waiting) break
+            if (printing.isEmpty() && !waiting && now >= graceUntil) break
             val offline = printers.filter { host -> watches[host.id]?.offlineSince?.let { now - it < OFFLINE_WATCH_MS } == true }
             manager.notify(ONGOING_ID, ongoing(printing, offline))
             delay(POLL_INTERVAL_MS)
@@ -91,16 +95,18 @@ class PrintWatchService : Service() {
         stopSelf()
     }
 
+    /**
+     * O estado de [host]. Consulta que falha (fora da rede, HTTP 5xx, resposta que não se lê)
+     * vira OFFLINE: não diz nada da impressão, então o estado de antes fica guardado (veja
+     * [next]) em vez de virar um falso aviso de erro.
+     */
     private suspend fun status(host: PrinterHost): PrinterStatus = try {
         uploader(host.kind, assets).status(host)
-    } catch (e: SendException) {
-        if (e.text == R.string.send_error_unreachable) PrinterStatus(PrinterStatus.State.OFFLINE)
-        else PrinterStatus(PrinterStatus.State.ERROR, raw = getString(e.text, *e.args))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.w(TAG, "status of ${host.name}", e)
-        PrinterStatus(PrinterStatus.State.ERROR, raw = e.toString())
+        if (e !is SendException || e.text != R.string.send_error_unreachable) Log.w(TAG, "status of ${host.name}", e)
+        PrinterStatus(PrinterStatus.State.OFFLINE)
     }
 
     /** O novo [Watch] de [host], avisando o que mudou desde [before]. Na primeira consulta, só guarda. */
@@ -183,6 +189,10 @@ class PrintWatchService : Service() {
         private const val ONGOING_ID = 10
         private const val EVENT_TAG = "print_event"
         private const val POLL_INTERVAL_MS = 30_000L
+        private const val EXTRA_PRINT_STARTED = "print_started"
+
+        /** Depois de mandar imprimir, quanto tempo espera a impressora começar. */
+        private const val START_GRACE_MS = 10 * 60_000L
 
         /** Fora da rede por este tempo no meio da impressão: avisa (um tropeço do Wi-Fi não). */
         private const val OFFLINE_NOTIFY_MS = 60_000L
@@ -213,10 +223,15 @@ class PrintWatchService : Service() {
 
         private fun expected(host: PrinterHost) = requested[host.id]?.let { System.currentTimeMillis() - it < EXPECTED_MS } == true
 
-        /** Liga o acompanhamento; só dá com o app em primeiro plano (o Android recusa de fundo). */
-        fun start(context: Context) {
+        /**
+         * Liga o acompanhamento; só dá com o app em primeiro plano (o Android recusa de fundo).
+         * [printStarted]: o app acabou de mandar imprimir, então segue olhando por [START_GRACE_MS]
+         * mesmo que nenhuma impressora já apareça imprimindo (K2/K3 com CFS se testam antes).
+         */
+        fun start(context: Context, printStarted: Boolean = false) {
             try {
-                ContextCompat.startForegroundService(context, Intent(context, PrintWatchService::class.java))
+                val intent = Intent(context, PrintWatchService::class.java).putExtra(EXTRA_PRINT_STARTED, printStarted)
+                ContextCompat.startForegroundService(context, intent)
             } catch (e: IllegalStateException) {
                 Log.w(TAG, "start", e)
             }
