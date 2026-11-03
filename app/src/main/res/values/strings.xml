@@ -189,9 +189,19 @@
     <string name="maintenance_bed_pid_detail">Tunes the bed heating at 100 °C and saves it. The firmware restarts at the end.</string>
     <string name="maintenance_nozzle_clean">Clean nozzle</string>
     <string name="maintenance_nozzle_clean_detail">Cleans the nozzle tip, as at the start of each print.</string>
-    <string name="printer_files">Files on the printer</string>
     <string name="printer_files_loading">Reading the files…</string>
     <string name="printer_files_empty">No files on the printer.</string>
+    <string name="files_on_printer">On the printer</string>
+    <string name="files_history">History</string>
+    <plurals name="files_count">
+        <item quantity="one">%d file · newest first</item>
+        <item quantity="other">%d files · newest first</item>
+    </plurals>
+    <string name="file_sent">Sent %1$s</string>
+    <string name="file_filaments">Filaments in the file</string>
+    <string name="file_print_again">Print again</string>
+    <string name="today">today</string>
+    <string name="yesterday">yesterday</string>
     <string name="refresh">Refresh</string>
     <string name="show_more">Show %1$d more</string>
     <string name="file_print">Print</string>

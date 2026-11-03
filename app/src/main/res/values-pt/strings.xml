@@ -189,9 +189,19 @@
     <string name="maintenance_bed_pid_detail">Calibra o aquecimento da mesa a 100 °C e salva. O firmware reinicia no fim.</string>
     <string name="maintenance_nozzle_clean">Limpar bico</string>
     <string name="maintenance_nozzle_clean_detail">Limpa a ponta do bico, como no começo de cada impressão.</string>
-    <string name="printer_files">Arquivos na impressora</string>
     <string name="printer_files_loading">Lendo os arquivos…</string>
     <string name="printer_files_empty">Nenhum arquivo na impressora.</string>
+    <string name="files_on_printer">Na impressora</string>
+    <string name="files_history">Histórico</string>
+    <plurals name="files_count">
+        <item quantity="one">%d arquivo · mais novos primeiro</item>
+        <item quantity="other">%d arquivos · mais novos primeiro</item>
+    </plurals>
+    <string name="file_sent">Enviado %1$s</string>
+    <string name="file_filaments">Filamentos do arquivo</string>
+    <string name="file_print_again">Imprimir de novo</string>
+    <string name="today">hoje</string>
+    <string name="yesterday">ontem</string>
     <string name="refresh">Atualizar</string>
     <string name="show_more">Mostrar mais %1$d</string>
     <string name="file_print">Imprimir</string>
