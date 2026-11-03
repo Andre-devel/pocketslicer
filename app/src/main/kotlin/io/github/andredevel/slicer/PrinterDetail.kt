@@ -88,7 +88,7 @@ import kotlinx.coroutines.launch
 fun PrinterDetail(
     host: PrinterHost, status: PrinterStatus?, viewModel: SlicerViewModel, modifier: Modifier, onEdit: () -> Unit, onClose: (() -> Unit)?,
     listOpen: Boolean = true, onToggleList: (() -> Unit)? = null, filamentQueue: List<FilamentTask> = emptyList(),
-    maintenance: MaintenanceRun? = null,
+    maintenance: MaintenanceRun? = null, console: ConsoleSend = ConsoleSend(),
 ) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(host, lifecycle) {
@@ -196,7 +196,7 @@ fun PrinterDetail(
                 } else if (tab == PrinterTab.MAINTENANCE && control != null) {
                     PrinterMaintenanceTab(host, status, control.maintenance, maintenance, filamentQueue.any { it.state == FilamentTask.State.RUNNING }, viewModel)
                 } else if (tab == PrinterTab.CONSOLE) {
-                    PrinterConsoleTab(host, status, viewModel)
+                    PrinterConsoleTab(host, status, console, viewModel)
                 } else if (tab == PrinterTab.FILES) {
                     PrinterFilesTab(host, status, viewModel, commands) { chosen = PrinterTab.OVERVIEW }
                 } else {

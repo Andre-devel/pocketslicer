@@ -264,6 +264,8 @@ data class SlicerUiState(
     val filamentQueues: Map<String, List<FilamentTask>> = emptyMap(),
     /** Calibração ou manutenção em andamento ou a última por [PrinterHost.id] ([SlicerViewModel.runMaintenance]). */
     val maintenance: Map<String, MaintenanceRun> = emptyMap(),
+    /** G-code do console em andamento ou o último que falhou, por [PrinterHost.id] ([SlicerViewModel.sendConsoleGcode]). */
+    val consoles: Map<String, ConsoleSend> = emptyMap(),
     /** Arquivos abertos recentemente, o mais novo primeiro. */
     val recents: List<RecentFile> = emptyList(),
     /** Cena ou perfis mudaram desde que o projeto foi aberto ou salvo. */
@@ -1351,8 +1353,35 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** [Uploader.console]. */
     suspend fun printerConsole(host: PrinterHost, count: Int): List<ConsoleLine> = uploader(host.kind, app.assets).console(host, count)
 
-    /** [Uploader.sendGcode]. */
-    suspend fun sendPrinterGcode(host: PrinterHost, script: String) = uploader(host.kind, app.assets).sendGcode(host, script)
+    /**
+     * Manda [script] do console para [host] ([Uploader.sendGcode]), um por vez. Roda no
+     * ViewModel: o comando que demora (G28, M109) segue e informa a falha com a aba fechada.
+     */
+    fun sendConsoleGcode(host: PrinterHost, script: String) {
+        if (_state.value.consoles[host.id]?.sending == true) return
+        _state.update { it.copy(consoles = it.consoles + (host.id to ConsoleSend(sending = true))) }
+        viewModelScope.launch {
+            val error = try {
+                uploader(host.kind, app.assets).sendGcode(host, script)
+                null
+            } catch (e: SendException) {
+                app.getString(e.text, *e.args)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "console ${host.name}", e)
+                e.toString()
+            }
+            _state.update { state ->
+                state.copy(consoles = if (error == null) state.consoles - host.id else state.consoles + (host.id to ConsoleSend(failed = script, error = error)))
+            }
+        }
+    }
+
+    /** Esquece a última falha do console de [host], se nada está em andamento. */
+    fun dismissConsoleFailure(host: PrinterHost) = _state.update { state ->
+        if (state.consoles[host.id]?.sending == true) state else state.copy(consoles = state.consoles - host.id)
+    }
 
     /** [Uploader.gcodeCommands]. */
     suspend fun printerGcodeCommands(host: PrinterHost): Map<String, String> = uploader(host.kind, app.assets).gcodeCommands(host)

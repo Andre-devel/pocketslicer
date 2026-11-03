@@ -27,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,7 +47,6 @@ import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.theme.MonoStyles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.util.Date
 
 /** Linhas do console lidas de cada vez. */
@@ -67,9 +65,7 @@ private const val SUGGESTIONS = 8
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun PrinterConsoleTab(host: PrinterHost, status: PrinterStatus?, viewModel: SlicerViewModel) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+internal fun PrinterConsoleTab(host: PrinterHost, status: PrinterStatus?, console: ConsoleSend, viewModel: SlicerViewModel) {
     var lines by remember(host) { mutableStateOf(emptyList<ConsoleLine>()) }
     var refresh by remember(host) { mutableIntStateOf(0) }
     LaunchedEffect(host, refresh) {
@@ -95,24 +91,21 @@ internal fun PrinterConsoleTab(host: PrinterHost, status: PrinterStatus?, viewMo
     }
 
     var text by rememberSaveable(host.id) { mutableStateOf("") }
-    var sending by remember(host) { mutableStateOf(false) }
-    var failure by remember(host) { mutableStateOf<String?>(null) }
     var confirm by remember(host) { mutableStateOf<String?>(null) }
+    val sending = console.sending
     val ready = status != null && status.state != PrinterStatus.State.OFFLINE
+    // O campo esvazia ao mandar, como num terminal (o comando aparece no console); o que falhou
+    // volta para o campo se ele estiver vazio, para corrigir e mandar de novo.
+    LaunchedEffect(console.failed) {
+        console.failed?.let { if (text.isEmpty()) text = it }
+    }
+    // Terminou: lê o console já, sem esperar a próxima consulta.
+    LaunchedEffect(sending) {
+        if (!sending) refresh++
+    }
     fun send(script: String) {
-        sending = true
-        failure = null
-        scope.launch {
-            try {
-                viewModel.sendPrinterGcode(host, script)
-                text = ""
-            } catch (e: SendException) {
-                failure = context.getString(e.text, *e.args)
-            } finally {
-                sending = false
-                refresh++
-            }
-        }
+        text = ""
+        viewModel.sendConsoleGcode(host, script)
     }
     fun submit() {
         val script = text.trim()
@@ -143,7 +136,7 @@ internal fun PrinterConsoleTab(host: PrinterHost, status: PrinterStatus?, viewMo
         )
         AppButton(stringResource(R.string.console_send), ::submit, icon = R.drawable.ic_send, enabled = ready && !sending && text.isNotBlank())
     }
-    failure?.let { Banner(Tone.ERROR, it, Modifier.widthIn(max = 720.dp).fillMaxWidth(), onDismiss = { failure = null }) }
+    console.error?.let { Banner(Tone.ERROR, it, Modifier.widthIn(max = 720.dp).fillMaxWidth(), onDismiss = { viewModel.dismissConsoleFailure(host) }) }
 
     confirm?.let { script ->
         AlertDialog(
