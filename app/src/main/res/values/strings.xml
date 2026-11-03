@@ -334,6 +334,15 @@
     <string name="filament_clear">Clear</string>
     <string name="filament_error_box">The filament box reports error %1$d. Clear it on the printer screen and try again.</string>
     <string name="filament_timeout">The printer did not finish within %1$d minutes. Check it before trying again.</string>
+    <string name="print_objects">Objects</string>
+    <string name="print_objects_map">Bed with the objects of the print; tap one to cancel it</string>
+    <string name="print_object_current">printing</string>
+    <string name="print_object_excluded">cancelled</string>
+    <string name="print_object_cancel">Cancel</string>
+    <string name="print_object_cancel_confirm">Cancel object</string>
+    <string name="print_object_keep">Keep it</string>
+    <string name="print_object_cancel_title">Cancel %1$s?</string>
+    <string name="print_object_cancel_text">The printer skips this object until the end of the print. This cannot be undone; the other objects keep printing.</string>
     <string name="cfs_slot">Slot %1$s</string>
     <string name="external_spool">External spool</string>
     <string name="ams_slot">AMS %1$s</string>

@@ -127,7 +127,7 @@ fun PrinterDetail(
         if (halted) return@LaunchedEffect
         while (true) {
             try {
-                controls = viewModel.printerControls(host)?.takeIf { it.hasControlTab || !it.adjustments.isEmpty || !it.filament.isEmpty }
+                controls = viewModel.printerControls(host)?.takeIf { it.hasControlTab || !it.adjustments.isEmpty || !it.filament.isEmpty || it.excludeObject }
                 break
             } catch (e: SendException) {
                 Log.w(TAG, "controls of ${host.name}", e)
@@ -188,6 +188,7 @@ fun PrinterDetail(
                     if (status != null && status.busy) PrintProgress(status)
                     if (status != null && status.busy && viewModel.printerSupports(host, PrinterCommand.Stop)) PrintControls(host, status, commands)
                     if (status != null && status.busy && control != null && !control.adjustments.isEmpty) PrintAdjustments(status, control.adjustments, commands)
+                    if (status != null && status.busy && control?.excludeObject == true && status.objects.isNotEmpty()) PrintObjects(status, commands)
                     if (status != null && status.temperatures.isNotEmpty()) {
                         SectionLabel(stringResource(R.string.temperatures))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {

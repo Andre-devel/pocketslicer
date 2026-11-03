@@ -330,6 +330,15 @@
     <string name="filament_clear">Limpar</string>
     <string name="filament_error_box">A caixa de filamento informa o erro %1$d. Limpe o erro na tela da impressora e tente de novo.</string>
     <string name="filament_timeout">A impressora não terminou em %1$d minutos. Confira nela antes de tentar de novo.</string>
+    <string name="print_objects">Objetos</string>
+    <string name="print_objects_map">Mesa com os objetos da impressão; toque num para cancelá-lo</string>
+    <string name="print_object_current">imprimindo</string>
+    <string name="print_object_excluded">cancelado</string>
+    <string name="print_object_cancel">Cancelar</string>
+    <string name="print_object_cancel_confirm">Cancelar objeto</string>
+    <string name="print_object_keep">Manter</string>
+    <string name="print_object_cancel_title">Cancelar %1$s?</string>
+    <string name="print_object_cancel_text">A impressora pula este objeto até o fim da impressão. Não tem volta; os outros objetos continuam.</string>
     <string name="cfs_slot">Slot %1$s</string>
     <string name="external_spool">Carretel externo</string>
     <string name="ams_slot">AMS %1$s</string>

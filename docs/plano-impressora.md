@@ -207,6 +207,15 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      - K2 (mesmos comandos, a conferir), U1, Q2 e A1 quando estiverem na rede.
 6. **Cancelar objeto.** Desenho da placa com os polígonos de `exclude_object` (Moonraker) ou dos
    objetos do 3MF (Bambu); tocar no objeto pede confirmação e cancela.
+   - Feito (2026-11-02), Moonraker: seção Objetos na Visão geral durante a impressão, quando o
+     Klipper tem o `exclude_object` e o G-code define os objetos (opção "Excluir objetos" do
+     processo no Orca, ligada na maioria dos perfis da Creality). Mesa de cima (área pelo
+     `toolhead.axis_minimum/maximum`, mínimo negativo cortado em 0) com o contorno de cada objeto,
+     o atual em destaque e os cancelados apagados; a lista embaixo com Cancelar em cada um, para
+     os pequenos. Tocar pede confirmação com o nome e manda `EXCLUDE_OBJECT NAME=`.
+   - Testado no emulador com o `fake-moonraker.py` (três objetos durante a impressão). Falta:
+     conferir numa impressão real da K3 (ela tem `EXCLUDE_OBJECT`; o objeto estava vazio sem
+     impressão) e a Bambu (`print.skip_objects`).
 7. **Arquivos e histórico.** Lista com miniatura, reimprimir, apagar (confirmação), histórico e totais;
    timelapses (U1, K2, A1) para baixar.
 8. **Calibração e manutenção.** Os comandos da tabela, um por vez, com o tempo estimado e o aviso

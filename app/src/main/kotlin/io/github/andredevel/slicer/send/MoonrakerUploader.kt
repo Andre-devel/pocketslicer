@@ -60,6 +60,7 @@ object MoonrakerUploader : Uploader {
     private const val CREALITY_CHAMBER = "heater_chamber chamber"
     /** Modos de impressão da Creality (`SET_PRINT_MODE`): objeto e seção do configfile. */
     private const val PRINT_MODE = "print_mode"
+    private const val EXCLUDE_OBJECT = "exclude_object"
     private const val SPEED_FACTOR = "_speed_factor"
     private val STATUS_OBJECTS = listOf("webhooks", "print_stats", "virtual_sdcard", "heater_bed", "box", CREALITY_CHAMBER) + EXTRUDERS + CHAMBERS + QIDI_BOXES
 
@@ -516,6 +517,11 @@ object MoonrakerUploader : Uploader {
             val box = command.slot.cfsBox ?: throw IllegalArgumentException("not a CFS slot: ${command.slot}")
             "BOX_INFO_REFRESH ADDR=$box NUM=${'A' + command.slot.cfsSlot}"
         }
+        is PrinterCommand.ExcludeObject -> {
+            // O nome vai sem aspas no Klipper; espaço ou quebra de linha mudariam o comando.
+            if (!capabilities.controls.excludeObject || command.name.any { it.isWhitespace() }) throw IllegalArgumentException("can't exclude ${command.name}")
+            "EXCLUDE_OBJECT NAME=${command.name}"
+        }
         else -> throw IllegalArgumentException("not a G-code command: $command")
     }
 
@@ -691,8 +697,12 @@ object MoonrakerUploader : Uploader {
             loadUnload = cfs && "BOX_LOAD_MATERIAL" in help && "BOX_QUIT_MATERIAL" in help,
             refresh = cfs && "BOX_INFO_REFRESH" in help,
         )
-        val controls = PrinterControls(motion, heaterList, fans, lights, adjustments, filament)
-        val subscribed = listOfNotNull("toolhead".takeIf { motion }, "gcode_move".takeIf { move }, PRINT_MODE.takeIf { printModes.isNotEmpty() }, statsMacro) +
+        val exclude = EXCLUDE_OBJECT in objects && "EXCLUDE_OBJECT" in help
+        val controls = PrinterControls(motion, heaterList, fans, lights, adjustments, filament, exclude)
+        val subscribed = listOfNotNull(
+            "toolhead".takeIf { motion || exclude }, "gcode_move".takeIf { move }, PRINT_MODE.takeIf { printModes.isNotEmpty() }, statsMacro,
+            EXCLUDE_OBJECT.takeIf { exclude },
+        ) +
             fans.map { it.id } + lights.map { it.id }
         return Capabilities(controls, heaters, crealityFans, subscribed, statsMacro).also { capabilities[api.toString()] = it }
     }
@@ -728,12 +738,33 @@ object MoonrakerUploader : Uploader {
         val move = objects.optJSONObject("gcode_move")
         fun percent(key: String) = move?.optDouble(key)?.takeIf { !it.isNaN() }?.let { (it * 100).roundToInt() }
         val pause = capabilities.statsMacro?.let { objects.optJSONObject(it)?.optJSONObject("pause_at_layer") }
+        val exclude = objects.optJSONObject(EXCLUDE_OBJECT)
+        val excluded = exclude?.optJSONArray("excluded_objects").let { list -> (0 until (list?.length() ?: 0)).map { list!!.optString(it) } }.toSet()
+        val current = exclude?.optString("current_object")?.takeIf { exclude.opt("current_object") is String }
+        fun point(array: JSONArray?) = array?.takeIf { it.length() >= 2 }?.let { it.optDouble(0).toFloat() to it.optDouble(1).toFloat() }
+        val printObjects = exclude?.optJSONArray("objects").let { list ->
+            (0 until (list?.length() ?: 0)).mapNotNull { i ->
+                val item = list!!.optJSONObject(i) ?: return@mapNotNull null
+                val name = item.optString("name").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                val polygon = item.optJSONArray("polygon").let { p -> (0 until (p?.length() ?: 0)).mapNotNull { point(p!!.optJSONArray(it)) } }
+                PrintObject(name, polygon, point(item.optJSONArray("center")), name in excluded, name == current)
+            }
+        }
+        fun axis(key: String) = toolhead?.optJSONArray(key)?.takeIf { it.length() >= 2 }
+        val min = axis("axis_minimum")
+        val max = axis("axis_maximum")
+        // O mínimo negativo é a parada fora da mesa; a mesa começa em 0.
+        val bed = if (min != null && max != null) {
+            BedArea(min.optDouble(0).toFloat().coerceAtLeast(0f), min.optDouble(1).toFloat().coerceAtLeast(0f), max.optDouble(0).toFloat(), max.optDouble(1).toFloat())
+                .takeIf { it.maxX > it.minX && it.maxY > it.minY }
+        } else null
         return status.copy(
             homedAxes = toolhead?.optString("homed_axes"), position = position?.takeIf { it.size == 3 }, fans = fans, lights = lights,
             speed = percent("speed_factor"), flow = percent("extrude_factor"),
             printMode = objects.optJSONObject(PRINT_MODE)?.optString("mode")?.takeIf { it.isNotEmpty() },
             zOffset = move?.optJSONArray("homing_origin")?.optDouble(2)?.takeIf { !it.isNaN() }?.toFloat(),
             pauseAtLayer = pause?.takeIf { it.optBoolean("enable") }?.optInt("layer")?.takeIf { it > 0 },
+            objects = printObjects, bed = bed,
         )
     }
 

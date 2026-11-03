@@ -32,7 +32,8 @@ SET_GCODE_OFFSET Z/Z_ADJUST; a macro SET_PAUSE_AT_LAYER do Fluidd (estado na gco
 SET_PRINT_STATS_INFO), que pausa quando print_stats.info.current_layer chega na camada (a
 impressão tem 100 camadas). --print-modes simula o SET_PRINT_MODE da K3 (objeto e seção
 print_mode, com o speed_factor de cada modo). POST /printer/print/pause, resume e cancel mudam
-o print_stats.state; pausada, a impressão não anda.
+o print_stats.state; pausada, a impressão não anda. Imprimindo, exclude_object tem três objetos
+(o atual troca a cada camada, pulando os cancelados) e EXCLUDE_OBJECT NAME= cancela um.
 
 --cfs TIPO:RRGGBB,,... simula o CFS da K3 (uma caixa, quatro posições; vazio = sem filamento):
 o objeto box (status, slot_status, err_status, T1) e o WebSocket da Creality na porta 9999
@@ -86,7 +87,13 @@ def main():
     machine = {"homed": "", "position": [0.0, 0.0, 0.0], "relative": False, "saved": {},
                "target": {"extruder": 0.0, "heater_bed": 0.0, "chamber": 0.0},
                "fan": 0.0, "exhaust": 0.0, "light": 0.0,
-               "speed": 1.0, "flow": 1.0, "z_offset": 0.0, "pause_at": None, "mode": "standard"}
+               "speed": 1.0, "flow": 1.0, "z_offset": 0.0, "pause_at": None, "mode": "standard", "excluded": []}
+    # Objetos da impressão como o EXCLUDE_OBJECT_DEFINE do Orca: nome, centro e contorno.
+    print_objects = [
+        {"name": "Cube_id_0_copy_0", "center": [60.0, 60.0], "polygon": [[40.0, 40.0], [80.0, 40.0], [80.0, 80.0], [40.0, 80.0]]},
+        {"name": "Benchy_id_1_copy_0", "center": [150.0, 120.0], "polygon": [[120.0, 105.0], [180.0, 105.0], [185.0, 120.0], [180.0, 135.0], [120.0, 135.0]]},
+        {"name": "Pin_id_2_copy_0", "center": [200.0, 200.0], "polygon": [[197.0, 197.0], [203.0, 197.0], [203.0, 203.0], [197.0, 203.0]]},
+    ]
     modes = {"standard": 1.0, "extreme": 1.25, "smooth": 0.5, "silent": 0.5}
     limits = {"x": (0.0, 250.0), "y": (0.0, 250.0), "z": (0.0, 240.0)}
     max_temp = {"extruder": 300.0, "heater_bed": 120.0, "heater_generic chamber": 60.0}
@@ -95,7 +102,9 @@ def main():
                  "SET_LED": "Set the color of an LED", "SAVE_GCODE_STATE": "Save G-Code coordinate state",
                  "RESTORE_GCODE_STATE": "Restore a previously saved G-Code state", "TURN_OFF_HEATERS": "Turn off all heaters",
                  "SET_GCODE_OFFSET": "Set a virtual offset to g-code positions",
-                 "SET_PAUSE_AT_LAYER": "Enable/disable a pause if a given layer number is reached"}
+                 "SET_PAUSE_AT_LAYER": "Enable/disable a pause if a given layer number is reached",
+                 "EXCLUDE_OBJECT": "Cancel moves inside a specified objects",
+                 "EXCLUDE_OBJECT_DEFINE": "Provides a summary of an object"}
     if args.print_modes:
         help_text["SET_PRINT_MODE"] = "Set print mode: standard/extreme/smooth/silent"
     cfs = None
@@ -195,6 +204,14 @@ def main():
                 if "Z" in params:
                     machine["z_offset"] = float(params["Z"])
                 machine["z_offset"] += float(params.get("Z_ADJUST", 0))
+            elif command == "EXCLUDE_OBJECT":
+                name = params.get("NAME", "").upper()
+                known = [o["name"] for o in print_objects]
+                if state["print_stats"] not in ("printing", "paused") or name not in [k.upper() for k in known]:
+                    raise KlipperError(f"Unknown object name '{name}'")
+                real = known[[k.upper() for k in known].index(name)]
+                if real not in machine["excluded"]:
+                    machine["excluded"].append(real)
             elif command == "SET_PAUSE_AT_LAYER":
                 enable = int(params["ENABLE"]) != 0 if "ENABLE" in params else "LAYER" in params
                 machine["pause_at"] = int(params.get("LAYER", machine["pause_at"] or 0)) if enable else None
@@ -240,6 +257,14 @@ def main():
         for events in list(sockets):
             events.append(event)
 
+    def exclude_state(layer):
+        if layer is None:
+            machine["excluded"] = []
+            return {"objects": [], "excluded_objects": [], "current_object": None}
+        left = [o["name"] for o in print_objects if o["name"] not in machine["excluded"]]
+        return {"objects": print_objects, "excluded_objects": list(machine["excluded"]),
+                "current_object": left[layer % len(left)] if left else None}
+
     def status():
         """print_stats e virtual_sdcard; a impressão "termina" em 300 s."""
         progress = 0.0
@@ -263,6 +288,7 @@ def main():
                   "gcode_macro SET_PRINT_STATS_INFO": {"pause_at_layer": {
                       "enable": machine["pause_at"] is not None, "layer": machine["pause_at"] or 0, "call": "PAUSE"}},
                   "virtual_sdcard": {"progress": progress},
+                  "exclude_object": exclude_state(layer),
                   "extruder": heater("extruder", 25),
                   "heater_bed": heater("heater_bed", 24),
                   "heater_generic chamber": heater("chamber", 23),

@@ -167,13 +167,17 @@ sealed interface PrinterCommand {
 
     /** Lê de novo a etiqueta RFID do filamento em [slot] ([FilamentControls.refresh]). */
     data class RefreshSlot(val slot: Slot) : PrinterCommand
+
+    /** Cancela o objeto [name] ([PrintObject.name]) da impressão em andamento; não tem volta. */
+    data class ExcludeObject(val name: String) : PrinterCommand
 }
 
 /**
  * O que a tela da impressora pode mexer ([Uploader.controls]). Aba Controle: [motion] = home,
  * mover os eixos e desligar os motores; os aquecedores, ventoinhas e luzes que dá para mudar.
  * [adjustments]: os ajustes ao vivo da impressão, na Visão geral; [filament]: o que dá para
- * fazer com as posições de filamento.
+ * fazer com as posições de filamento; [excludeObject]: cancelar um objeto da impressão
+ * ([PrinterStatus.objects]).
  */
 data class PrinterControls(
     val motion: Boolean = false,
@@ -182,6 +186,7 @@ data class PrinterControls(
     val lights: List<Light> = emptyList(),
     val adjustments: Adjustments = Adjustments(),
     val filament: FilamentControls = FilamentControls(),
+    val excludeObject: Boolean = false,
 ) {
     /** Se a aba Controle tem o que mostrar. */
     val hasControlTab get() = motion || heaters.isNotEmpty() || fans.isNotEmpty() || lights.isNotEmpty()
@@ -235,7 +240,8 @@ data class Light(val id: String, val name: String)
  * ([Uploader.liveStatus]), para a aba Controle: [homedAxes] ("xyz", vazio sem home),
  * [position] XYZ em mm, a velocidade de cada ventoinha ([Fan.id], 0 a 1) e se cada luz está
  * acesa ([Light.id]); para os [Adjustments], [speed] e [flow] em %, [printMode], [zOffset] em mm
- * e a camada de [pauseAtLayer] (null sem pausa marcada).
+ * e a camada de [pauseAtLayer] (null sem pausa marcada); os [objects] da impressão em andamento
+ * (vazia se o G-code não os define) e a área da mesa [bed], para desenhá-los.
  */
 data class PrinterStatus(
     val state: State,
@@ -259,12 +265,30 @@ data class PrinterStatus(
     val printMode: String? = null,
     val zOffset: Float? = null,
     val pauseAtLayer: Int? = null,
+    val objects: List<PrintObject> = emptyList(),
+    val bed: BedArea? = null,
 ) {
     enum class State { IDLE, PRINTING, PAUSED, ERROR, OFFLINE }
 
     /** Imprimindo ou pausada: dá para enviar, não para iniciar outra impressão. */
     val busy get() = state == State.PRINTING || state == State.PAUSED
 }
+
+/**
+ * Objeto da impressão em andamento (`EXCLUDE_OBJECT_DEFINE` do G-code): [polygon] e [center] XY
+ * em mm na mesa, quando o G-code os traz; [excluded] = cancelado; [current] = o que está sendo
+ * impresso agora.
+ */
+data class PrintObject(
+    val name: String,
+    val polygon: List<Pair<Float, Float>> = emptyList(),
+    val center: Pair<Float, Float>? = null,
+    val excluded: Boolean = false,
+    val current: Boolean = false,
+)
+
+/** Área XY em mm onde o bico alcança, para desenhar a mesa. */
+data class BedArea(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float)
 
 /**
  * Erro na tela da impressora: [code] como o app da Creality o mostra ("AC0104"; só o número,
