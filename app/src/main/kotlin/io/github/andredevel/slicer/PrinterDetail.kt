@@ -269,6 +269,9 @@ internal class CommandRunner(private val host: PrinterHost, private val viewMode
 
     fun run(command: PrinterCommand) = run { viewModel.printerCommand(host, command) }
 
+    /** Vários comandos em ordem; para no primeiro que a impressora recusar. */
+    fun run(commands: List<PrinterCommand>) = run { for (command in commands) viewModel.printerCommand(host, command) }
+
     /** Outro pedido à impressora com o mesmo [sending] e [failure] (apagar um arquivo, iniciar um). */
     fun run(action: suspend () -> Unit) {
         sending = true
