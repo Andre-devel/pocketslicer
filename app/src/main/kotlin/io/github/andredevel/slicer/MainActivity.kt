@@ -58,10 +58,6 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Ctrl+Z desfaz e Ctrl+Y (ou Ctrl+Shift+Z) refaz a última alteração da mesa, com teclado
-     * físico. Só chega aqui o que nenhuma view tratou: num campo de texto, desfaz o texto.
-     */
-    /**
      * Ao abrir o app, confere as impressões em andamento, também as iniciadas na própria
      * impressora: o acompanhamento consulta e para sozinho se nenhuma imprime.
      */
@@ -70,6 +66,10 @@ class MainActivity : ComponentActivity() {
         if (!PrintWatchService.running) PrintWatchService.start(this)
     }
 
+    /**
+     * Ctrl+Z desfaz e Ctrl+Y (ou Ctrl+Shift+Z) refaz a última alteração da mesa, com teclado
+     * físico. Só chega aqui o que nenhuma view tratou: num campo de texto, desfaz o texto.
+     */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (event.isCtrlPressed && !event.isAltPressed) {
             when (keyCode) {
