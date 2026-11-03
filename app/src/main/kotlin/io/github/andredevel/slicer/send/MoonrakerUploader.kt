@@ -1178,6 +1178,7 @@ object MoonrakerUploader : Uploader {
                 "${unit.optString("type").takeIf { it.isNotEmpty() && it != "None" } ?: "CFS"} $n",
                 humidity = unit.optString("dry_and_humidity").toDoubleOrNull()?.toInt(),
                 temperature = unit.optString("temperature").toFloatOrNull(),
+                unit = n,
             )
         }
     }
@@ -1189,6 +1190,7 @@ object MoonrakerUploader : Uploader {
             "Box ${i + 1}",
             humidity = sensor.optDouble("humidity").takeIf { !it.isNaN() }?.toInt(),
             temperature = sensor.optDouble("temperature").takeIf { !it.isNaN() }?.toFloat(),
+            unit = i,
         )
     }
 

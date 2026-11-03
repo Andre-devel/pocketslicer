@@ -47,6 +47,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -419,13 +420,16 @@ private fun MappingRow(filament: Int, color: FloatArray?, name: String?, slots: 
 
 /** Cor do filamento carregado na posição; cinza se vazia ou sem cor informada. */
 @Composable
-internal fun SlotSwatch(slot: Slot?) {
+internal fun SlotSwatch(slot: Slot?, size: Dp = 12.dp) {
     Box(
-        Modifier.size(12.dp)
-            .background(slot?.color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.outline, CircleShape)
+        Modifier.size(size)
+            .background(slot?.let(::slotColor) ?: MaterialTheme.colorScheme.outline, CircleShape)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
     )
 }
+
+/** A cor informada do filamento em [slot], ou null. */
+internal fun slotColor(slot: Slot): Color? = slot.color?.let { Color(android.graphics.Color.parseColor(it)) }
 
 /** "Cabeça 2" na U1, "Slot 1A" (caixa e posição) no CFS da Creality, "Box 1, posição 3" na QIDI. */
 @Composable

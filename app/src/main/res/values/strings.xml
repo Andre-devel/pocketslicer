@@ -402,6 +402,18 @@
     <string name="filament_cancel_task">Remove from queue</string>
     <string name="filament_resume">Try again</string>
     <string name="filament_clear">Clear</string>
+    <plurals name="filament_selected">
+        <item quantity="one">%1$d slot checked</item>
+        <item quantity="other">%1$d slots checked</item>
+    </plurals>
+    <string name="filament_queue_order">One operation at a time, in the order they enter the queue.</string>
+    <string name="filament_deselect">Uncheck</string>
+    <string name="filament_load_n">Load %1$d</string>
+    <string name="filament_unload_n">Unload %1$d</string>
+    <string name="filament_busy">Loading and unloading only while the printer is idle.</string>
+    <string name="filament_queue_empty">Checked slots go here, one operation after another.</string>
+    <string name="filament_queue_info">The queue keeps going with the screen closed. If an operation fails, it stops and shows the printer\'s error. Limit of %1$d min per operation.</string>
+    <string name="filament_open">Open Filament</string>
     <string name="filament_error_box">The filament box reports error %1$d. Clear it on the printer screen and try again.</string>
     <string name="filament_timeout">The printer did not finish within %1$d minutes. Check it before trying again.</string>
     <string name="print_objects">Objects on the bed</string>

@@ -366,7 +366,9 @@ data class Temperature(val source: Source, val current: Float, val target: Float
  * Caixa de filamento (CFS, AMS) com sensor: [humidity] em %, ou só o nível [humidityLevel] do AMS
  * da Bambu (1 úmido a 5 seco, como o Bambu Studio o mostra); [temperature] em °C.
  */
-data class FilamentBox(val name: String, val humidity: Int? = null, val humidityLevel: Int? = null, val temperature: Float? = null) {
+data class FilamentBox(
+    val name: String, val humidity: Int? = null, val humidityLevel: Int? = null, val temperature: Float? = null, val unit: Int? = null,
+) {
     /** Úmida a ponto de avisar: [HUMID_PERCENT] ou mais, ou nível 1 e 2 (60% ou mais no Bambu Studio). */
     val humid get() = humidity?.let { it >= HUMID_PERCENT } ?: humidityLevel?.let { it in 1..2 } ?: false
 }
@@ -419,7 +421,10 @@ data class Slot(
     val qidiSlot: Int? = null,
     val bambuAms: Int? = null,
     val bambuSlot: Int = 0,
-)
+) {
+    /** A caixa de filamento ([FilamentBox.unit]) em que a posição fica; null fora de uma (carretel externo, cabeça). */
+    val unit: Int? get() = cfsBox ?: qidiSlot?.takeIf { it != QIDI_EXTERNAL }?.div(4) ?: bambuAms?.takeIf { it < BAMBU_EXTERNAL }
+}
 
 /** [Slot.bambuAms] do carretel externo da Bambu de um bico (vt_tray); 255 é o principal no H2D. */
 const val BAMBU_EXTERNAL = 254

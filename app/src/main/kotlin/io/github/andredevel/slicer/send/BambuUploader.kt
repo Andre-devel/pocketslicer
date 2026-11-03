@@ -164,7 +164,7 @@ class BambuUploader(private val assets: AssetManager) : Uploader {
             val id = unit.optString("id").toIntOrNull() ?: u
             // 128+ é o AMS HT.
             val name = if (id >= 128) "AMS HT ${id - 127}" else "AMS ${id + 1}"
-            FilamentBox(name, humidity = percent, humidityLevel = level.takeIf { percent == null }, temperature = unit.optString("temp").toFloatOrNull())
+            FilamentBox(name, humidity = percent, humidityLevel = level.takeIf { percent == null }, temperature = unit.optString("temp").toFloatOrNull(), unit = id)
         }
     }
 

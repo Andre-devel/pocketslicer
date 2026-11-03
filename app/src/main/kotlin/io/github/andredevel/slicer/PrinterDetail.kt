@@ -78,9 +78,9 @@ import kotlinx.coroutines.launch
 
 /**
  * Tela de uma impressora salva. Visão geral: câmera, impressão em curso (camada, tempos),
- * temperaturas e filamento (caixas com a umidade, posições carregadas), com os ajustes da
- * impressão em andamento ([PrintAdjustments]); Controle
- * ([PrinterControlTab]), quando a impressora tem o que mexer; Arquivos ([PrinterFilesTab]); Manutenção
+ * temperaturas e um resumo do filamento, com os ajustes da impressão em andamento
+ * ([PrintAdjustments]); Controle ([PrinterControlTab]), quando a impressora tem o que mexer;
+ * Filamento ([PrinterFilamentTab]), com as caixas, as posições e a fila de carga e descarga; Arquivos ([PrinterFilesTab]); Manutenção
  * ([PrinterMaintenanceTab]), com a calibração em andamento ([maintenance]); Console ([PrinterConsoleTab]). A parada de emergência fica no
  * cabeçalho e o reinício do firmware aparece quando o Klipper parou. O estado vem de
  * [SlicerViewModel.watchPrinterStatus], que a tela de Impressoras já mantém, e enquanto esta tela
@@ -150,6 +150,7 @@ fun PrinterDetail(
     val tabs = listOfNotNull(
         PrinterTab.OVERVIEW,
         PrinterTab.CONTROL.takeIf { controls?.hasControlTab == true },
+        PrinterTab.FILAMENT.takeIf { slots.isNotEmpty() || status?.boxes?.isNotEmpty() == true },
         PrinterTab.FILES.takeIf { viewModel.printerHasFiles(host) },
         PrinterTab.MAINTENANCE.takeIf { controls?.maintenance?.isNotEmpty() == true },
         PrinterTab.CONSOLE.takeIf { viewModel.printerHasConsole(host) },
@@ -209,12 +210,14 @@ fun PrinterDetail(
                     PrinterControlTab(host, status, control, commands)
                 } else if (tab == PrinterTab.MAINTENANCE && control != null) {
                     PrinterMaintenanceTab(host, status, control.maintenance, maintenance, filamentQueue.any { it.state == FilamentTask.State.RUNNING }, viewModel)
+                } else if (tab == PrinterTab.FILAMENT) {
+                    PrinterFilamentTab(host, status, slots, control?.filament ?: FilamentControls(), filamentQueue, viewModel, commands)
                 } else if (tab == PrinterTab.CONSOLE) {
                     PrinterConsoleTab(host, status, console, viewModel)
                 } else if (tab == PrinterTab.FILES) {
                     PrinterFilesTab(host, status, viewModel, commands) { chosen = PrinterTab.OVERVIEW }
                 } else {
-                    PrinterOverview(host, status, camera, control, slots, filamentQueue, viewModel, commands)
+                    PrinterOverview(host, status, camera, control, slots, filamentQueue, viewModel, commands) { chosen = PrinterTab.FILAMENT }
                 }
             }
             commands.failure?.let {
@@ -243,7 +246,8 @@ fun PrinterDetail(
 }
 
 private enum class PrinterTab(@StringRes val label: Int, @DrawableRes val icon: Int) {
-    OVERVIEW(R.string.printer_tab_overview, R.drawable.ic_info), CONTROL(R.string.printer_tab_control, R.drawable.ic_open_with),
+    OVERVIEW(R.string.printer_tab_overview, R.drawable.ic_dashboard), CONTROL(R.string.printer_tab_control, R.drawable.ic_open_with),
+    FILAMENT(R.string.filament, R.drawable.ic_conveyor_belt),
     FILES(R.string.printer_tab_files, R.drawable.ic_folder_open), MAINTENANCE(R.string.printer_tab_maintenance, R.drawable.ic_build),
     CONSOLE(R.string.printer_tab_console, R.drawable.ic_terminal),
 }
@@ -290,12 +294,12 @@ private fun rememberCommandRunner(host: PrinterHost, viewModel: SlicerViewModel)
 
 /**
  * Visão geral: câmera, impressão em curso e temperaturas na coluna principal; ajustes, objetos e
- * filamento ao lado na tela larga (até três colunas) ou embaixo na estreita.
+ * o resumo do filamento ([onOpenFilament] abre a aba) ao lado na tela larga (até três colunas) ou embaixo na estreita.
  */
 @Composable
 private fun PrinterOverview(
     host: PrinterHost, status: PrinterStatus?, camera: Camera?, control: PrinterControls?, slots: List<Slot>,
-    filamentQueue: List<FilamentTask>, viewModel: SlicerViewModel, commands: CommandRunner,
+    filamentQueue: List<FilamentTask>, viewModel: SlicerViewModel, commands: CommandRunner, onOpenFilament: () -> Unit,
 ) {
     val printing = status?.takeIf { it.busy }
     val main: @Composable (Modifier) -> Unit = { modifier ->
@@ -310,12 +314,7 @@ private fun PrinterOverview(
         if (printing != null && control != null && !control.adjustments.isEmpty) add { PrintAdjustments(printing, control.adjustments, commands, it) }
         if (printing != null && control?.excludeObject == true && printing.objects.isNotEmpty()) add { PrintObjects(printing, commands, it) }
         if (slots.isNotEmpty() || status?.boxes?.isNotEmpty() == true) {
-            add {
-                ContentCard(it, title = stringResource(R.string.filament)) {
-                    for (box in status?.boxes.orEmpty()) BoxRow(box)
-                    PrinterFilament(host, status, slots, control?.filament ?: FilamentControls(), filamentQueue, viewModel, commands)
-                }
-            }
+            add { FilamentSummary(status, slots, filamentQueue, onOpenFilament, it) }
         }
     }
     BoxWithConstraints {
@@ -468,24 +467,8 @@ fun HumidityWarning(status: PrinterStatus, modifier: Modifier = Modifier) {
 
 /** "65%" ou, no AMS que só dá o nível, "nível 2 de 5". */
 @Composable
-private fun humidityText(box: FilamentBox): String =
+internal fun humidityText(box: FilamentBox): String =
     box.humidity?.let { "$it%" } ?: box.humidityLevel?.let { stringResource(R.string.humidity_level, it) }.orEmpty()
-
-@Composable
-private fun BoxRow(box: FilamentBox) {
-    val parts = listOfNotNull(
-        humidityText(box).takeIf { it.isNotEmpty() }?.let { stringResource(R.string.humidity_value, it) },
-        box.temperature?.let { "%.0f °C".format(Locale.ROOT, it) },
-    )
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(box.name, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-        Text(
-            parts.joinToString(" · "),
-            style = MonoStyles.small,
-            color = if (box.humid) Tone.WARNING.color() else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
 
 /** "Bico", "Bico 2" (com vários), "Mesa", "Câmara". */
 @Composable

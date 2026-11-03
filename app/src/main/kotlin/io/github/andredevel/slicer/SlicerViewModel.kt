@@ -1782,8 +1782,6 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val PROJECT_THUMBNAIL_SIZE = 512
         /** Intervalo da consulta do estado das impressoras. */
         const val STATUS_INTERVAL_MS = 5_000L
-        /** Limite de uma carga ou descarga; na K3 levaram ~100 s (2026-11-02). */
-        const val FILAMENT_TIMEOUT_MS = 8 * 60_000L
 
         /** Limite de uma calibração; a malha da K3 com a mesa fria leva bem menos. */
         const val MAINTENANCE_TIMEOUT_MS = 60 * 60_000L

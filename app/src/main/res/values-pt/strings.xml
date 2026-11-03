@@ -399,6 +399,18 @@
     <string name="filament_cancel_task">Tirar da fila</string>
     <string name="filament_resume">Tentar de novo</string>
     <string name="filament_clear">Limpar</string>
+    <plurals name="filament_selected">
+        <item quantity="one">%1$d slot marcado</item>
+        <item quantity="other">%1$d slots marcados</item>
+    </plurals>
+    <string name="filament_queue_order">Uma operação por vez, na ordem em que entram na fila.</string>
+    <string name="filament_deselect">Desmarcar</string>
+    <string name="filament_load_n">Carregar %1$d</string>
+    <string name="filament_unload_n">Descarregar %1$d</string>
+    <string name="filament_busy">Carregar e descarregar só com a impressora livre.</string>
+    <string name="filament_queue_empty">Os slots marcados entram aqui, uma operação depois da outra.</string>
+    <string name="filament_queue_info">A fila segue com a tela fechada. Se uma operação falhar, ela para e mostra o erro da impressora. Limite de %1$d min por operação.</string>
+    <string name="filament_open">Abrir Filamento</string>
     <string name="filament_error_box">A caixa de filamento informa o erro %1$d. Limpe o erro na tela da impressora e tente de novo.</string>
     <string name="filament_timeout">A impressora não terminou em %1$d minutos. Confira nela antes de tentar de novo.</string>
     <string name="print_objects">Objetos na mesa</string>
