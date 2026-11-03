@@ -232,7 +232,11 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
    - Testado no emulador com o `fake-moonraker.py --sample-files --cfs` (lista, miniaturas,
      reimprimir com o mapa do CFS, apagar, histórico) e só leitura na K3 real (28 arquivos com
      miniatura, tempo e gasto). Falta: reimprimir e apagar numa impressora real (pedem OK do
-     usuário), timelapses (a K3 não tem a raiz `timelapse`; U1 e K2 fora da rede), a Bambu (FTPS).
+     usuário), timelapses (U1 e K2 fora da rede), a Bambu (FTPS).
+   - **Timelapse da K3:** não é do Klipper nem do Moonraker (sem raiz `timelapse`). O WebSocket
+     9999 informa `videoElapse` (0, provavelmente desligado), `videoElapseFrame` 15 e
+     `videoElapseInterval` 1; `http://<ip>/downloads/video/` existe (pasta). Falta descobrir como
+     o Creality Print lista e baixa os vídeos: gravar um timelapse curto na K3 e olhar só lendo.
 8. **Calibração e manutenção.** Os comandos da tabela, um por vez, com o tempo estimado e o aviso
    de mesa livre; limpeza do bico; câmara da K3.
 9. **Console.** Histórico e envio de G-code livre, com a lista de comandos da impressora como sugestão.
