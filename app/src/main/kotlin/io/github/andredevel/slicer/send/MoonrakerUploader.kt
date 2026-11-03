@@ -121,6 +121,9 @@ object MoonrakerUploader : Uploader {
      * antes (2,5 min no teste de 2026-10-29).
      */
     private const val CREALITY_START_MS = 300_000
+
+    /** Resposta a um pedido com Range que traz só o trecho pedido. */
+    private const val HTTP_PARTIAL = 206
     private const val CREALITY_POLL_MS = 5_000
 
     private const val LIVE_CONNECT_MS = 10_000
@@ -245,10 +248,15 @@ object MoonrakerUploader : Uploader {
         val url = fileUrl(api, file.path)
         val head = Http.getRange(url, headers(host), "0-${GcodeInfo.HEAD_BYTES - 1}", GcodeInfo.HEAD_BYTES)
         check(head, host)
+        // Só 206 traz o fim: um 200 (proxy ou servidor que ignora o Range) manda o arquivo do
+        // começo, e o limite deixaria só a cabeça de novo. Sem o fim, nada vai para o cache.
         val tail = if (file.size > GcodeInfo.HEAD_BYTES) {
-            Http.getRange(url, headers(host), "-${GcodeInfo.TAIL_BYTES}", GcodeInfo.TAIL_BYTES).also { check(it, host) }.body
+            Http.getRange(url, headers(host), "-${GcodeInfo.TAIL_BYTES}", GcodeInfo.TAIL_BYTES).also { check(it, host) }
+                .takeIf { it.code == HTTP_PARTIAL }?.body
         } else head.body
-        return GcodeInfo.parse(head.body, tail).also { fileInfos[key] = it }
+        val info = GcodeInfo.parse(head.body, tail ?: "")
+        if (tail != null) fileInfos[key] = info
+        return info
     }
 
     private val fileInfos = ConcurrentHashMap<String, GcodeInfo>()
