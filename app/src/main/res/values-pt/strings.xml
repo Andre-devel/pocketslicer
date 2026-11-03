@@ -139,9 +139,11 @@
     <string name="bed">Mesa</string>
     <string name="chamber">Câmara</string>
     <string name="printer_tab_overview">Visão geral</string>
+    <string name="printer_tab_overview_short">Geral</string>
     <string name="printer_tab_control">Controle</string>
     <string name="printer_tab_files">Arquivos</string>
     <string name="printer_tab_maintenance">Manutenção</string>
+    <string name="printer_tab_maintenance_short">Manut.</string>
     <string name="printer_tab_console">Console</string>
     <string name="watch_channel">Acompanhamento das impressões</string>
     <string name="watch_events_channel">Fim e erros das impressões</string>

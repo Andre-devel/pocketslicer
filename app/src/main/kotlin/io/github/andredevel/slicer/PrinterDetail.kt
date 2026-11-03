@@ -10,6 +10,19 @@ import io.github.andredevel.slicer.ui.components.ContentCard
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
@@ -64,8 +77,6 @@ import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.Banner
 import io.github.andredevel.slicer.ui.components.ButtonStyle
 import io.github.andredevel.slicer.ui.components.ScreenHeader
-import io.github.andredevel.slicer.ui.components.IconTab
-import io.github.andredevel.slicer.ui.components.IconTabs
 import io.github.andredevel.slicer.ui.components.Tone
 import io.github.andredevel.slicer.ui.components.color
 import io.github.andredevel.slicer.ui.theme.MonoStyles
@@ -189,6 +200,8 @@ fun PrinterDetail(
                 )
             }
         }
+        // Fixas sob o cabeçalho: não rolam junto com a aba.
+        if (tabs.size > 1) PrinterTabs(tabs, tab) { chosen = it }
         // A recusa de um comando aparece por cima, no rodapé: não muda o lugar dos botões sob o dedo.
         Box(Modifier.weight(1f)) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -202,10 +215,6 @@ fun PrinterDetail(
                 }
                 status?.alert?.let { PrinterAlertBanner(it) }
                 val control = controls
-                if (tabs.size > 1) {
-                    // Com ícone e rolando na horizontal: cinco abas não cabem lado a lado no celular.
-                    IconTabs(tabs.map { IconTab(it.icon, stringResource(it.label)) }, tabs.indexOf(tab), { chosen = tabs[it] })
-                }
                 if (tab == PrinterTab.CONTROL && control != null) {
                     PrinterControlTab(host, status, control, commands)
                 } else if (tab == PrinterTab.MAINTENANCE && control != null) {
@@ -245,11 +254,63 @@ fun PrinterDetail(
     }
 }
 
-private enum class PrinterTab(@StringRes val label: Int, @DrawableRes val icon: Int) {
-    OVERVIEW(R.string.printer_tab_overview, R.drawable.ic_dashboard), CONTROL(R.string.printer_tab_control, R.drawable.ic_open_with),
+/** [short]: o nome na faixa do celular, onde as seis dividem a largura. */
+private enum class PrinterTab(@StringRes val label: Int, @DrawableRes val icon: Int, @StringRes val short: Int = label) {
+    OVERVIEW(R.string.printer_tab_overview, R.drawable.ic_dashboard, R.string.printer_tab_overview_short),
+    CONTROL(R.string.printer_tab_control, R.drawable.ic_open_with),
     FILAMENT(R.string.filament, R.drawable.ic_conveyor_belt),
-    FILES(R.string.printer_tab_files, R.drawable.ic_folder_open), MAINTENANCE(R.string.printer_tab_maintenance, R.drawable.ic_build),
+    FILES(R.string.printer_tab_files, R.drawable.ic_folder_open),
+    MAINTENANCE(R.string.printer_tab_maintenance, R.drawable.ic_build, R.string.printer_tab_maintenance_short),
     CONSOLE(R.string.printer_tab_console, R.drawable.ic_terminal),
+}
+
+/**
+ * Faixa das abas da impressora, com a escolhida sublinhada na cor de destaque. Na tela larga
+ * ícone e nome lado a lado (rola se não couber); na estreita as abas dividem a largura, com o
+ * ícone sobre o nome curto.
+ */
+@Composable
+private fun PrinterTabs(tabs: List<PrinterTab>, selected: PrinterTab, onSelect: (PrinterTab) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    BoxWithConstraints(Modifier.fillMaxWidth().background(colors.surfaceContainerLowest)) {
+        val wide = maxWidth >= 600.dp
+        Column {
+            Row(
+                if (wide) Modifier.height(52.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp) else Modifier.fillMaxWidth().height(60.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (wide) 4.dp else 0.dp),
+            ) {
+                for (tab in tabs) {
+                    val isSelected = tab == selected
+                    val tint = if (isSelected) colors.primary else colors.onSurfaceVariant
+                    val text = if (isSelected) colors.onSurface else colors.onSurfaceVariant
+                    val item = Modifier
+                        .fillMaxHeight()
+                        .selectable(isSelected, role = Role.Tab) { if (!isSelected) onSelect(tab) }
+                        .drawBehind {
+                            if (isSelected) drawRect(colors.primary, Offset(0f, size.height - 3.dp.toPx()), Size(size.width, 3.dp.toPx()))
+                        }
+                    if (wide) {
+                        Row(item.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(painterResource(tab.icon), null, Modifier.size(20.dp), tint = tint)
+                            Text(
+                                stringResource(tab.label), color = text, maxLines = 1,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium),
+                            )
+                        }
+                    } else {
+                        Column(item.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
+                            Icon(painterResource(tab.icon), null, Modifier.size(22.dp), tint = tint)
+                            Text(
+                                stringResource(tab.short), color = text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium),
+                            )
+                        }
+                    }
+                }
+            }
+            HorizontalDivider(color = colors.outlineVariant)
+        }
+    }
 }
 
 /**

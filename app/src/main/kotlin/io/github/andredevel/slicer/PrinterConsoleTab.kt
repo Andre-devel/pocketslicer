@@ -128,7 +128,7 @@ internal fun PrinterConsoleTab(host: PrinterHost, status: PrinterStatus?, consol
     BoxWithConstraints {
         val wide = maxWidth >= 600.dp
         // O console ocupa o que sobra da tela; o campo e as sugestões ficam embaixo dele, acima do teclado.
-        val logHeight = (LocalConfiguration.current.screenHeightDp.dp - if (wide) 340.dp else 520.dp).coerceAtLeast(220.dp)
+        val logHeight = (LocalConfiguration.current.screenHeightDp.dp - if (wide) 340.dp else 380.dp).coerceAtLeast(220.dp)
         Column(verticalArrangement = Arrangement.spacedBy(if (wide) 12.dp else 8.dp)) {
             Banner(Tone.WARNING, stringResource(R.string.console_warning), Modifier.fillMaxWidth())
             ConsoleLog(lines, Modifier.fillMaxWidth().height(logHeight))
