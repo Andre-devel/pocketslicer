@@ -10,6 +10,9 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.Base64
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLPeerUnverifiedException
+import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import kotlin.random.Random
 
@@ -43,7 +46,9 @@ internal class WebSocketClient private constructor(private val socket: Socket, p
 
     /**
      * A próxima mensagem JSON em até [timeoutMs], ou null se nada chegou nesse tempo. Quadros
-     * que não são JSON são pulados.
+     * que não são JSON são pulados. O prazo só vale para o começo de um quadro: depois do
+     * primeiro byte, o resto da mensagem tem [FRAME_TIMEOUT_MS], e estourar esse prazo no meio
+     * dela é falha da conexão (IOException), porque o fluxo ficaria no meio do quadro.
      */
     fun receive(timeoutMs: Int): JSONObject? {
         val deadline = System.currentTimeMillis() + timeoutMs
@@ -51,10 +56,16 @@ internal class WebSocketClient private constructor(private val socket: Socket, p
             val left = deadline - System.currentTimeMillis()
             if (left <= 0) return null
             socket.soTimeout = left.toInt()
-            val text = try {
-                readMessage()
+            val first = try {
+                input.readUnsignedByte()
             } catch (e: SocketTimeoutException) {
                 return null
+            }
+            socket.soTimeout = FRAME_TIMEOUT_MS
+            val text = try {
+                readMessage(first)
+            } catch (e: SocketTimeoutException) {
+                throw IOException("timed out in the middle of a frame", e)
             } ?: continue
             try {
                 return JSONObject(text)
@@ -87,12 +98,17 @@ internal class WebSocketClient private constructor(private val socket: Socket, p
         synchronized(socket) { socket.getOutputStream().apply { write(head + mask + payload); flush() } }
     }
 
-    /** Uma mensagem completa (juntando as continuações); null se não for texto. Quadros de controle no meio são tratados aqui. */
-    private fun readMessage(): String? {
+    /**
+     * Uma mensagem a partir do quadro cujo primeiro byte é [firstByte], juntando as continuações;
+     * null se não for texto ou se o quadro for de controle fora de uma mensagem. Quadros de
+     * controle no meio da mensagem são tratados aqui.
+     */
+    private fun readMessage(firstByte: Int): String? {
         val message = ByteArrayOutputStream()
         var text = false
+        var started = false
+        var first = firstByte
         while (true) {
-            val first = input.readUnsignedByte()
             val opcode = first and 0x0f
             val second = input.readUnsignedByte()
             val length = when (val small = second and 0x7f) {
@@ -100,24 +116,27 @@ internal class WebSocketClient private constructor(private val socket: Socket, p
                 127 -> input.readLong()
                 else -> small.toLong()
             }
-            if (length > MAX_MESSAGE || message.size() + length > MAX_MESSAGE) throw IOException("frame too large: $length")
+            if (length < 0 || length > MAX_MESSAGE || message.size() + length > MAX_MESSAGE) throw IOException("bad frame length: $length")
             val mask = if (second and 0x80 != 0) ByteArray(4).also(input::readFully) else null
             val payload = ByteArray(length.toInt()).also(input::readFully)
             if (mask != null) for (i in payload.indices) payload[i] = (payload[i].toInt() xor mask[i % 4].toInt()).toByte()
             lastFrameAt = System.currentTimeMillis()
             when (opcode) {
                 OPCODE_CLOSE -> throw IOException("closed by the server")
-                OPCODE_PING -> {
-                    sendFrame(OPCODE_PONG, payload)
+                OPCODE_PING, OPCODE_PONG -> {
+                    if (opcode == OPCODE_PING) sendFrame(OPCODE_PONG, payload)
+                    if (!started) return null
+                    first = input.readUnsignedByte()
                     continue
                 }
-                OPCODE_PONG -> continue
                 OPCODE_TEXT -> text = true
                 OPCODE_CONTINUATION -> {}
                 else -> text = false
             }
+            started = true
             message.write(payload)
             if (first and 0x80 != 0) return if (text) message.toString(Charsets.UTF_8.name()) else null
+            first = input.readUnsignedByte()
         }
     }
 
@@ -125,6 +144,8 @@ internal class WebSocketClient private constructor(private val socket: Socket, p
         /** A interface da Creality (K2, K3). */
         const val CREALITY_PORT = 9999
         private const val MAX_MESSAGE = 4L shl 20
+        /** Prazo para o resto de uma mensagem depois que o primeiro byte chegou. */
+        private const val FRAME_TIMEOUT_MS = 10_000
         private const val OPCODE_CONTINUATION = 0
         private const val OPCODE_TEXT = 1
         private const val OPCODE_CLOSE = 8
@@ -142,7 +163,7 @@ internal class WebSocketClient private constructor(private val socket: Socket, p
             var socket = Socket()
             try {
                 socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
-                if (tls) socket = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(socket, host, port, true)
+                if (tls) socket = secure(socket, host, port)
                 socket.soTimeout = connectTimeoutMs
                 val key = Base64.getEncoder().encodeToString(Random.nextBytes(16))
                 val extra = headers.entries.joinToString("") { (name, value) -> "$name: $value\r\n" }
@@ -159,6 +180,24 @@ internal class WebSocketClient private constructor(private val socket: Socket, p
                 socket.close()
                 throw e
             }
+        }
+
+        /**
+         * [plain] embrulhado em TLS, com o nome do certificado conferido contra [host]: o SSLSocket
+         * cru só valida a cadeia, e sem isso qualquer certificado válido de outro site passaria.
+         */
+        private fun secure(plain: Socket, host: String, port: Int): Socket {
+            val socket = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(plain, host, port, true) as SSLSocket
+            try {
+                socket.startHandshake()
+                if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(host, socket.session)) {
+                    throw SSLPeerUnverifiedException("certificate does not match $host")
+                }
+            } catch (e: IOException) {
+                socket.close()
+                throw e
+            }
+            return socket
         }
     }
 
