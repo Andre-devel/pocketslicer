@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.andredevel.slicer.send.Camera
 import io.github.andredevel.slicer.send.FilamentBox
+import io.github.andredevel.slicer.send.FilamentControls
 import io.github.andredevel.slicer.send.PrinterAlert
 import io.github.andredevel.slicer.send.PrinterCommand
 import io.github.andredevel.slicer.send.PrinterControls
@@ -83,7 +84,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun PrinterDetail(
     host: PrinterHost, status: PrinterStatus?, viewModel: SlicerViewModel, modifier: Modifier, onEdit: () -> Unit, onClose: (() -> Unit)?,
-    listOpen: Boolean = true, onToggleList: (() -> Unit)? = null,
+    listOpen: Boolean = true, onToggleList: (() -> Unit)? = null, filamentQueue: List<FilamentTask> = emptyList(),
 ) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(host, lifecycle) {
@@ -103,7 +104,9 @@ fun PrinterDetail(
         }
     }
     var slots by remember(host) { mutableStateOf(emptyList<Slot>()) }
-    LaunchedEffect(host) {
+    // De novo a cada operação da fila que termina: a posição mudou.
+    val filamentDone = filamentQueue.count { it.state == FilamentTask.State.DONE }
+    LaunchedEffect(host, filamentDone) {
         while (true) {
             try {
                 slots = viewModel.printerSlots(host)
@@ -124,7 +127,7 @@ fun PrinterDetail(
         if (halted) return@LaunchedEffect
         while (true) {
             try {
-                controls = viewModel.printerControls(host)?.takeIf { it.hasControlTab || !it.adjustments.isEmpty }
+                controls = viewModel.printerControls(host)?.takeIf { it.hasControlTab || !it.adjustments.isEmpty || !it.filament.isEmpty }
                 break
             } catch (e: SendException) {
                 Log.w(TAG, "controls of ${host.name}", e)
@@ -203,7 +206,7 @@ fun PrinterDetail(
                     if (slots.isNotEmpty() || status?.boxes?.isNotEmpty() == true) {
                         SectionLabel(stringResource(R.string.filament))
                         for (box in status?.boxes.orEmpty()) BoxRow(box)
-                        for (slot in slots) SlotRow(slot)
+                        PrinterFilament(host, status, slots, control?.filament ?: FilamentControls(), filamentQueue, viewModel, commands)
                     }
                 }
             }
@@ -383,19 +386,6 @@ private fun BoxRow(box: FilamentBox) {
             parts.joinToString(" · "),
             style = MonoStyles.small,
             color = if (box.humid) Tone.WARNING.color() else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun SlotRow(slot: Slot) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        SlotSwatch(slot.takeIf { it.loaded })
-        Text(slotName(slot), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Text(
-            if (slot.loaded) slot.type ?: "?" else stringResource(R.string.slot_empty),
-            style = MonoStyles.small,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

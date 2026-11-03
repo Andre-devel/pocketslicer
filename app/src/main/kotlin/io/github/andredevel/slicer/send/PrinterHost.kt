@@ -106,6 +106,13 @@ interface Uploader {
      * protocolo não tem controle. Falha com [SendException].
      */
     suspend fun controls(host: PrinterHost): PrinterControls? = null
+
+    /**
+     * Carrega ([load]) ou descarrega [slot] e volta só quando a impressora terminou; falha com
+     * [SendException] se ela recusar, mostrar erro ou não estiver livre. Só com
+     * [FilamentControls.loadUnload].
+     */
+    suspend fun changeFilament(host: PrinterHost, slot: Slot, load: Boolean): Unit = throw UnsupportedOperationException()
 }
 
 /** O que o app manda a impressora fazer ([Uploader.command]); cada protocolo traduz. */
@@ -157,12 +164,16 @@ sealed interface PrinterCommand {
 
     /** Pausa quando a impressão chegar na camada [layer] (a partir de 1); null desfaz. */
     data class PauseAtLayer(val layer: Int?) : PrinterCommand
+
+    /** Lê de novo a etiqueta RFID do filamento em [slot] ([FilamentControls.refresh]). */
+    data class RefreshSlot(val slot: Slot) : PrinterCommand
 }
 
 /**
  * O que a tela da impressora pode mexer ([Uploader.controls]). Aba Controle: [motion] = home,
  * mover os eixos e desligar os motores; os aquecedores, ventoinhas e luzes que dá para mudar.
- * [adjustments]: os ajustes ao vivo da impressão, na Visão geral.
+ * [adjustments]: os ajustes ao vivo da impressão, na Visão geral; [filament]: o que dá para
+ * fazer com as posições de filamento.
  */
 data class PrinterControls(
     val motion: Boolean = false,
@@ -170,6 +181,7 @@ data class PrinterControls(
     val fans: List<Fan> = emptyList(),
     val lights: List<Light> = emptyList(),
     val adjustments: Adjustments = Adjustments(),
+    val filament: FilamentControls = FilamentControls(),
 ) {
     /** Se a aba Controle tem o que mostrar. */
     val hasControlTab get() = motion || heaters.isNotEmpty() || fans.isNotEmpty() || lights.isNotEmpty()
@@ -188,6 +200,14 @@ data class Adjustments(
     val pauseAtLayer: Boolean = false,
 ) {
     val isEmpty get() = !speed && !flow && printModes.isEmpty() && !zOffset && !pauseAtLayer
+}
+
+/**
+ * Posições de filamento: [loadUnload] = carregar e descarregar cada uma ([Uploader.changeFilament]);
+ * [refresh] = ler de novo a etiqueta RFID ([PrinterCommand.RefreshSlot]).
+ */
+data class FilamentControls(val loadUnload: Boolean = false, val refresh: Boolean = false) {
+    val isEmpty get() = !loadUnload && !refresh
 }
 
 /** Aquecedor que dá para ligar, como em [Temperature] ([source], [index]); [max] em °C, quando a impressora informa. */

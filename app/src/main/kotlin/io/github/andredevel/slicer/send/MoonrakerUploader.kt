@@ -6,6 +6,8 @@ import io.github.andredevel.slicer.send.Http.resolve
 import io.github.andredevel.slicer.send.Http.withPort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -66,6 +68,15 @@ object MoonrakerUploader : Uploader {
     /** Velocidade do jog em mm/min: XY e Z (a K3 aceita no máximo 10 mm/s em Z). */
     private const val JOG_XY_FEED = 6_000
     private const val JOG_Z_FEED = 600
+    /** Consulta do objeto `box` enquanto o CFS carrega ou descarrega. */
+    private const val FILAMENT_POLL_MS = 2_000L
+    /**
+     * Resposta do comando de carga, se o firmware só responder no fim (na K3 a carga e a
+     * descarga levaram ~100 s em 2026-11-02); acima do limite da fila no ViewModel.
+     */
+    private const val FILAMENT_RESPONSE_MS = 15 * 60_000
+    /** O comando já respondeu e a posição não começou a carregar: o firmware não fez nada. */
+    private const val FILAMENT_START_MS = 15_000L
 
     /** Sinalização WebRTC da câmera da Creality K2 (`/call/webrtc_local`). */
     private const val CREALITY_WEBRTC_PORT = 8000
@@ -499,16 +510,71 @@ object MoonrakerUploader : Uploader {
         }
         is PrinterCommand.AdjustZOffset -> "SET_GCODE_OFFSET Z_ADJUST=${number(command.delta)} MOVE=1"
         is PrinterCommand.PauseAtLayer -> command.layer?.let { "SET_PAUSE_AT_LAYER ENABLE=1 LAYER=${it.coerceAtLeast(1)}" } ?: "SET_PAUSE_AT_LAYER ENABLE=0"
+        // Como a tela da K3 manda (klippy.log, 2026-11-02).
+        is PrinterCommand.RefreshSlot -> {
+            if (!capabilities.controls.filament.refresh) throw IllegalArgumentException("no RFID refresh")
+            val box = command.slot.cfsBox ?: throw IllegalArgumentException("not a CFS slot: ${command.slot}")
+            "BOX_INFO_REFRESH ADDR=$box NUM=${'A' + command.slot.cfsSlot}"
+        }
         else -> throw IllegalArgumentException("not a G-code command: $command")
     }
 
     private fun number(value: Float) = "%.3f".format(Locale.ROOT, value).trimEnd('0').trimEnd('.')
 
-    /** Manda [script] por `/printer/gcode/script`, que só responde quando o Klipper o executou; o erro dele vira a mensagem. */
-    private suspend fun gcode(api: URL, host: PrinterHost, script: String) {
+    /**
+     * Manda [script] por `/printer/gcode/script`, que só responde quando o Klipper o executou
+     * (esperando até [timeoutMs]); o erro dele vira a mensagem.
+     */
+    private suspend fun gcode(api: URL, host: PrinterHost, script: String, timeoutMs: Int? = null) {
         Log.i(TAG, "gcode ${host.name}: ${script.replace('\n', ';')}")
-        check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", script).toString()), host)
+        val url = api.resolve("/printer/gcode/script")
+        val body = JSONObject().put("script", script).toString()
+        check(if (timeoutMs != null) Http.postJson(url, headers(host), body, timeoutMs) else Http.postJson(url, headers(host), body), host)
     }
+
+    /**
+     * Carga e descarga do CFS da Creality pelos comandos que a tela da K3 manda (klippy.log,
+     * 2026-11-02): `BOX_LOAD_MATERIAL_STEP` e `BOX_QUIT_MATERIAL_STEP` com `TNN=T<caixa><A-D>`.
+     * O fim vem do objeto `box`: `slot_status` da posição passa de "running" a "done" (com
+     * `status` 100; 2..4 carregando, 11..14 descarregando) e `err_status` diferente de 0 é erro.
+     * Como não se sabe se o comando responde no começo ou no fim, ele vai em paralelo com a
+     * consulta; se respondeu e a posição não começou em [FILAMENT_START_MS], acabou sem mudança.
+     */
+    override suspend fun changeFilament(host: PrinterHost, slot: Slot, load: Boolean) {
+        val api = api(host)
+        if (!capabilities(api, host).controls.filament.loadUnload) throw IllegalArgumentException("no CFS load/unload")
+        val box = slot.cfsBox ?: throw IllegalArgumentException("not a CFS slot: $slot")
+        val name = "T$box${'A' + slot.cfsSlot}"
+        checkIdle(api, host)
+        boxError(boxState(api, host))?.let { throw SendException(R.string.filament_error_box, it) }
+        val script = if (load) "BOX_LOAD_MATERIAL_STEP TNN=$name" else "BOX_QUIT_MATERIAL_STEP TNN=$name"
+        coroutineScope {
+            val sent = async { gcode(api, host, script, FILAMENT_RESPONSE_MS) }
+            var started = false
+            var answeredAt: Long? = null
+            while (true) {
+                delay(FILAMENT_POLL_MS)
+                if (sent.isCompleted) {
+                    sent.await()
+                    if (answeredAt == null) answeredAt = System.currentTimeMillis()
+                }
+                val state = boxState(api, host)
+                boxError(state)?.let { throw SendException(R.string.filament_error_box, it) }
+                when (state.optJSONObject("slot_status")?.optString(name)) {
+                    "running" -> started = true
+                    "done" -> if (started) break
+                }
+                if (!started && answeredAt != null && System.currentTimeMillis() - answeredAt >= FILAMENT_START_MS) break
+            }
+            sent.await()
+        }
+    }
+
+    private suspend fun boxState(api: URL, host: PrinterHost): JSONObject =
+        result(api, host, "/printer/objects/query?box").optJSONObject("status")?.optJSONObject("box") ?: JSONObject()
+
+    /** O `err_status` do CFS, null sem erro. */
+    private fun boxError(box: JSONObject) = box.optInt("err_status", 0).takeIf { it != 0 }
 
     override suspend fun controls(host: PrinterHost): PrinterControls = capabilities(api(host), host).controls
 
@@ -619,7 +685,13 @@ object MoonrakerUploader : Uploader {
             zOffset = move && "SET_GCODE_OFFSET" in help && "NOZZLE_PRINT_Z_OFFSET" !in help,
             pauseAtLayer = statsMacro != null,
         )
-        val controls = PrinterControls(motion, heaterList, fans, lights, adjustments)
+        // CFS da Creality: os _STEP que a tela manda não aparecem no gcode/help, as macros sim.
+        val cfs = "box" in objects
+        val filament = FilamentControls(
+            loadUnload = cfs && "BOX_LOAD_MATERIAL" in help && "BOX_QUIT_MATERIAL" in help,
+            refresh = cfs && "BOX_INFO_REFRESH" in help,
+        )
+        val controls = PrinterControls(motion, heaterList, fans, lights, adjustments, filament)
         val subscribed = listOfNotNull("toolhead".takeIf { motion }, "gcode_move".takeIf { move }, PRINT_MODE.takeIf { printModes.isNotEmpty() }, statsMacro) +
             fans.map { it.id } + lights.map { it.id }
         return Capabilities(controls, heaters, crealityFans, subscribed, statsMacro).also { capabilities[api.toString()] = it }

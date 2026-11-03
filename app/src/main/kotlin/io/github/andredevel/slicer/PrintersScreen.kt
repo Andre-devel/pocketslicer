@@ -130,6 +130,7 @@ fun PrintersScreen(state: SlicerUiState, viewModel: SlicerViewModel, modifier: M
             onClose = if (wide) null else ({ showing = null }),
             listOpen = listOpen,
             onToggleList = if (wide) ({ listOpen = !listOpen }) else null,
+            filamentQueue = state.filamentQueues[host.id].orEmpty(),
         )
     }
 

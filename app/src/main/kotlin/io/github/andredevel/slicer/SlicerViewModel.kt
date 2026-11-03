@@ -64,7 +64,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import java.io.File
@@ -251,6 +253,8 @@ data class SlicerUiState(
     val send: SendState = SendState.Idle,
     /** Estado ao vivo por [PrinterHost.id], enquanto alguma tela o acompanha (watchPrinterStatus). */
     val printerStatus: Map<String, PrinterStatus> = emptyMap(),
+    /** Fila de carga e descarga de filamento por [PrinterHost.id] ([SlicerViewModel.queueFilament]). */
+    val filamentQueues: Map<String, List<FilamentTask>> = emptyMap(),
     /** Arquivos abertos recentemente, o mais novo primeiro. */
     val recents: List<RecentFile> = emptyList(),
     /** Cena ou perfis mudaram desde que o projeto foi aberto ou salvo. */
@@ -1303,6 +1307,76 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     /** Manda [command] para [host]; falha com [SendException]. */
     suspend fun printerCommand(host: PrinterHost, command: PrinterCommand) = uploader(host.kind, app.assets).command(host, command)
 
+    /** A fila de filamento que roda em cada impressora ([PrinterHost.id]). */
+    private val filamentJobs = mutableMapOf<String, Job>()
+    private var nextFilamentTask = 0L
+
+    /**
+     * Põe [slots] de [host] na fila para carregar ([load]) ou descarregar e a começa, se parada.
+     * A fila manda uma operação por vez e só segue quando a impressora terminou a anterior
+     * ([Uploader.changeFilament]); continua com a tela fechada, enquanto o app está aberto.
+     */
+    fun queueFilament(host: PrinterHost, slots: List<Slot>, load: Boolean) {
+        if (slots.isEmpty()) return
+        val tasks = slots.map { FilamentTask(nextFilamentTask++, it, load) }
+        editFilamentQueue(host) { it + tasks }
+        if (_state.value.filamentQueues[host.id].orEmpty().none { it.state == FilamentTask.State.FAILED }) runFilamentQueue(host)
+    }
+
+    /** Depois de uma falha, tenta de novo a que falhou e segue com as que faltam. */
+    fun resumeFilamentQueue(host: PrinterHost) {
+        editFilamentQueue(host) { queue -> queue.map { if (it.state == FilamentTask.State.FAILED) it.copy(state = FilamentTask.State.PENDING, error = null) else it } }
+        runFilamentQueue(host)
+    }
+
+    /** Tira da fila a operação [id], se ainda não começou. */
+    fun cancelFilamentTask(host: PrinterHost, id: Long) =
+        editFilamentQueue(host) { queue -> queue.filterNot { it.id == id && it.state == FilamentTask.State.PENDING } }
+
+    /** Tira da fila tudo o que não está em andamento: as terminadas, a que falhou e as que faltam. */
+    fun clearFilamentQueue(host: PrinterHost) =
+        editFilamentQueue(host) { queue -> queue.filter { it.state == FilamentTask.State.RUNNING } }
+
+    private fun editFilamentQueue(host: PrinterHost, edit: (List<FilamentTask>) -> List<FilamentTask>) = _state.update { state ->
+        val queue = edit(state.filamentQueues[host.id].orEmpty())
+        state.copy(filamentQueues = if (queue.isEmpty()) state.filamentQueues - host.id else state.filamentQueues + (host.id to queue))
+    }
+
+    private fun setFilamentTask(host: PrinterHost, id: Long, state: FilamentTask.State, error: String? = null) =
+        editFilamentQueue(host) { queue -> queue.map { if (it.id == id) it.copy(state = state, error = error) else it } }
+
+    /** Roda a fila de [host] até acabar ou uma falhar; a que falha para a fila e guarda o erro. */
+    private fun runFilamentQueue(host: PrinterHost) {
+        if (filamentJobs[host.id]?.isActive == true) return
+        filamentJobs[host.id] = viewModelScope.launch {
+            val uploader = uploader(host.kind, app.assets)
+            while (true) {
+                val task = _state.value.filamentQueues[host.id].orEmpty().firstOrNull { it.state == FilamentTask.State.PENDING } ?: break
+                setFilamentTask(host, task.id, FilamentTask.State.RUNNING)
+                val error = try {
+                    withTimeout(FILAMENT_TIMEOUT_MS) { uploader.changeFilament(host, task.slot, task.load) }
+                    null
+                } catch (e: TimeoutCancellationException) {
+                    app.getString(R.string.filament_timeout, FILAMENT_TIMEOUT_MS / 60_000)
+                } catch (e: SendException) {
+                    app.getString(e.text, *e.args)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "filament ${host.name}", e)
+                    e.toString()
+                }
+                if (error == null) {
+                    setFilamentTask(host, task.id, FilamentTask.State.DONE)
+                } else {
+                    Log.w(TAG, "filament ${host.name}: $error")
+                    setFilamentTask(host, task.id, FilamentTask.State.FAILED, error)
+                    break
+                }
+            }
+        }
+    }
+
     /**
      * Envia o G-code fatiado para [host]; com [start], também inicia a impressão, com a posição
      * da impressora de cada filamento do projeto em [mapping] (Uploader.upload).
@@ -1580,6 +1654,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         const val PROJECT_THUMBNAIL_SIZE = 512
         /** Intervalo da consulta do estado das impressoras. */
         const val STATUS_INTERVAL_MS = 5_000L
+        /** Limite de uma carga ou descarga; na K3 levaram ~100 s (2026-11-02). */
+        const val FILAMENT_TIMEOUT_MS = 8 * 60_000L
         /** Espera para tentar de novo o estado ao vivo depois que a conexão caiu. */
         const val LIVE_RETRY_MS = 10_000L
         /** Varredura da rede atrás de impressora que mudou de IP ([rediscover]): no máximo uma por minuto. */

@@ -34,11 +34,19 @@ impressão tem 100 camadas). --print-modes simula o SET_PRINT_MODE da K3 (objeto
 print_mode, com o speed_factor de cada modo). POST /printer/print/pause, resume e cancel mudam
 o print_stats.state; pausada, a impressão não anda.
 
+--cfs TIPO:RRGGBB,,... simula o CFS da K3 (uma caixa, quatro posições; vazio = sem filamento):
+o objeto box (status, slot_status, err_status, T1) e o WebSocket da Creality na porta 9999
+(boxsInfo, nozzleFilament, err/state ao conectar, set pause/stop). BOX_LOAD_MATERIAL_STEP e
+BOX_QUIT_MATERIAL_STEP TNN=T1A..T1D respondem na hora e levam ~9 s (status 2..4 ou 11..14, depois
+100 e slot_status "done"); com --cfs-blocking só respondem no fim. --cfs-fail T1C faz a operação
+nessa posição parar com err_status 2; BOX_ERROR_CLEAR limpa.
+
 GET /machine/system_info informa o MAC de --mac (a identidade que o app guarda para reencontrar a
 impressora quando o IP muda) e GET /printer/info o hostname "fake-moonraker".
 
 Uso: scripts/fake-moonraker.py [--port 7125] [--api-key CHAVE] [--state standby]
-     [--u1 PLA:FF0000,PETG:000000,,] [--mac 02:00:00:00:fa:01] [--print-modes] [pasta]
+     [--u1 PLA:FF0000,PETG:000000,,] [--mac 02:00:00:00:fa:01] [--print-modes]
+     [--cfs PLA:01B04A,PLA:3DDF57,,PETG:000000 [--cfs-blocking] [--cfs-fail T1C]] [pasta]
 """
 import argparse
 import base64
@@ -67,6 +75,9 @@ def main():
     parser.add_argument("--u1", help="filamento de cada cabeça, TIPO:RRGGBB separados por vírgula")
     parser.add_argument("--mac", default="02:00:00:00:fa:01", help="MAC da wlan0 em /machine/system_info")
     parser.add_argument("--print-modes", action="store_true", help="SET_PRINT_MODE da Creality (K3)")
+    parser.add_argument("--cfs", help="CFS da K3: filamento de cada posição, TIPO:RRGGBB separados por vírgula")
+    parser.add_argument("--cfs-blocking", action="store_true", help="carga e descarga só respondem no fim")
+    parser.add_argument("--cfs-fail", help="posição (T1A..T1D) em que a carga ou descarga dá erro")
     parser.add_argument("folder", nargs="?", default="fake-moonraker-files")
     args = parser.parse_args()
     os.makedirs(args.folder, exist_ok=True)
@@ -87,6 +98,33 @@ def main():
                  "SET_PAUSE_AT_LAYER": "Enable/disable a pause if a given layer number is reached"}
     if args.print_modes:
         help_text["SET_PRINT_MODE"] = "Set print mode: standard/extreme/smooth/silent"
+    cfs = None
+    if args.cfs is not None:
+        cfs = {"slots": [dict(zip(("type", "color"), s.split(":"))) if s else None for s in args.cfs.split(",")][:4],
+               "status": 0, "slot_status": {}, "err": 0, "busy": False}
+        cfs["slots"] += [None] * (4 - len(cfs["slots"]))
+        # Como a K3: as macros aparecem no gcode/help, os _STEP que a tela manda não.
+        for name in ("BOX_LOAD_MATERIAL", "BOX_QUIT_MATERIAL", "BOX_INFO_REFRESH", "BOX_ERROR_CLEAR"):
+            help_text[name] = "G-Code macro"
+
+    def cfs_run(name, load):
+        """Uma carga ou descarga da posição [name] (T1A..T1D), como a K3 a mostra no objeto box."""
+        index = "ABCD".index(name[2])
+        cfs["slot_status"] = {name: "running"}
+        for step in ((2, 3, 4) if load else (11, 12, 13, 14)):
+            cfs["status"] = step
+            time.sleep(9 / (3 if load else 4))
+            if args.cfs_fail == name:
+                cfs.update(err=2, busy=False)
+                print(f"CFS {name}: erro 2", file=sys.stderr)
+                return
+        if load:
+            cfs["slots"][index] = cfs["slots"][index] or {"type": "PLA", "color": "FFFFFF"}
+            cfs["slots"][index]["loaded"] = True
+        elif cfs["slots"][index]:
+            cfs["slots"][index]["loaded"] = False
+        cfs.update(status=100, slot_status={name: "done"}, busy=False)
+        print(f"CFS {name}: {'carregado' if load else 'descarregado'}", file=sys.stderr)
 
     class KlipperError(Exception):
         pass
@@ -169,6 +207,22 @@ def main():
                 if params.get("LED") != "chamber_light":
                     raise KlipperError(f"Unknown LED '{params.get('LED')}'")
                 machine["light"] = max(float(params.get(k, 0)) for k in ("RED", "GREEN", "BLUE", "WHITE"))
+            elif command in ("BOX_LOAD_MATERIAL_STEP", "BOX_QUIT_MATERIAL_STEP") and cfs is not None:
+                name = params.get("TNN", "").upper()
+                if not re.fullmatch(r"T1[A-D]", name):
+                    raise KlipperError(f"Unknown TNN '{name}'")
+                if cfs["busy"] or cfs["err"]:
+                    raise KlipperError("box busy" if cfs["busy"] else f"box error {cfs['err']}")
+                cfs["busy"] = True
+                cfs["slot_status"], cfs["status"] = {name: "running"}, 2 if command.startswith("BOX_LOAD") else 11
+                run = threading.Thread(target=cfs_run, args=(name, command.startswith("BOX_LOAD")), daemon=True)
+                run.start()
+                if args.cfs_blocking:
+                    run.join()
+            elif command == "BOX_INFO_REFRESH" and cfs is not None:
+                print(f"CFS: reler RFID {params}", file=sys.stderr)
+            elif command == "BOX_ERROR_CLEAR" and cfs is not None:
+                cfs["err"] = 0
             elif command.startswith("SDCARD_PRINT_FILE_WITH_PARAMETERS") and args.u1 is not None:
                 m = re.match(r'SDCARD_PRINT_FILE_WITH_PARAMETERS FILENAME="((?:[^"\\]|\\.)*)"', line)
                 if m:
@@ -224,6 +278,10 @@ def main():
         if args.print_modes:
             result["print_mode"] = {"mode": machine["mode"]}
             result["configfile"]["settings"]["print_mode"] = {f"{m}_speed_factor": f for m, f in modes.items()}
+        if cfs is not None:
+            result["box"] = {"status": cfs["status"], "err_status": cfs["err"], "slot_status": dict(cfs["slot_status"]),
+                             "err_slot_status": None, "is_online": True,
+                             "T1": {"state": "connect", "type": "CFS-Nano", "dry_and_humidity": "41", "temperature": "26"}}
         if args.u1 is not None:
             heads = [h.split(":") if h else None for h in args.u1.split(",")]
             result["print_task_config"] = {
@@ -493,6 +551,55 @@ def main():
             self.reply(201, {"result": {"item": {"path": filename, "root": fields.get("root", "gcodes")},
                                         "action": "create_file"}})
 
+    class CrealityHandler(BaseHTTPRequestHandler):
+        """WebSocket da tela da Creality (porta 9999): tudo ao conectar, get de boxsInfo e nozzleFilament, set pause/stop."""
+
+        def do_GET(self):
+            accept = base64.b64encode(hashlib.sha1((self.headers["Sec-WebSocket-Key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+            self.protocol_version = "HTTP/1.1"
+            self.send_response(101)
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.end_headers()
+            lock = threading.Lock()
+            send = lambda message: Handler.send_text(self, lock, message)
+            send({"err": {"errcode": 0, "key": 0}, "state": 1 if state["print_stats"] in ("printing", "paused") else 0,
+                  "printFileName": state["filename"]})
+            sock = self.rfile
+            while True:
+                head = sock.read(2)
+                if len(head) < 2:
+                    return
+                opcode, length = head[0] & 15, head[1] & 127
+                if length == 126:
+                    length = int.from_bytes(sock.read(2), "big")
+                mask = sock.read(4) if head[1] & 128 else b"\0\0\0\0"
+                payload = bytes(b ^ mask[i % 4] for i, b in enumerate(sock.read(length)))
+                if opcode == 8:
+                    return
+                if opcode != 1:
+                    continue
+                request = json.loads(payload)
+                params = request.get("params", {})
+                if request.get("method") == "get" and "boxsInfo" in params:
+                    materials = [{"id": i, "type": s["type"] if s else "", "color": "#0" + s["color"].lower() if s else "",
+                                  "state": 1 if s and s.get("loaded", True) else 0} for i, s in enumerate(cfs["slots"])]
+                    send({"boxsInfo": {"materialBoxs": [{"id": 1, "type": 0, "state": 1, "materials": materials}]}})
+                elif request.get("method") == "get" and "nozzleFilament" in params:
+                    send({"nozzleFilament": [{"id": i + 1, "sources": [{"boxId": 1, "slotId": i}]} for i in range(4)]})
+                elif request.get("method") == "set":
+                    print(f"Creality set {params}", file=sys.stderr)
+                    if params.get("pause") == 1 and state["print_stats"] == "printing":
+                        state.update(print_stats="paused", paused_since=time.time())
+                    elif params.get("pause") == 0 and state["print_stats"] == "paused":
+                        state.update(print_stats="printing", started=state["started"] + time.time() - state["paused_since"], paused_since=None)
+                    elif params.get("stop") == 1 and state["print_stats"] in ("printing", "paused"):
+                        state.update(print_stats="cancelled", started=None, paused_since=None)
+
+    if cfs is not None:
+        threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", 9999), CrealityHandler).serve_forever, daemon=True).start()
+        print("WebSocket da Creality na porta 9999", file=sys.stderr)
     print(f"Moonraker falso na porta {args.port}, arquivos em {args.folder}", file=sys.stderr)
     ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()
 

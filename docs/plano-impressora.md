@@ -185,6 +185,25 @@ aquece ou carrega filamento numa impressora real só com OK do usuário a cada t
      na hora, então é preciso olhar o estado do slot no objeto `box` (filamento saiu do bico) e o
      estado da impressora. Na Bambu, o `ams` do relatório MQTT (`tray_now`, estado da troca).
      Tempo máximo por operação, com aviso se passar.
+   - Feito (2026-11-02), K3 (CFS pelo Moonraker): na Visão geral cada slot tem uma marca e o
+     botão de reler o RFID (`BOX_INFO_REFRESH ADDR=<caixa> NUM=<A-D>`); Carregar e Descarregar
+     põem os marcados na fila do ViewModel (`queueFilament`), que manda
+     `BOX_LOAD_MATERIAL_STEP`/`BOX_QUIT_MATERIAL_STEP TNN=T<caixa><A-D>` (o que a tela da K3
+     manda, visto no `klippy.log`) um por vez. Fim observado na K3 com o gravador do objeto `box`:
+     `slot_status` da posição "running" até "done", `status` 2..4 na carga e 11..14 na descarga,
+     100 no fim, ~100 s cada; o app consulta o `box` a cada 2 s e `err_status` ≠ 0 para a fila com
+     o código. Limite de 8 min por operação. Só com a impressora livre. A fila mostra cada
+     operação (aguardando, em andamento, concluído, falhou com o motivo), tira da fila as que não
+     começaram, tenta de novo a que falhou e limpa.
+   - Testado no emulador com `fake-moonraker.py --cfs` (o comando respondendo na hora e com
+     `--cfs-blocking` só no fim; `--cfs-fail` para o erro). Falta:
+     - **Conferir na K3 real** uma descarga e uma carga pelo app (com OK do usuário).
+     - O que a K3 mostra num erro de verdade (`err_status`, `err_slot_status`) e se o comando
+       `_STEP` responde no começo ou no fim.
+     - Externo da K3 (`LOAD_MATERIAL`/`QUIT_MATERIAL`): o usuário não usa, fica de fora.
+     - Secagem da K3: `CHAMBER_BOX_DRY ENABLE=0|1` sem os parâmetros de temperatura e tempo; ver o
+       que a tela manda antes.
+     - K2 (mesmos comandos, a conferir), U1, Q2 e A1 quando estiverem na rede.
 6. **Cancelar objeto.** Desenho da placa com os polígonos de `exclude_object` (Moonraker) ou dos
    objetos do 3MF (Bambu); tocar no objeto pede confirmação e cancela.
 7. **Arquivos e histórico.** Lista com miniatura, reimprimir, apagar (confirmação), histórico e totais;

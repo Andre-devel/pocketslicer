@@ -52,7 +52,8 @@ internal object Http {
         headers.forEach(connection::setRequestProperty)
     }
 
-    suspend fun postJson(url: URL, headers: Map<String, String>, json: String): Response = request(url) { connection ->
+    /** [readTimeoutMs]: para o comando que só responde quando acaba (carregar filamento, por exemplo). */
+    suspend fun postJson(url: URL, headers: Map<String, String>, json: String, readTimeoutMs: Int = READ_TIMEOUT_MS): Response = request(url, readTimeoutMs) { connection ->
         connection.requestMethod = "POST"
         connection.doOutput = true
         headers.forEach(connection::setRequestProperty)
@@ -114,11 +115,11 @@ internal object Http {
     /** Aspas e quebras de linha quebrariam o cabeçalho do multipart. */
     private fun quote(name: String) = name.replace(Regex("[\"\\r\\n]"), "_")
 
-    private suspend fun request(url: URL, send: (HttpURLConnection) -> Unit): Response = withContext(Dispatchers.IO) {
+    private suspend fun request(url: URL, readTimeoutMs: Int = READ_TIMEOUT_MS, send: (HttpURLConnection) -> Unit): Response = withContext(Dispatchers.IO) {
         val connection = url.openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
+            connection.readTimeout = readTimeoutMs
             connection.instanceFollowRedirects = true
             send(connection)
             val code = connection.responseCode
