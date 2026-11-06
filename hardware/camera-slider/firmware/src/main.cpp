@@ -1,14 +1,19 @@
-// Firmware de teste do slider de câmera: valida a placa, o Wi-Fi com página web e o disparo
-// da foto no celular como teclado BLE ("volume +"). Ainda sem motores.
+// Firmware do slider de câmera: dispara a foto no celular como teclado BLE ("volume +"), pela
+// página web, por GET /foto ou quando a macro TIMELAPSE_FOTO da impressora avisa (ver
+// printer_link.h e ../klipper/slider_cam.cfg). Ainda sem motores.
 //
 // Pela serial (115200): "f" tira foto, "s" mostra o estado, "t"/"e" testam teclas comuns.
-// Pela rede: http://slider-cam.local/ (ou o IP mostrado na serial), GET /foto, GET /status.
+// Pela rede: http://slider-cam.local/ (ou o IP mostrado na serial), GET /foto, GET /status,
+// GET /impressora?host=<IP> (vazio desliga; fica salvo na placa).
 
 #include <Arduino.h>
 #include <BleKeyboard.h>
 #include <ESPmDNS.h>
+#include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h>
+
+#include "printer_link.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -22,6 +27,10 @@
 #ifndef WIFI_AP_PASSWORD
 #define WIFI_AP_PASSWORD ""
 #endif
+// Impressora usada enquanto nenhuma foi salva pela página; vazio = sem impressora.
+#ifndef PRINTER_HOST
+#define PRINTER_HOST ""
+#endif
 
 namespace {
 
@@ -32,9 +41,12 @@ constexpr const char *kApSsid = "Slider-Cam";
 constexpr int kLedPin = 2;
 constexpr uint32_t kWifiTimeoutMs = 15000;
 constexpr uint32_t kHeartbeatMs = 5000;
+constexpr uint16_t kMoonrakerPort = 7125;
 
 BleKeyboard keyboard(kName, "Dimension Lab 3D", 100);
 WebServer server(80);
+Preferences prefs;
+PrinterLink printer;
 bool apMode = false;
 uint32_t photos = 0;
 
@@ -50,12 +62,20 @@ button:disabled{background:#555}#s{margin:16px 0;line-height:1.6}.bad{color:#f66
 <div id="s">Carregando…</div>
 <button id="b" onclick="foto()">Tirar foto</button>
 <p id="r"></p>
+<h2 style="font-size:1rem">Impressora (Moonraker)</h2>
+<input id="h" placeholder="IP da impressora" style="font-size:1rem;padding:10px;width:60%">
+<button style="width:auto;padding:10px 16px;font-size:1rem" onclick="salvar()">Salvar</button>
 <script>
 async function st(){
   try{const j=await (await fetch('/status')).json();
     document.getElementById('s').innerHTML=
       'Bluetooth: '+(j.ble?'<span class=ok>conectado</span>':'<span class=bad>não conectado — pareie "Slider Cam" no celular</span>')+
-      '<br>Rede: '+j.wifi+' ('+j.ip+')<br>Fotos: '+j.photos+'<br>Ligado há '+j.uptime_s+' s';
+      '<br>Rede: '+j.wifi+' ('+j.ip+')<br>Fotos: '+j.photos+'<br>Ligado há '+j.uptime_s+' s'+
+      '<br>Impressora: '+(!j.printer.host?'nenhuma':j.printer.host+' — '+
+        (!j.printer.connected?'<span class=bad>sem conexão</span>':
+         j.printer.subscribed?'<span class=ok>macro TIMELAPSE_FOTO ok</span> (shots '+j.printer.shots+')':
+         '<span class=bad>conectada, sem a macro TIMELAPSE_FOTO</span>'));
+    const h=document.getElementById('h');if(document.activeElement!==h)h.value=j.printer.host;
   }catch(e){document.getElementById('s').textContent='Sem resposta da placa';}
 }
 async function foto(){
@@ -64,6 +84,9 @@ async function foto(){
     document.getElementById('r').textContent=j.ok?'Foto disparada':'Bluetooth não conectado';
   }catch(e){document.getElementById('r').textContent='Falhou';}
   b.disabled=false;st();
+}
+async function salvar(){
+  await fetch('/impressora?host='+encodeURIComponent(document.getElementById('h').value.trim()));st();
 }
 st();setInterval(st,3000);
 </script></body></html>)HTML";
@@ -76,7 +99,12 @@ String statusJson() {
   json += ",\"wifi\":\"";
   json += apMode ? String("rede própria ") + kApSsid : String("conectado a ") + WiFi.SSID();
   json += "\",\"ip\":\"" + ipText() + "\",\"photos\":" + String(photos);
-  json += ",\"uptime_s\":" + String(millis() / 1000) + "}";
+  json += ",\"uptime_s\":" + String(millis() / 1000);
+  json += ",\"printer\":{\"host\":\"" + printer.host() + "\",\"connected\":";
+  json += printer.connected() ? "true" : "false";
+  json += ",\"subscribed\":";
+  json += printer.subscribed() ? "true" : "false";
+  json += ",\"shots\":" + String(printer.shots()) + "}}";
   return json;
 }
 
@@ -94,6 +122,15 @@ bool takePhoto() {
   digitalWrite(kLedPin, LOW);
   return true;
 }
+
+// A macro da impressora estacionou o cabeçote e somou "shots": tira a foto. Mais tarde, aqui
+// entra o passo do carrinho antes do disparo (a macro espera um tempo fixo).
+void onPrinterShot(uint32_t shots) {
+  Serial.printf("[impressora] TIMELAPSE_FOTO #%u\n", shots);
+  takePhoto();
+}
+
+void startPrinter(const String &host) { printer.begin(host, kMoonrakerPort, onPrinterShot); }
 
 void printStatus() { Serial.println("[estado] " + statusJson()); }
 
@@ -128,6 +165,22 @@ void startServer() {
     bool ok = takePhoto();
     server.send(ok ? 200 : 503, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"ble\"}");
   });
+  server.on("/impressora", HTTP_GET, [] {
+    if (server.hasArg("host")) {
+      String host = server.arg("host");
+      host.trim();
+      // Só IP ou nome simples: o valor vai para a URL do websocket e para o JSON de estado.
+      for (char c : host) {
+        if (!isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '-') {
+          server.send(400, "application/json", "{\"ok\":false,\"error\":\"host\"}");
+          return;
+        }
+      }
+      prefs.putString("printer", host);
+      startPrinter(host);
+    }
+    server.send(200, "application/json", "{\"ok\":true,\"host\":\"" + printer.host() + "\"}");
+  });
   server.onNotFound([] { server.send(404, "text/plain", "não encontrado"); });
   server.begin();
   if (MDNS.begin(kHostname)) MDNS.addService("http", "tcp", 80);
@@ -146,6 +199,8 @@ void setup() {
                 ESP.getChipCores(), ESP.getCpuFreqMHz(), ESP.getFlashChipSize() / (1024 * 1024), WiFi.macAddress().c_str());
   startWifi();
   startServer();
+  prefs.begin("slider", false);
+  startPrinter(prefs.isKey("printer") ? prefs.getString("printer") : String(PRINTER_HOST));
   keyboard.begin();
   Serial.printf("[ble] anunciando como \"%s\"; pareie no Bluetooth do celular\n", kName);
   Serial.println("[serial] comandos: f = foto, s = estado, t = digita \"teste\", e = Enter");
@@ -153,6 +208,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  printer.loop();
 
   while (Serial.available()) {
     char c = Serial.read();
