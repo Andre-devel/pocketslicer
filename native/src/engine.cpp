@@ -4015,6 +4015,10 @@ SliceStats Engine::slice(const std::string &gcode_path, const ProgressFn &progre
             progress(s.percent, i18n::translate(s.text));
     });
     print.set_calib_params(m->calib);
+    // Cada placa daqui fica na origem (Impl::plate_origin() só vale no projeto salvo). A GUI do
+    // Orca passa a origem da PartPlate; sem isso Print::m_origin fica sem inicializar e vira o
+    // deslocamento do G-code (X de lixo, tempo absurdo, de vez em quando).
+    print.set_plate_origin(Vec3d::Zero());
     print.apply(m->model, config);
     if (layer_actions) {
         if (layer_actions->gcodes.empty())
