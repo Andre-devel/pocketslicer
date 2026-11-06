@@ -749,21 +749,34 @@ class SlicerEngineTest {
         assertTrue(engine.bedTypes().current in engine.bedTypes().values)
     }
 
-    // Slider de câmera (hardware/camera-slider): o time-lapse suave liga a torre de purga, e o
-    // G-code de time-lapse da K2 chama a macro no modo suave antes da torre de cada camada.
+    // Slider de câmera (hardware/camera-slider): a K2 "(time-lapse slider)" do app chama a macro
+    // a cada camada; no time-lapse suave, que liga a torre de purga, antes da torre de cada camada.
     @Test
-    fun crealityK2SmoothTimelapseEnablesPrimeTower() = runBlocking {
+    fun crealityK2TimelapseSliderPrinter() = runBlocking {
+        val slider = "Creality K2 0.4 nozzle (time-lapse slider)"
         engine.loadVendor("CrealityPrint/Creality")
+        engine.loadModel(testAsset("cube20.stl"))
+        // A K2 normal continua sem time-lapse.
         engine.select(PresetKind.PRINTER, "Creality K2 0.4 nozzle")
+        val processes = engine.presets(PresetKind.PROCESS)
+        val filaments = engine.presets(PresetKind.FILAMENT)
+        val plain = File(work, "k2.gcode")
+        engine.slice(plain) { _, _ -> }
+        assertTrue(plain.useLines { lines -> lines.none { it.startsWith("TIMELAPSE_FOTO") } })
+
+        // A do slider tem os mesmos processos e filamentos (compatíveis pelo nome).
+        assertTrue(slider in engine.presets(PresetKind.PRINTER))
+        engine.select(PresetKind.PRINTER, slider)
+        assertEquals(processes, engine.presets(PresetKind.PROCESS))
+        assertEquals(filaments, engine.presets(PresetKind.FILAMENT))
+        val traditional = File(work, "k2-traditional.gcode")
+        engine.slice(traditional) { _, _ -> }
+        assertTrue(traditional.useLines { lines -> lines.count { it == "TIMELAPSE_FOTO" } > 10 })
+
         engine.setOption(PresetKind.PROCESS, "enable_prime_tower", "0")
         engine.setOption(PresetKind.PROCESS, "timelapse_type", "1")
         assertEquals("1", engine.values(PresetKind.PROCESS).values["enable_prime_tower"])
-        engine.setOption(
-            PresetKind.PRINTER, "time_lapse_gcode",
-            "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH{else}TIMELAPSE_FOTO{endif}",
-        )
-        engine.loadModel(testAsset("cube20.stl"))
-        val gcode = File(work, "k2-timelapse.gcode")
+        val gcode = File(work, "k2-smooth.gcode")
         engine.slice(gcode) { _, _ -> }
         val lines = gcode.readLines()
         val shots = lines.indices.filter { lines[it] == "TIMELAPSE_FOTO MODE=SMOOTH" }

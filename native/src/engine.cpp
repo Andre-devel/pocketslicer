@@ -61,6 +61,7 @@ const char *const FILAMENT_PALETTE[] = {"#00C1AE", "#F4E2C1", "#ED1C24", "#00FF7
                                         "#ED1E79", "#2EBDEF", "#345B2F", "#800080", "#FA8173", "#800000", "#F7B763", "#A4C41E"};
 
 void copy_for_orca(const fs::path &src, const fs::path &dst);
+void add_app_printers(const fs::path &index, const fs::path &system_dir);
 } // namespace
 
 struct Engine::Impl {
@@ -638,6 +639,8 @@ void Engine::load_vendor(const std::string &vendor)
         else
             copy_for_orca(json.parent_path() / json.stem(), system_dir / json.stem());
     }
+    if (index.parent_path() != m->profiles_dir)
+        add_app_printers(index, system_dir);
 
     auto bundle = std::make_unique<PresetBundle>();
     bundle->load_presets(m->app_config, ForwardCompatibilitySubstitutionRule::EnableSystemSilent);
@@ -979,6 +982,87 @@ void drop_out_of_range(const fs::path &path)
     }
     boost::nowide::ofstream out(path.string());
     out << profile.dump(4);
+}
+
+// Impressoras que o app acrescenta a um fabricante: um perfil de sistema que herda de [parent]
+// e só troca o time-lapse G-code. Ver hardware/camera-slider: a macro TIMELAPSE_FOTO
+// (klipper/slider_cam.cfg) precisa estar na impressora; sem ela o Klipper só avisa
+// "Unknown command" a cada camada. O perfil normal fica sem time-lapse (liga/desliga trocando
+// de impressora).
+struct AppPrinter
+{
+    const char *index; // <app>/<fabricante>.json em vendors_dir
+    const char *parent, *name, *time_lapse_gcode;
+};
+const AppPrinter APP_PRINTERS[] = {
+    {"CrealityPrint/Creality.json", "Creality K2 0.4 nozzle", "Creality K2 0.4 nozzle (time-lapse slider)",
+     "; Slider de camera: requer slider_cam.cfg na impressora\n"
+     "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH{else}TIMELAPSE_FOTO{endif}"},
+};
+
+// Grava as APP_PRINTERS do fabricante [index] na cópia dele em system_dir (feita por
+// copy_for_orca). Processos e filamentos do fabricante listam as impressoras compatíveis pelo
+// nome, e um perfil de sistema não herda a compatibilidade do pai (is_compatible_with_printer),
+// então o nome novo entra ao lado do pai nessas listas.
+void add_app_printers(const fs::path &index, const fs::path &system_dir)
+{
+    const std::string id = index.parent_path().filename().string() + "/" + index.filename().string();
+    const fs::path    dir = system_dir / index.stem();
+    const fs::path    copy = system_dir / index.filename();
+    auto read = [](const fs::path &path) {
+        boost::nowide::ifstream in(path.string());
+        return nlohmann::json::parse(in, nullptr, false);
+    };
+    auto write = [](const fs::path &path, const nlohmann::json &json) {
+        boost::nowide::ofstream out(path.string());
+        out << json.dump(4);
+    };
+    nlohmann::json vendor;
+    std::map<std::string, std::string> added; // pai -> novo
+    for (const AppPrinter &printer : APP_PRINTERS) {
+        if (id != printer.index || !fs::exists(dir / "machine" / (std::string(printer.parent) + ".json")))
+            continue;
+        if (vendor.is_null())
+            vendor = read(index);
+        if (!vendor.is_object() || !vendor.contains("machine_list"))
+            return;
+        nlohmann::json &machines = vendor["machine_list"];
+        // Logo depois do pai: o PresetBundle resolve "inherits" na ordem da lista.
+        auto parent = std::find_if(machines.begin(), machines.end(), [&](const nlohmann::json &m) { return m.value("name", "") == printer.parent; });
+        if (parent == machines.end())
+            continue;
+        const std::string sub_path = std::string("machine/") + printer.name + ".json";
+        machines.insert(parent + 1, nlohmann::json{{"name", printer.name}, {"sub_path", sub_path}});
+        write(dir / sub_path, nlohmann::json{{"type", "machine"}, {"name", printer.name}, {"inherits", printer.parent},
+                                             {"from", "system"}, {"instantiation", "true"}, {"time_lapse_gcode", printer.time_lapse_gcode}});
+        added.emplace(printer.parent, printer.name);
+    }
+    if (added.empty())
+        return;
+    // O índice em system_dir é um link para o de vendors_dir, que fica intocado.
+    fs::remove(copy);
+    write(copy, vendor);
+    for (const char *kind : {"process", "filament"}) {
+        if (!fs::is_directory(dir / kind))
+            continue;
+        for (const fs::directory_entry &entry : fs::directory_iterator(dir / kind)) {
+            if (entry.path().extension() != ".json")
+                continue;
+            nlohmann::json profile = read(entry.path());
+            if (!profile.is_object() || !profile.contains("compatible_printers") || !profile["compatible_printers"].is_array())
+                continue;
+            nlohmann::json &compatible = profile["compatible_printers"];
+            bool changed = false;
+            for (const auto &[parent, name] : added)
+                if (std::find(compatible.begin(), compatible.end(), parent) != compatible.end() &&
+                    std::find(compatible.begin(), compatible.end(), name) == compatible.end()) {
+                    compatible.push_back(name);
+                    changed = true;
+                }
+            if (changed)
+                write(entry.path(), profile);
+        }
+    }
 }
 
 // Copia os perfis de um fatiador do fabricante (Creality Print...) para dst, ajustando as
