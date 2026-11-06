@@ -190,8 +190,11 @@ fun PreviewOverlay(
 
         if (slider != null) {
             val bottom = if (compact) SHEET_CLEARANCE else 0.dp
-            // Ao lado do seletor de camadas, longe da legenda.
-            Box(Modifier.align(Alignment.BottomEnd).padding(bottom = bottom + MOVES_BAR_CLEARANCE, end = LAYER_SLIDER_CLEARANCE)) {
+            // Tablet: ao lado do seletor de camadas, longe da legenda. Celular: em cima, sob os
+            // chips, porque embaixo o enquadramento põe o trilho e o carrinho.
+            val placement = if (compact) Modifier.align(Alignment.TopStart).padding(top = CHIPS_CLEARANCE)
+            else Modifier.align(Alignment.BottomEnd).padding(bottom = bottom + MOVES_BAR_CLEARANCE, end = LAYER_SLIDER_CLEARANCE)
+            Box(placement) {
                 PhoneViewFrame(
                     Modifier.size(if (compact) PHONE_VIEW_COMPACT else PHONE_VIEW_WIDE, (if (compact) PHONE_VIEW_COMPACT else PHONE_VIEW_WIDE) * 16 / 9)
                         .onGloballyPositioned(slider.onInset),
@@ -215,6 +218,8 @@ private val LAYER_SLIDER_CLEARANCE = 88.dp
 /** Largura do quadro da visão do celular (9:16) no tablet e no celular. */
 private val PHONE_VIEW_WIDE = 150.dp
 private val PHONE_VIEW_COMPACT = 90.dp
+/** Altura dos chips de legenda e vista no celular mais o espaço até o quadro da visão do celular. */
+private val CHIPS_CLEARANCE = 72.dp
 
 /**
  * ▶ avança o slider de movimentos até o fim da camada em [PLAY_MILLIS]; do fim, recomeça do
