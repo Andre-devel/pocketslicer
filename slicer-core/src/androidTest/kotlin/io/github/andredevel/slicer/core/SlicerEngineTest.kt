@@ -783,8 +783,15 @@ class SlicerEngineTest {
         assertTrue(shots.size > 10)
         assertTrue(lines.none { it == "TIMELAPSE_FOTO" })
         // Depois da foto vem a torre, antes do modelo (o perfil CrealityPrint marca "; FEATURE:").
-        val next = lines.subList(shots[1], lines.size).first { it.startsWith("; FEATURE:") }
-        assertEquals("; FEATURE: Prime tower", next)
+        val after = lines.subList(shots[1], lines.size)
+        assertEquals("; FEATURE: Prime tower", after.first { it.startsWith("; FEATURE:") })
+        // A macro deixa o cabeçote estacionado e no alto: a viagem vai direto à torre (fica na
+        // borda da mesa, longe do cubo no centro), sem a rampa a partir do modelo nem descer antes.
+        val moves = after.filter { it.startsWith("G1 ") }
+        val firstXy = moves.indexOfFirst { " X" in it }
+        assertTrue(moves.take(firstXy).none { " Z" in it })
+        val x = Regex(" X([-0-9.]+)").find(moves[firstXy])!!.groupValues[1].toFloat()
+        assertTrue("${moves[firstXy]} vai ao modelo", x < 60f)
     }
 
     @Test
