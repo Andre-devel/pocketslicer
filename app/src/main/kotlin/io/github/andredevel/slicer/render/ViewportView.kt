@@ -164,6 +164,15 @@ class ViewportView(context: Context) : GLSurfaceView(context) {
         }
     }
 
+    private var slider: SliderOverlay? = null
+
+    /** Slider de câmera sobre a pré-visualização ([SceneRenderer.slider]). */
+    fun setSlider(slider: SliderOverlay?) {
+        if (slider == this.slider) return
+        this.slider = slider
+        onGlThread { renderer.slider = slider }
+    }
+
     /**
      * Ver [SceneRenderer.requestThumbnail]; null sem objetos. Só termina com a superfície GL
      * ativa (app em primeiro plano).

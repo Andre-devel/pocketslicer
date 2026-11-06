@@ -91,6 +91,9 @@ import io.github.andredevel.slicer.ui.theme.MonoStyles
 import io.github.andredevel.slicer.ui.theme.PocketTheme
 import io.github.andredevel.slicer.update.Release
 import kotlin.math.roundToInt
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import io.github.andredevel.slicer.render.SliderOverlay
 
 /** Destinos da navegação principal. [shortLabel]: na barra inferior do celular, mais estreita. */
 enum class Destination(@DrawableRes val icon: Int, @StringRes val label: Int, @StringRes val shortLabel: Int = label) {
@@ -315,6 +318,31 @@ private fun Workspace(
     // Camada (a partir de 0) em que o usuário está pondo uma pausa ou troca de filamento.
     var addingLayerChange by remember(state.preview) { mutableStateOf<Int?>(null) }
 
+    // Slider de câmera: aba do painel só com a impressora do slider; o plano segue a camada de cima.
+    val sliderPrinter = state.presets[PresetKind.PRINTER]?.isSliderPrinter == true
+    var sliderTabSelected by rememberSaveable { mutableStateOf(false) }
+    val layerCount = state.preview?.toolpaths?.layerCount ?: 0
+    val sliderScene = state.scene
+    val sliderTargets = remember(sliderScene?.meshes, sliderScene?.placements) {
+        sliderScene?.let { sliderTargets(it.meshes, it.placements) }.orEmpty()
+    }
+    val sliderPlan = remember(state.sliderConfig, layerCount, sliderScene?.bed, sliderTargets) {
+        val config = state.sliderConfig
+        sliderScene?.takeIf { layerCount > 0 }?.let { scene ->
+            val target = sliderTargets.getOrNull(config.followObject.coerceAtMost(sliderTargets.size - 1).coerceAtLeast(0))
+            SliderPlan(config, layerCount, scene.bed.center(), target?.center?.takeIf { config.panMode == PanMode.FOLLOW })
+        }
+    }
+    val sliderActive = previewing && sliderPrinter && sliderTabSelected && sliderPlan != null
+    val sliderLayer = previewSettings.maxLayer.coerceIn(0, (layerCount - 1).coerceAtLeast(0))
+    var viewportCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var phoneInset by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    val sliderTab = if (sliderPrinter && sliderPlan != null) {
+        SliderTab(sliderTabSelected, { sliderTabSelected = it }) {
+            SliderPanel(sliderPlan, sliderTargets, sliderLayer, viewModel::setSliderConfig)
+        }
+    } else null
+
     val header = @Composable {
         if (previewing) PreviewHeader(state, viewModel, pickers, compact = !wide)
         else PrepareHeader(state, viewModel, pickers, compact = !wide)
@@ -326,7 +354,7 @@ private fun Workspace(
     }
 
     val viewportArea = @Composable { modifier: Modifier ->
-        Box(modifier) {
+        Box(modifier.onGloballyPositioned { viewportCoordinates = it }) {
             Viewport(state, viewModel, previewSettings, { viewport = it }, { cameraView = it }, Modifier.fillMaxSize())
             val preview = state.preview
             val done = state.slice as? SliceState.Done
@@ -334,6 +362,13 @@ private fun Workspace(
                 PreviewOverlay(
                     preview, done.stats, state.roleLabels, previewSettings, { previewSettings = it }, compact = !wide, viewPicker,
                     onAddLayerChange = { addingLayerChange = it },
+                    slider = sliderPlan?.takeIf { sliderActive }?.let { plan ->
+                        SliderUi(plan) { frame ->
+                            phoneInset = viewportCoordinates?.takeIf { it.isAttached && frame.isAttached }?.localBoundingBoxOf(frame)?.let {
+                                android.graphics.Rect(it.left.roundToInt(), it.top.roundToInt(), it.right.roundToInt(), it.bottom.roundToInt())
+                            }
+                        }
+                    },
                 )
                 addingLayerChange?.let { layer ->
                     LayerChangeDialog(state, viewModel, layer + 1, preview.toolpaths.layerZ[layer]) { addingLayerChange = null }
@@ -354,6 +389,10 @@ private fun Workspace(
         }
     }
 
+    LaunchedEffect(viewport, sliderActive, sliderPlan, sliderLayer, phoneInset) {
+        viewport?.setSlider(sliderPlan?.takeIf { sliderActive }?.let { SliderOverlay(it, sliderLayer, phoneInset) })
+    }
+
     Column(Modifier.fillMaxSize()) {
         header()
         if (wide) {
@@ -362,7 +401,7 @@ private fun Workspace(
                 viewportArea(Modifier.weight(1f).fillMaxHeight())
                 VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Surface(Modifier.width(PANEL_WIDTH).fillMaxHeight(), color = MaterialTheme.colorScheme.surface) {
-                    if (previewing) PreviewPanel(state, viewModel, pickers, send)
+                    if (previewing) PreviewPanel(state, viewModel, pickers, send, sliderTab)
                     else PreparePanel(state, viewModel, openParameters)
                 }
             }
@@ -383,7 +422,7 @@ private fun Workspace(
                 sheetContainerColor = MaterialTheme.colorScheme.surface,
                 sheetContent = {
                     Box(Modifier.fillMaxWidth().heightIn(max = sheetMaxHeight)) {
-                        if (previewing) PreviewSheet(state, viewModel, pickers, send)
+                        if (previewing) PreviewSheet(state, viewModel, pickers, send, sliderTab)
                         else PrepareSheet(state, viewModel, pickers, openParameters)
                     }
                 },

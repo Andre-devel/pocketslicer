@@ -272,6 +272,8 @@ data class SlicerUiState(
     val dirty: Boolean = false,
     /** Moeda do custo (ISO 4217) escolhida em Configurações; null segue o idioma. */
     val currency: String? = null,
+    /** Slider de câmera da K2 (aba Slider do Visualizar). */
+    val sliderConfig: SliderConfig = SliderConfig(),
     val autoUpdate: Boolean = true,
     val update: UpdateState = UpdateState.Idle,
     /** Pergunta se instala a versão baixada (ao terminar o download ou por Instalar em Configurações). */
@@ -353,7 +355,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             val recents = withContext(Dispatchers.IO) { recentStore.load() }
             val currency = withContext(Dispatchers.IO) { settings.currency }
             val autoUpdate = withContext(Dispatchers.IO) { settings.autoUpdate }
-            _state.update { it.copy(printers = printers, recents = recents, currency = currency, autoUpdate = autoUpdate) }
+            val sliderConfig = withContext(Dispatchers.IO) { settings.sliderConfig }
+            _state.update { it.copy(printers = printers, recents = recents, currency = currency, autoUpdate = autoUpdate, sliderConfig = sliderConfig) }
             val due = System.currentTimeMillis() - withContext(Dispatchers.IO) { settings.lastUpdateCheck } >= UPDATE_CHECK_INTERVAL_MS
             if (autoUpdate && due) checkUpdate(automatic = true)
         }
@@ -382,6 +385,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
+    }
+
+    fun setSliderConfig(config: SliderConfig) {
+        settings.sliderConfig = config
+        _state.update { it.copy(sliderConfig = config) }
     }
 
     fun setCurrency(currency: String?) {

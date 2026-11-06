@@ -78,7 +78,13 @@ class SettingsStore(private val prefs: SharedPreferences) {
         get() = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0)
         set(value) = prefs.edit().putLong(KEY_LAST_UPDATE_CHECK, value).apply()
 
+    /** Configuração do slider de câmera ([SliderConfig]); a padrão até a primeira mudança. */
+    var sliderConfig: SliderConfig
+        get() = prefs.getString(KEY_SLIDER, null)?.let { runCatching { SliderConfig.fromJson(JSONObject(it)) }.getOrNull() } ?: SliderConfig()
+        set(value) = prefs.edit().putString(KEY_SLIDER, value.toJson().toString()).apply()
+
     private companion object {
+        const val KEY_SLIDER = "camera_slider"
         const val KEY_CURRENCY = "currency"
         const val KEY_AUTO_UPDATE = "auto_update"
         const val KEY_THEME = "theme"

@@ -38,6 +38,8 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -60,6 +62,8 @@ import io.github.andredevel.slicer.ui.components.MetricTile
 import io.github.andredevel.slicer.ui.components.ScreenHeader
 import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.SelectField
+import io.github.andredevel.slicer.ui.components.Segment
+import io.github.andredevel.slicer.ui.components.SegmentedTabs
 import io.github.andredevel.slicer.ui.components.vertical
 import io.github.andredevel.slicer.ui.theme.MonoStyles
 import kotlinx.coroutines.delay
@@ -130,16 +134,19 @@ fun PreviewOverlay(
     compact: Boolean,
     viewPicker: @Composable (Modifier) -> Unit,
     onAddLayerChange: (layer: Int) -> Unit,
+    slider: SliderUi? = null,
 ) {
     val toolpaths = preview.toolpaths
     val lastLayer = (toolpaths.layerCount - 1).coerceAtLeast(0)
     val maxLayer = settings.maxLayer.coerceIn(0, lastLayer)
     val minLayer = settings.minLayer.coerceIn(0, maxLayer)
-    val moves = preview.movesInLayer(maxLayer)
+    // Com o slider, a barra de baixo mostra ele no lugar dos movimentos.
+    val moves = if (slider != null) 0 else preview.movesInLayer(maxLayer)
+    val bottomBar = moves > 0 || slider != null
     var legendOpen by rememberSaveable { mutableStateOf(!compact) }
 
     Box(Modifier.fillMaxSize().padding(12.dp)) {
-        Column(Modifier.align(Alignment.TopStart).widthIn(max = LEGEND_WIDTH).padding(bottom = if (moves > 0) MOVES_BAR_CLEARANCE else 0.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.align(Alignment.TopStart).widthIn(max = LEGEND_WIDTH).padding(bottom = if (bottomBar) MOVES_BAR_CLEARANCE else 0.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (compact) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FloatingPill(
@@ -160,7 +167,7 @@ fun PreviewOverlay(
             LayerSlider(
                 toolpaths, minLayer, maxLayer, lastLayer, settings, onSettings, onAddLayerChange,
                 Modifier.align(Alignment.TopEnd).fillMaxHeight().padding(
-                    bottom = (if (moves > 0) MOVES_BAR_CLEARANCE else 0.dp) + (if (compact) SHEET_CLEARANCE else 0.dp),
+                    bottom = (if (bottomBar) MOVES_BAR_CLEARANCE else 0.dp) + (if (compact) SHEET_CLEARANCE else 0.dp),
                 ),
             )
         }
@@ -180,8 +187,34 @@ fun PreviewOverlay(
                 }
             }
         }
+
+        if (slider != null) {
+            val bottom = if (compact) SHEET_CLEARANCE else 0.dp
+            // Ao lado do seletor de camadas, longe da legenda.
+            Box(Modifier.align(Alignment.BottomEnd).padding(bottom = bottom + MOVES_BAR_CLEARANCE, end = LAYER_SLIDER_CLEARANCE)) {
+                PhoneViewFrame(
+                    Modifier.size(if (compact) PHONE_VIEW_COMPACT else PHONE_VIEW_WIDE, (if (compact) PHONE_VIEW_COMPACT else PHONE_VIEW_WIDE) * 16 / 9)
+                        .onGloballyPositioned(slider.onInset),
+                )
+            }
+            FloatingCard(Modifier.align(Alignment.BottomCenter).padding(bottom = bottom).widthIn(max = 460.dp).fillMaxWidth(), RoundedCornerShape(28.dp)) {
+                Box(Modifier.heightIn(min = 60.dp), contentAlignment = Alignment.CenterStart) {
+                    SliderReadout(slider.plan, maxLayer, settings, onSettings)
+                }
+            }
+        }
     }
 }
+
+/** Slider de câmera sobre a pré-visualização: o plano dele e onde fica o quadro da visão do celular. */
+class SliderUi(val plan: SliderPlan, val onInset: (LayoutCoordinates) -> Unit)
+
+/** Largura do seletor de camadas mais o espaço até o quadro da visão do celular. */
+private val LAYER_SLIDER_CLEARANCE = 88.dp
+
+/** Largura do quadro da visão do celular (9:16) no tablet e no celular. */
+private val PHONE_VIEW_WIDE = 150.dp
+private val PHONE_VIEW_COMPACT = 90.dp
 
 /**
  * ▶ avança o slider de movimentos até o fim da camada em [PLAY_MILLIS]; do fim, recomeça do
@@ -350,9 +383,17 @@ private fun LayerLabel(layer: Int, z: Float, highlight: Boolean) {
 
 /** Painel lateral de Visualizar: resumo do fatiamento e as saídas do G-code. */
 @Composable
-fun PreviewPanel(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, onSend: () -> Unit) {
+fun PreviewPanel(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, onSend: () -> Unit, sliderTab: SliderTab? = null) {
     val stats = (state.slice as? SliceState.Done)?.stats ?: return
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (sliderTab != null) {
+            SliderTabs(sliderTab)
+            if (sliderTab.selected) {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { sliderTab.content() }
+                GcodeActions(state, pickers, onSend)
+                return@Column
+            }
+        }
         SectionLabel(stringResource(R.string.summary_plate, state.plateNumber))
         Column {
             Text(stringResource(R.string.estimated_time), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -368,9 +409,17 @@ fun PreviewPanel(state: SlicerUiState, viewModel: SlicerViewModel, pickers: File
 
 /** Sheet de Visualizar no celular. */
 @Composable
-fun PreviewSheet(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, onSend: () -> Unit) {
+fun PreviewSheet(state: SlicerUiState, viewModel: SlicerViewModel, pickers: FilePickers, onSend: () -> Unit, sliderTab: SliderTab? = null) {
     val stats = (state.slice as? SliceState.Done)?.stats ?: return
     Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (sliderTab != null) {
+            SliderTabs(sliderTab)
+            if (sliderTab.selected) {
+                GcodeActions(state, pickers, onSend, compact = true)
+                Column(Modifier.verticalScroll(rememberScrollState())) { sliderTab.content() }
+                return@Column
+            }
+        }
         Row(verticalAlignment = Alignment.Bottom) {
             Text(stringResource(R.string.time), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp, bottom = 4.dp))
             Text(formatDuration(stats.printTimeSeconds), style = MonoStyles.title, modifier = Modifier.weight(1f))
@@ -380,6 +429,21 @@ fun PreviewSheet(state: SlicerUiState, viewModel: SlicerViewModel, pickers: File
         SummaryTiles(state, stats)
         LayerChangesSection(state, viewModel)
     }
+}
+
+/** Abas Resumo e Slider do painel de Visualizar, com a impressora do slider de câmera. */
+class SliderTab(val selected: Boolean, val onSelect: (Boolean) -> Unit, val content: @Composable () -> Unit)
+
+@Composable
+private fun SliderTabs(tab: SliderTab) {
+    SegmentedTabs(
+        listOf(Segment(stringResource(R.string.summary_tab)), Segment(stringResource(R.string.slider_tab))),
+        if (tab.selected) 1 else 0,
+        { tab.onSelect(it == 1) },
+        Modifier.fillMaxWidth(),
+        check = false,
+        compact = true,
+    )
 }
 
 @Composable

@@ -11,6 +11,9 @@ import io.github.andredevel.slicer.core.PaintState
 import io.github.andredevel.slicer.core.Part
 import io.github.andredevel.slicer.core.Placement
 import io.github.andredevel.slicer.core.WipeTower
+import io.github.andredevel.slicer.SliderGeometry
+import io.github.andredevel.slicer.SliderPlan
+import android.graphics.Rect
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
@@ -57,6 +60,12 @@ data class PaintOverlay(
     val clipDirection: Int = 0,
     val colors: List<FloatArray>? = null,
 )
+
+/**
+ * Slider de câmera na pré-visualização: trilho, carrinho e celular na camada [layer] de [plan]
+ * e, em [inset] (pixels do viewport, origem em cima à esquerda), o que o celular enxerga.
+ */
+data class SliderOverlay(val plan: SliderPlan, val layer: Int, val inset: Rect?)
 
 /**
  * Desenha a cena com OpenGL ES 3. Roda na thread GL do [GLSurfaceView]; [scene] e
@@ -180,6 +189,22 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
     var previewSettings = PreviewSettings()
     private var toolpathRenderer: ToolpathRenderer? = null
 
+    /** Slider de câmera sobre a pré-visualização; ligá-lo enquadra mesa e trilho, desligá-lo volta à mesa. */
+    var slider: SliderOverlay? = null
+        set(value) {
+            val old = field
+            field = value
+            if (old?.plan !== value?.plan || old?.layer != value?.layer) {
+                sliderLines?.release()
+                sliderLines = null
+            }
+            if ((old == null) != (value == null) || (value != null && old?.plan?.config?.mount != value.plan.config.mount)) {
+                setView(CameraView.HOME)
+            }
+        }
+    /** Linhas do campo de visão do celular e da mira, da camada atual do [slider]. */
+    private var sliderLines: Geometry? = null
+
     /** Recursos GL da [scene] atual; recriados quando o contexto GL é perdido. */
     private var gpu: GpuScene? = null
     /** Malhas de [Scene.parts] (null nas peças do objeto, que já estão na dele). */
@@ -197,6 +222,7 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         paintGpu = null
         gapsGpu = null
         toolpathRenderer = null
+        sliderLines = null
         flatProgram = program(FLAT_VERTEX, FLAT_FRAGMENT_SOURCE)
         meshProgram = program(MESH_VERTEX, MESH_FRAGMENT)
         glEnable(GL_DEPTH_TEST)
@@ -235,6 +261,10 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             val renderer = toolpathRenderer ?: ToolpathRenderer(preview).also { toolpathRenderer = it }
             Matrix.multiplyMM(mvp, 0, camera.projection, 0, camera.view, 0)
             renderer.draw(mvp, camera.view, previewSettings)
+            slider?.let {
+                drawSlider(gpu, it)
+                drawPhoneView(gpu, it, renderer)
+            }
             return
         }
 
@@ -423,6 +453,138 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         glDisable(GL_BLEND)
     }
 
+    /** Trilho, carrinho, haste e celular (caixas) e as linhas do campo de visão, com a câmera do viewport. */
+    private fun drawSlider(gpu: GpuScene, overlay: SliderOverlay) {
+        val plan = overlay.plan
+        val layer = overlay.layer
+        glUseProgram(meshProgram)
+        val mvpLocation = glGetUniformLocation(meshProgram, "uMvp")
+        val modelViewLocation = glGetUniformLocation(meshProgram, "uModelView")
+        val colorLocation = glGetUniformLocation(meshProgram, "uColor")
+        val modelLocation = glGetUniformLocation(meshProgram, "uModel")
+        glUniformMatrix3fv(glGetUniformLocation(meshProgram, "uViewRotation"), 1, false, FloatArray(9) { camera.view[it / 3 * 4 + it % 3] }, 0)
+        glUniform4f(glGetUniformLocation(meshProgram, "uClip"), 0f, 0f, 0f, NO_CLIP)
+        glUniform1f(glGetUniformLocation(meshProgram, "uSlopeNormalZ"), -2f)
+        val model = FloatArray(16)
+        fun box(color: FloatArray, build: (FloatArray) -> Unit) {
+            Matrix.setIdentityM(model, 0)
+            build(model)
+            Matrix.multiplyMM(modelView, 0, camera.view, 0, model, 0)
+            Matrix.multiplyMM(mvp, 0, camera.projection, 0, modelView, 0)
+            glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
+            glUniformMatrix4fv(modelViewLocation, 1, false, modelView, 0)
+            glUniformMatrix4fv(modelLocation, 1, false, model, 0)
+            gpu.tower.draw(colorLocation, color)
+        }
+        val travel = SliderGeometry.TRAVEL.toFloat()
+        val top = plan.railTopZ
+        val y = plan.railY
+        box(RAIL) {
+            Matrix.translateM(it, 0, plan.railZeroX + travel / 2 - SliderGeometry.PROFILE_LENGTH / 2, y - 10f, top - 20f)
+            Matrix.scaleM(it, 0, SliderGeometry.PROFILE_LENGTH, 20f, 20f)
+        }
+        val start = minOf(plan.config.start, plan.config.end).toFloat()
+        val length = kotlin.math.abs(plan.config.end - plan.config.start).toFloat()
+        if (length > 0f) box(SELECTED) {
+            Matrix.translateM(it, 0, plan.railZeroX + start, y - 3f, top)
+            Matrix.scaleM(it, 0, length, 6f, 0.6f)
+        }
+        box(HOME_SWITCH) {
+            Matrix.translateM(it, 0, plan.railZeroX - 8f, y - 12f, top - 20f)
+            Matrix.scaleM(it, 0, 8f, 24f, 32f)
+        }
+        val x = plan.carriageX(layer)
+        box(CARRIAGE) {
+            Matrix.translateM(it, 0, x - 35f, y - 35f, top)
+            Matrix.scaleM(it, 0, 70f, 70f, 18f)
+        }
+        val phoneBottom = SliderGeometry.LENS_HEIGHT - PHONE_HEIGHT / 2
+        box(RAIL) {
+            Matrix.translateM(it, 0, x - 4f, y - 4f, top + 18f)
+            Matrix.scaleM(it, 0, 8f, 8f, (phoneBottom - top - 18f).coerceAtLeast(1f))
+        }
+        box(PHONE) {
+            Matrix.translateM(it, 0, x, y, SliderGeometry.LENS_HEIGHT)
+            // Pan positivo gira para +X: sentido horário visto de cima.
+            Matrix.rotateM(it, 0, -plan.pan(layer), 0f, 0f, 1f)
+            Matrix.translateM(it, 0, -PHONE_WIDTH / 2, -4f, -PHONE_HEIGHT / 2)
+            Matrix.scaleM(it, 0, PHONE_WIDTH, 8f, PHONE_HEIGHT)
+        }
+
+        val lines = sliderLines ?: Geometry(GL_LINES, viewLines(plan, layer)).also { sliderLines = it }
+        glUseProgram(flatProgram)
+        Matrix.multiplyMM(mvp, 0, camera.projection, 0, camera.view, 0)
+        glUniformMatrix4fv(glGetUniformLocation(flatProgram, "uMvp"), 1, false, mvp, 0)
+        val color = glGetUniformLocation(flatProgram, "uColor")
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        lines.draw(color, VIEW_CONE, 0, 6)
+        lines.draw(color, AIM, 6, 2)
+        glDisable(GL_BLEND)
+    }
+
+    /** Bordas do campo de visão horizontal do celular (3 segmentos) e a mira (1), da lente até além do alvo. */
+    private fun viewLines(plan: SliderPlan, layer: Int): FloatArray {
+        val lens = plan.lens(layer)
+        val aim = plan.aim(layer)
+        val distance = aim[1] - lens[1] + VIEW_CONE_BEYOND
+        val pan = Math.toRadians(plan.pan(layer).toDouble())
+        val half = kotlin.math.atan(kotlin.math.tan(Math.toRadians(SliderGeometry.PHONE_FOV / 2.0)) * SliderGeometry.PHONE_ASPECT)
+        fun edge(angle: Double) = floatArrayOf(lens[0] + distance * kotlin.math.tan(angle).toFloat(), lens[1] + distance, aim[2])
+        val left = edge(pan - half)
+        val right = edge(pan + half)
+        return lens + left + lens + right + left + right + lens + aim
+    }
+
+    /** O que o celular enxerga: mesa e caminhos do G-code até a camada, no retângulo [SliderOverlay.inset]. */
+    private fun drawPhoneView(gpu: GpuScene, overlay: SliderOverlay, toolpaths: ToolpathRenderer) {
+        val rect = overlay.inset?.takeIf { it.width() > 0 && it.height() > 0 } ?: return
+        val x = rect.left
+        val y = viewportHeight - rect.bottom
+        glEnable(GL_SCISSOR_TEST)
+        glScissor(x, y, rect.width(), rect.height())
+        glViewport(x, y, rect.width(), rect.height())
+        PHONE_BACKGROUND.let { glClearColor(it[0], it[1], it[2], it[3]) }
+        glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+        val lens = overlay.plan.lens(overlay.layer)
+        val aim = overlay.plan.aim(overlay.layer)
+        val view = FloatArray(16)
+        val projection = FloatArray(16)
+        Matrix.setLookAtM(view, 0, lens[0], lens[1], lens[2], aim[0], aim[1], aim[2], 0f, 0f, 1f)
+        Matrix.perspectiveM(projection, 0, SliderGeometry.PHONE_FOV, rect.width().toFloat() / rect.height(), 5f, 5000f)
+        Matrix.multiplyMM(mvp, 0, projection, 0, view, 0)
+        glUseProgram(flatProgram)
+        glUniformMatrix4fv(glGetUniformLocation(flatProgram, "uMvp"), 1, false, mvp, 0)
+        val color = glGetUniformLocation(flatProgram, "uColor")
+        glEnable(GL_POLYGON_OFFSET_FILL)
+        glPolygonOffset(1f, 1f)
+        gpu.bedSurface.draw(color, palette.bedSurface)
+        glDisable(GL_POLYGON_OFFSET_FILL)
+        gpu.bedGrid.draw(color, palette.bedGrid)
+        gpu.bedOutline.draw(color, palette.bedOutline)
+        toolpaths.draw(mvp, view, previewSettings)
+        glDisable(GL_SCISSOR_TEST)
+        glViewport(0, 0, viewportWidth, viewportHeight)
+    }
+
+    /** Enquadra a mesa e o trilho juntos, de frente e de lado (a vista inicial com o slider). */
+    private fun frameSlider(plan: SliderPlan) {
+        val bed = scene?.bed ?: return
+        // O perfil passa do curso do carrinho para os dois lados.
+        val railMid = plan.railZeroX + SliderGeometry.TRAVEL / 2f
+        val xs = bed.shape.filterIndexed { i, _ -> i % 2 == 0 } + listOf(railMid - SliderGeometry.PROFILE_LENGTH / 2, railMid + SliderGeometry.PROFILE_LENGTH / 2)
+        val ys = bed.shape.filterIndexed { i, _ -> i % 2 == 1 } + plan.railY
+        if (xs.size < 3) return
+        val zMin = plan.railTopZ - 20f
+        val zMax = SliderGeometry.LENS_HEIGHT + PHONE_HEIGHT / 2
+        val center = floatArrayOf((xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2, (zMin + zMax) / 2)
+        val half = floatArrayOf((xs.max() - xs.min()) / 2, (ys.max() - ys.min()) / 2, (zMax - zMin) / 2)
+        // Folga para a barra de leitura do slider, que flutua sobre a parte de baixo do viewport.
+        val radius = sqrt(half[0] * half[0] + half[1] * half[1] + half[2] * half[2]) * SLIDER_MARGIN
+        // De frente e um pouco de lado, para o trilho não tapar a mesa.
+        camera.frame(center, radius, CameraView.HOME, if (viewportHeight > 0) bottomInset.toFloat() / viewportHeight else 0f, SLIDER_YAW, SLIDER_PITCH)
+    }
+
     private fun frameBed(bed: Bed) {
         val xs = bed.shape.filterIndexed { i, _ -> i % 2 == 0 }
         val ys = bed.shape.filterIndexed { i, _ -> i % 2 == 1 }
@@ -442,9 +604,11 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
     /** Altura em pixels coberta embaixo do viewport (bottom sheet); setView enquadra acima dela. */
     var bottomInset = 0
 
-    /** Enquadra a mesa pelo ângulo de [view]. */
+    /** Enquadra a mesa (com o slider, na vista inicial, também o trilho) pelo ângulo de [view]. */
     fun setView(view: CameraView) {
         if (bedRadius <= 0f) return
+        // Com o slider, a vista inicial enquadra a mesa e o trilho.
+        slider?.takeIf { view == CameraView.HOME }?.let { frameSlider(it.plan); return }
         // De frente a mesa vira uma linha: o alvo sobe para ela ficar no terço de baixo.
         val center = if (view == CameraView.FRONT) bedCenter.copyOf().also { it[2] = bedRadius / 2 } else bedCenter
         camera.frame(center, bedRadius, view, if (viewportHeight > 0) bottomInset.toFloat() / viewportHeight else 0f)
@@ -580,6 +744,20 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
         /** Offset que não esconde nada (o ClipsNothing do Orca). */
         private const val NO_CLIP = 1e30f
         private val OUTSIDE = floatArrayOf(1.00f, 0.42f, 0.37f, 1f)
+        // Slider de câmera: perfil e haste de alumínio, carrinho grafite, chave verde e celular escuro.
+        private val RAIL = floatArrayOf(0.62f, 0.65f, 0.68f, 1f)
+        private val CARRIAGE = floatArrayOf(0.30f, 0.32f, 0.35f, 1f)
+        private val HOME_SWITCH = floatArrayOf(0.37f, 0.83f, 0.55f, 1f)
+        private val PHONE = floatArrayOf(0.12f, 0.13f, 0.14f, 1f)
+        private val VIEW_CONE = floatArrayOf(1.00f, 0.54f, 0.24f, 0.6f)
+        private val AIM = floatArrayOf(0.43f, 0.66f, 1.00f, 0.8f)
+        private val PHONE_BACKGROUND = floatArrayOf(0.043f, 0.047f, 0.055f, 1f)
+        private const val PHONE_WIDTH = 77f
+        private const val PHONE_HEIGHT = 160f
+        private const val VIEW_CONE_BEYOND = 220f
+        private const val SLIDER_YAW = -55f
+        private const val SLIDER_PITCH = 30f
+        private const val SLIDER_MARGIN = 1.15f
         private val SELECTED_OUTSIDE = floatArrayOf(0.98f, 0.40f, 0.35f, 1f)
 
         private fun mix(a: FloatArray, b: FloatArray, t: Float) = FloatArray(4) { a[it] + (b[it] - a[it]) * t }
