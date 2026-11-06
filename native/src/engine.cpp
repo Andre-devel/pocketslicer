@@ -3757,6 +3757,10 @@ void Engine::set_option(PresetKind kind, const std::string &key, const std::stri
     } catch (const BadOptionValueException &) {
         throw std::invalid_argument(format(_u8L("Invalid value provided for parameter %1%: %2%"), i18n::translate(def->label), value));
     }
+    // O time-lapse suave só gera a torre com a torre de purga ligada; a GUI do Orca oferece ligá-la
+    // ao escolher o modo suave (Tab::on_value_change). Aqui ela liga junto, sem perguntar.
+    if (key == "timelapse_type" && config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth)
+        config.set_key_value("enable_prime_tower", new ConfigOptionBool(true));
     collection.get_edited_preset().config = std::move(config);
     if (key == "layer_height")
         m->wanted_layer_height.reset();

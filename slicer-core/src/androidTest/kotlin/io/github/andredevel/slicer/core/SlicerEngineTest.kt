@@ -749,6 +749,31 @@ class SlicerEngineTest {
         assertTrue(engine.bedTypes().current in engine.bedTypes().values)
     }
 
+    // Slider de câmera (hardware/camera-slider): o time-lapse suave liga a torre de purga, e o
+    // G-code de time-lapse da K2 chama a macro no modo suave antes da torre de cada camada.
+    @Test
+    fun crealityK2SmoothTimelapseEnablesPrimeTower() = runBlocking {
+        engine.loadVendor("CrealityPrint/Creality")
+        engine.select(PresetKind.PRINTER, "Creality K2 0.4 nozzle")
+        engine.setOption(PresetKind.PROCESS, "enable_prime_tower", "0")
+        engine.setOption(PresetKind.PROCESS, "timelapse_type", "1")
+        assertEquals("1", engine.values(PresetKind.PROCESS).values["enable_prime_tower"])
+        engine.setOption(
+            PresetKind.PRINTER, "time_lapse_gcode",
+            "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH{else}TIMELAPSE_FOTO{endif}",
+        )
+        engine.loadModel(testAsset("cube20.stl"))
+        val gcode = File(work, "k2-timelapse.gcode")
+        engine.slice(gcode) { _, _ -> }
+        val lines = gcode.readLines()
+        val shots = lines.indices.filter { lines[it] == "TIMELAPSE_FOTO MODE=SMOOTH" }
+        assertTrue(shots.size > 10)
+        assertTrue(lines.none { it == "TIMELAPSE_FOTO" })
+        // Depois da foto vem a torre, antes do modelo (o perfil CrealityPrint marca "; FEATURE:").
+        val next = lines.subList(shots[1], lines.size).first { it.startsWith("; FEATURE:") }
+        assertEquals("; FEATURE: Prime tower", next)
+    }
+
     @Test
     fun qidiStudioQ2Slices() = runBlocking {
         // O G-code inicial do Q2 no QIDI Studio usa [chamber_temperatures], que no Orca é chamber_temperature.
