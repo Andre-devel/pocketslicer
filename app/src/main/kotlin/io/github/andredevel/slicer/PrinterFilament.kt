@@ -86,7 +86,8 @@ internal fun PrinterFilamentTab(
                 for (unit in units) {
                     val box = boxes.firstOrNull { it.unit == unit }
                     val inBox = slots.filter { it.unit == unit }
-                    BoxCard(box, unit == null && units.size > 1, inBox, cards, filament, selected, idle, refreshEnabled = idle && !queueRunning && !commands.sending,
+                    // Carga, descarga e RFID só nas caixas (o carretel externo e as cabeças não têm).
+                    BoxCard(box, unit == null && units.size > 1, inBox, cards, if (unit == null) FilamentControls() else filament, selected, idle, refreshEnabled = idle && !queueRunning && !commands.sending,
                         onToggle = { slot, on -> selected = if (on) selected + slot.index else selected - slot.index },
                         onRefresh = { commands.run(PrinterCommand.RefreshSlot(it)) })
                 }

@@ -401,7 +401,8 @@ sealed interface Camera {
 
 /**
  * Posição da impressora para filamento ([Uploader.slots]), [index] na lista dela: cabeça da
- * Snapmaker U1, ou a posição [cfsSlot] (0 = A) da caixa [cfsBox] do CFS da Creality. [loaded]
+ * Snapmaker U1, ou a posição [cfsSlot] (0 = A) da caixa [cfsBox] do CFS da Creality (ou o suporte
+ * de carretel externo dela, [CREALITY_EXTERNAL]). [loaded]
  * quando há filamento detectado; [type] como a impressora informa ("PLA") e [color] `#RRGGBB`,
  * quando ela sabe. [nozzle]: na impressora de vários bicos com CFS (K3), o bico (a partir de 1)
  * que essa posição alimenta; só o filamento desse bico (T de mesmo número menos 1) pode usá-la.
@@ -423,8 +424,11 @@ data class Slot(
     val bambuSlot: Int = 0,
 ) {
     /** A caixa de filamento ([FilamentBox.unit]) em que a posição fica; null fora de uma (carretel externo, cabeça). */
-    val unit: Int? get() = cfsBox ?: qidiSlot?.takeIf { it != QIDI_EXTERNAL }?.div(4) ?: bambuAms?.takeIf { it < BAMBU_EXTERNAL }
+    val unit: Int? get() = cfsBox?.takeIf { it != CREALITY_EXTERNAL } ?: qidiSlot?.takeIf { it != QIDI_EXTERNAL }?.div(4) ?: bambuAms?.takeIf { it < BAMBU_EXTERNAL }
 }
+
+/** [Slot.cfsBox] do suporte de carretel externo da Creality (caixa 0, de tipo 1, no `boxsInfo`). */
+const val CREALITY_EXTERNAL = 0
 
 /** [Slot.bambuAms] do carretel externo da Bambu de um bico (vt_tray); 255 é o principal no H2D. */
 const val BAMBU_EXTERNAL = 254

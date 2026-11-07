@@ -448,6 +448,7 @@
     <string name="print_object_cancel_text">The printer skips this object until the end of the print. This cannot be undone; the other objects keep printing.</string>
     <string name="cfs_slot">Slot %1$s</string>
     <string name="external_spool">External spool</string>
+    <string name="mapping_external_single">The external spool prints without the CFS: use it only for a single-filament print.</string>
     <string name="ams_slot">AMS %1$s</string>
     <string name="qidi_box_slot">Box %1$d, slot %2$d</string>
     <string name="print_heats_note">The printer starts heating as soon as the file arrives.</string>
