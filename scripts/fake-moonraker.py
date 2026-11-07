@@ -47,7 +47,8 @@ Arquivos (aba Arquivos): GET /server/files/roots, /server/files/list?root=gcodes
 o histórico em /server/history/list e /server/history/totals: cada impressão iniciada entra como
 in_progress e termina completed, cancelled ou klippy_shutdown. --sample-files grava na pasta dois
 G-codes no formato do Orca (miniatura, rodapé, um com 1 filamento e outro com 4). No --cfs, o
-set multiColorPrint do WebSocket 9999 inicia o arquivo e responde printFileName.
+set multiColorPrint (ou opGcodeFile printprt:, o carretel externo) do WebSocket 9999 inicia o
+arquivo e responde printFileName; boxsInfo traz também o suporte externo (caixa 0, PETG preto).
 
 --calibration simula as calibrações da K3 (gcode_macro printer_param no configfile e as macros
 G29, Z_AXIS_CALIBRATION, INPUTSHAPER, NOZZLE_PID, BEDPID e NOZZLE_CLEAR no gcode/help): cada uma
@@ -136,6 +137,7 @@ def main():
     parser.add_argument("--mac", default="02:00:00:00:fa:01", help="MAC da wlan0 em /machine/system_info")
     parser.add_argument("--print-modes", action="store_true", help="SET_PRINT_MODE da Creality (K3)")
     parser.add_argument("--cfs", help="CFS da K3: filamento de cada posição, TIPO:RRGGBB separados por vírgula")
+    parser.add_argument("--cfs-k2", action="store_true", help="CFS como na K2: um bico só (nozzleFilament vazio)")
     parser.add_argument("--cfs-blocking", action="store_true", help="carga e descarga só respondem no fim")
     parser.add_argument("--cfs-fail", help="posição (T1A..T1D) em que a carga ou descarga dá erro")
     parser.add_argument("--calibration", action="store_true", help="macros de calibração da K3")
@@ -810,9 +812,11 @@ def main():
                 if request.get("method") == "get" and "boxsInfo" in params:
                     materials = [{"id": i, "type": s["type"] if s else "", "color": "#0" + s["color"].lower() if s else "",
                                   "state": 1 if s and s.get("loaded", True) else 0} for i, s in enumerate(cfs["slots"])]
-                    send({"boxsInfo": {"materialBoxs": [{"id": 1, "type": 0, "state": 1, "materials": materials}]}})
+                    # Suporte de carretel externo como a K2 informa (2026-11-06): caixa 0 de tipo 1, state 0.
+                    external = {"id": 0, "type": 1, "state": 0, "materials": [{"id": 0, "type": "PETG", "color": "#0000000", "state": 1}]}
+                    send({"boxsInfo": {"materialBoxs": [external, {"id": 1, "type": 0, "state": 1, "materials": materials}]}})
                 elif request.get("method") == "get" and "nozzleFilament" in params:
-                    send({"nozzleFilament": [{"id": i + 1, "sources": [{"boxId": 1, "slotId": i}]} for i in range(4)]})
+                    send({"nozzleFilament": [] if args.cfs_k2 else [{"id": i + 1, "sources": [{"boxId": 1, "slotId": i}]} for i in range(4)]})
                 elif request.get("method") == "set":
                     print(f"Creality set {params}", file=sys.stderr)
                     if params.get("pause") == 1 and state["print_stats"] == "printing":
@@ -822,8 +826,8 @@ def main():
                     elif params.get("stop") == 1 and state["print_stats"] in ("printing", "paused"):
                         state.update(print_stats="cancelled", started=None, paused_since=None)
                         end("cancelled")
-                    elif "multiColorPrint" in params:
-                        gcode_path = params["multiColorPrint"].get("gcode", "")
+                    elif "multiColorPrint" in params or str(params.get("opGcodeFile", "")).startswith("printprt:"):
+                        gcode_path = params["multiColorPrint"].get("gcode", "") if "multiColorPrint" in params else params["opGcodeFile"][len("printprt:"):]
                         begin(os.path.relpath(gcode_path, os.path.abspath(args.folder)))
                         send({"printFileName": gcode_path})
 

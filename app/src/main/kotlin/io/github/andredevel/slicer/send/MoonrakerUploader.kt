@@ -212,6 +212,7 @@ object MoonrakerUploader : Uploader {
         when {
             mapping == null ->
                 check(Http.postJson(api.resolve("/printer/print/start"), headers(host), JSONObject().put("filename", path).toString()), host)
+            mapping.any { it?.cfsBox == CREALITY_EXTERNAL } -> crealityExternalStart(api, host, path)
             mapping.any { it?.cfsBox != null } -> crealityStart(api, host, path, mapping)
             mapping.any { it?.qidiSlot != null } -> {
                 check(Http.postJson(api.resolve("/printer/gcode/script"), headers(host), JSONObject().put("script", qidiMapping(mapping)).toString()), host)
@@ -381,10 +382,11 @@ object MoonrakerUploader : Uploader {
     }
 
     /**
-     * Posições das caixas CFS ligadas (`materialBoxs` de tipo 0 com `state` 1); vazia sem a
-     * interface da Creality. O suporte de carretel externo (tipo 1) fica de fora. Na K3 (vários
-     * bicos), `nozzleFilament` diz o bico de cada posição: o firmware dela não troca o bico do
-     * `T` do G-code, então a posição de um filamento é a que alimenta o bico dele.
+     * Posições das caixas CFS ligadas (`materialBoxs` de tipo 0 com `state` 1) e, por último, o
+     * suporte de carretel externo (tipo 1, [CREALITY_EXTERNAL]); vazia sem a interface da
+     * Creality. Na K3 (vários bicos), `nozzleFilament` diz o bico de cada posição: o firmware dela
+     * não troca o bico do `T` do G-code, então a posição de um filamento é a que alimenta o bico
+     * dele; o externo fica de fora nela (não se sabe que bico ele alimenta).
      */
     private suspend fun crealitySlots(api: URL): List<Slot> = withContext(Dispatchers.IO) {
         val (info, nozzles) = try {
@@ -407,8 +409,18 @@ object MoonrakerUploader : Uploader {
             }
         }
         val slots = mutableListOf<Slot>()
+        var external: Slot? = null
         for (b in 0 until boxes.length()) {
             val box = boxes.getJSONObject(b)
+            // O `state` do suporte externo vem 0 com filamento (K2, 2026-11-06); vale o do material.
+            if (box.optInt("type") == 1 && nozzleOf.isEmpty()) {
+                val material = box.optJSONArray("materials")?.optJSONObject(0)
+                val type = material?.optString("type")?.takeIf { it.isNotEmpty() }
+                external = Slot(
+                    0, loaded = type != null && material?.optInt("state") == 1, type = type,
+                    color = material?.optString("color")?.let(::crealityColor), cfsBox = CREALITY_EXTERNAL,
+                )
+            }
             if (box.optInt("type") != 0 || box.optInt("state") != 1) continue
             val materials = box.optJSONArray("materials") ?: continue
             for (m in 0 until materials.length()) {
@@ -425,7 +437,29 @@ object MoonrakerUploader : Uploader {
                 )
             }
         }
+        external?.let { slots += it.copy(index = slots.size) }
         slots
+    }
+
+    /**
+     * Início pelo carretel externo, como o Creality Print com "Spool Holder" e o OrcaSlicer
+     * (CrealityPrint.cpp, `use_spool_holder`): só `opGcodeFile` `printprt:`, sem `colorMatch` nem
+     * `multiColorPrint`. Confirma como [crealityStart].
+     */
+    private suspend fun crealityExternalStart(api: URL, host: PrinterHost, path: String) {
+        val gcode = gcodesRoot(api, host).trimEnd('/') + "/" + path
+        withContext(Dispatchers.IO) {
+            try {
+                WebSocketClient.creality(api.host, CREALITY_CONNECT_MS).use { socket ->
+                    socket.send(JSONObject().put("method", "set").put("params", JSONObject().put("opGcodeFile", "printprt:$gcode").put("enableSelfTest", 0)))
+                    val accepted = socket.awaitMessage(CREALITY_ACCEPT_MS) { it.optString("printFileName") == gcode }
+                    Log.i(TAG, "opGcodeFile printprt sent for $gcode (accepted=${accepted != null})")
+                }
+            } catch (e: IOException) {
+                throw SendException(R.string.send_error_io, e.message ?: e.toString(), cause = e)
+            }
+        }
+        awaitStart(api, host, path)
     }
 
     /**
@@ -465,6 +499,11 @@ object MoonrakerUploader : Uploader {
                 throw SendException(R.string.send_error_io, e.message ?: e.toString(), cause = e)
             }
         }
+        awaitStart(api, host, path)
+    }
+
+    /** Espera o `print_stats` do Klipper imprimir [path] (o início pela interface da Creality). */
+    private suspend fun awaitStart(api: URL, host: PrinterHost, path: String) {
         val deadline = System.currentTimeMillis() + CREALITY_START_MS
         var started = false
         while (!started && System.currentTimeMillis() < deadline) {
@@ -633,7 +672,7 @@ object MoonrakerUploader : Uploader {
         // Como a tela da K3 manda (klippy.log, 2026-11-02).
         is PrinterCommand.RefreshSlot -> {
             if (!capabilities.controls.filament.refresh) throw IllegalArgumentException("no RFID refresh")
-            val box = command.slot.cfsBox ?: throw IllegalArgumentException("not a CFS slot: ${command.slot}")
+            val box = command.slot.cfsBox?.takeIf { it != CREALITY_EXTERNAL } ?: throw IllegalArgumentException("not a CFS slot: ${command.slot}")
             "BOX_INFO_REFRESH ADDR=$box NUM=${'A' + command.slot.cfsSlot}"
         }
         is PrinterCommand.ExcludeObject -> {
@@ -668,7 +707,7 @@ object MoonrakerUploader : Uploader {
     override suspend fun changeFilament(host: PrinterHost, slot: Slot, load: Boolean) {
         val api = api(host)
         if (!capabilities(api, host).controls.filament.loadUnload) throw IllegalArgumentException("no CFS load/unload")
-        val box = slot.cfsBox ?: throw IllegalArgumentException("not a CFS slot: $slot")
+        val box = slot.cfsBox?.takeIf { it != CREALITY_EXTERNAL } ?: throw IllegalArgumentException("not a CFS slot: $slot")
         val name = "T$box${'A' + slot.cfsSlot}"
         checkIdle(api, host)
         boxError(boxState(api, host))?.let { throw SendException(R.string.filament_error_box, it) }

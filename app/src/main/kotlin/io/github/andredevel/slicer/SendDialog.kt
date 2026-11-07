@@ -53,6 +53,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.andredevel.slicer.core.PresetKind
 import io.github.andredevel.slicer.send.BAMBU_EXTERNAL
+import io.github.andredevel.slicer.send.CREALITY_EXTERNAL
 import io.github.andredevel.slicer.send.Kind
 import io.github.andredevel.slicer.send.PrinterHost
 import io.github.andredevel.slicer.send.QIDI_EXTERNAL
@@ -329,6 +330,8 @@ internal fun PrintConfirmDialog(
     // Bicos fixos: a ordem de filamentos que leva cada um ao bico da posição escolhida, null se já
     // está assim; vazia se dois escolheram posições do mesmo bico.
     val order = if (fixed && mapping.isNotEmpty()) nozzleOrder(count, used, mapping, slots) else null
+    // A Creality imprime pelo carretel externo sem o CFS, então só com um filamento.
+    val externalMixed = used.size > 1 && used.any { slots.getOrNull(mapping.getOrElse(it) { -1 })?.cfsBox == CREALITY_EXTERNAL }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(painterResource(R.drawable.ic_play_circle), null) },
@@ -358,6 +361,7 @@ internal fun PrintConfirmDialog(
                                 AppButton(stringResource(R.string.mapping_reorder), { onReorder(order) }, style = ButtonStyle.TEXT)
                             }
                         }
+                        if (externalMixed) Banner(Tone.ERROR, stringResource(R.string.mapping_external_single), Modifier.fillMaxWidth())
                         for (filament in used.filter { it !in mapping.indices || mapping[it] < 0 }) {
                             Banner(Tone.ERROR, stringResource(R.string.mapping_no_slot, filament + 1), Modifier.fillMaxWidth())
                         }
@@ -392,7 +396,7 @@ internal fun PrintConfirmDialog(
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(mapping.takeIf { it.isNotEmpty() }?.mapIndexed { i, slot -> if (i in used) slots[slot] else null }) },
-                enabled = bedClear && filamentLoaded && load is SlotsLoad.Loaded && used.all { mapping.isEmpty() || mapping[it] >= 0 } && order == null,
+                enabled = bedClear && filamentLoaded && load is SlotsLoad.Loaded && used.all { mapping.isEmpty() || mapping[it] >= 0 } && order == null && !externalMixed,
             ) { Text(stringResource(R.string.print_start)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.back)) } },
@@ -434,6 +438,7 @@ internal fun slotColor(slot: Slot): Color? = slot.color?.let { Color(android.gra
 /** "Cabeça 2" na U1, "Slot 1A" (caixa e posição) no CFS da Creality, "Box 1, posição 3" na QIDI. */
 @Composable
 internal fun slotName(slot: Slot): String = when {
+    slot.cfsBox == CREALITY_EXTERNAL -> stringResource(R.string.external_spool)
     slot.cfsBox != null -> stringResource(R.string.cfs_slot, "${slot.cfsBox}${'A' + slot.cfsSlot}")
     slot.qidiSlot == QIDI_EXTERNAL -> stringResource(R.string.external_spool)
     slot.qidiSlot != null -> stringResource(R.string.qidi_box_slot, slot.qidiSlot / 4 + 1, slot.qidiSlot % 4 + 1)
@@ -448,7 +453,7 @@ internal fun slotName(slot: Slot): String = when {
  * Posição de cada filamento do projeto (0 até [count]): cada um de [used] vai para a posição
  * carregada ainda livre do mesmo material ([types]) e, entre elas, de cor mais próxima; sem uma
  * do mesmo material, para a de cor mais próxima. Os outros, e os que sobram sem posição
- * carregada, vão para a de mesmo número. Com bicos fixos ([Slot.nozzle]), é a posição do bico do
+ * carregada, vão para a de mesmo número; o carretel externo da Creality só com um filamento. Com bicos fixos ([Slot.nozzle]), é a posição do bico do
  * filamento, ou -1 se nenhuma o alimenta.
  */
 private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?>, types: List<String?>, slots: List<Slot>): List<Int> {
@@ -459,7 +464,7 @@ private fun defaultMapping(count: Int, used: List<Int>, colors: List<FloatArray?
         if (i !in used) return@List fallback
         val color = colors.getOrNull(i)
         val type = types.getOrNull(i)
-        val free = slots.indices.filter { slots[it].loaded && it !in taken }
+        val free = slots.indices.filter { slots[it].loaded && it !in taken && (used.size == 1 || slots[it].cfsBox != CREALITY_EXTERNAL) }
         val sameMaterial = free.filter { type != null && slots[it].type?.let { slotType -> sameType(type, slotType) } == true }
         val best = sameMaterial.ifEmpty { free }.minByOrNull { colorDistance(color, slots[it].color) }
         (best ?: fallback).also { taken += it }

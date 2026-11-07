@@ -445,6 +445,7 @@
     <string name="print_object_cancel_text">A impressora pula este objeto até o fim da impressão. Não tem volta; os outros objetos continuam.</string>
     <string name="cfs_slot">Slot %1$s</string>
     <string name="external_spool">Carretel externo</string>
+    <string name="mapping_external_single">O carretel externo imprime sem o CFS: use-o só em impressão de um filamento.</string>
     <string name="ams_slot">AMS %1$s</string>
     <string name="qidi_box_slot">Box %1$d, posição %2$d</string>
     <string name="print_heats_note">A impressora começa a aquecer assim que o arquivo chegar.</string>
