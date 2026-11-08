@@ -785,7 +785,7 @@ class SlicerEngineTest {
         assertEquals(filaments, engine.presets(PresetKind.FILAMENT))
         val traditional = File(work, "$printer-traditional.gcode")
         engine.slice(traditional) { _, _ -> }
-        assertTrue(traditional.useLines { lines -> lines.count { it == "TIMELAPSE_FOTO" } > 10 })
+        assertTrue(traditional.useLines { lines -> lines.count { it == "TIMELAPSE_FOTO WAIT=1500" } > 10 })
 
         engine.setOption(PresetKind.PROCESS, "enable_prime_tower", "0")
         engine.setOption(PresetKind.PROCESS, "timelapse_type", "1")
@@ -793,9 +793,9 @@ class SlicerEngineTest {
         val gcode = File(work, "$printer-smooth.gcode")
         engine.slice(gcode) { _, _ -> }
         val lines = gcode.readLines()
-        val shots = lines.indices.filter { lines[it] == "TIMELAPSE_FOTO MODE=SMOOTH" }
+        val shots = lines.indices.filter { lines[it] == "TIMELAPSE_FOTO MODE=SMOOTH WAIT=1500" }
         assertTrue(shots.size > 10)
-        assertTrue(lines.none { it == "TIMELAPSE_FOTO" })
+        assertTrue(lines.none { it == "TIMELAPSE_FOTO WAIT=1500" })
         // Depois da foto vem a torre, antes do modelo (os perfis marcam "; FEATURE:").
         val after = lines.subList(shots[1], lines.size)
         assertEquals("; FEATURE: Prime tower", after.first { it.startsWith("; FEATURE:") })

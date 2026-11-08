@@ -997,13 +997,13 @@ struct AppPrinter
 };
 const AppPrinter APP_PRINTERS[] = {
     {"CrealityPrint/Creality.json", "Creality K2 0.4 nozzle", "Creality K2 0.4 nozzle (time-lapse slider)",
-     "; Slider de camera: requer slider_cam.cfg na impressora\n"
-     "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH{else}TIMELAPSE_FOTO{endif}"},
+     "; Slider de camera: requer slider_cam.cfg na impressora. WAIT = ms parado para a foto\n"
+     "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH WAIT=1500{else}TIMELAPSE_FOTO WAIT=1500{endif}"},
     // O layer change G-code da Q2 já faz o time-lapse da câmera dela (TIMELAPSE_TAKE_FRAME; no
     // suave, ainda estaciona e limpa o bico): fica só o resto, para não estacionar duas vezes.
     {"QIDIStudio/Q Series.json", "Q2 0.4 nozzle", "Q2 0.4 nozzle (time-lapse slider)",
-     "; Slider de camera: requer slider_cam.cfg na impressora\n"
-     "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH{else}TIMELAPSE_FOTO{endif}",
+     "; Slider de camera: requer slider_cam.cfg na impressora. WAIT = ms parado para a foto\n"
+     "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH WAIT=1500{else}TIMELAPSE_FOTO WAIT=1500{endif}",
      "G92 E0\nSET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}"},
 };
 
