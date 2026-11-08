@@ -76,6 +76,9 @@ object SliderGeometry {
     const val PHONE_ASPECT = 9f / 16f
     const val PAUSE_STEP = 100
     val PAUSE_RANGE = 100..2000
+    /** Cabeçote parado no canto por foto (WAIT= da macro TIMELAPSE_FOTO). */
+    const val PARK_DEFAULT = 1500
+    val PARK_RANGE = 300..5000
     val RAIL_DISTANCE_RANGE = 300..900
     val LATERAL_RANGE = -200..200
 }
@@ -165,3 +168,14 @@ fun Bed.center(): FloatArray {
 
 /** Impressora do slider: o G-code de time-lapse dela chama a macro TIMELAPSE_FOTO (perfil "time-lapse slider"). */
 val PresetChoice.isSliderPrinter get() = values.values["time_lapse_gcode"]?.contains("TIMELAPSE_FOTO") == true
+
+private val SLIDER_PHOTO_CALL = Regex("""TIMELAPSE_FOTO((?: MODE=\w+)?)(?: WAIT=\d+)?""")
+
+/** Tempo (ms) que a macro deixa o cabeçote parado no canto (WAIT=, ou wait_ms da macro: 1500). */
+val PresetChoice.sliderParkMs: Int
+    get() = values.values["time_lapse_gcode"]?.let { Regex("""TIMELAPSE_FOTO[^\n{}]* WAIT=(\d+)""").find(it) }
+        ?.groupValues?.get(1)?.toIntOrNull() ?: SliderGeometry.PARK_DEFAULT
+
+/** [gcode] com WAIT=[ms] em cada chamada de TIMELAPSE_FOTO. */
+fun sliderGcodeWithPark(gcode: String, ms: Int): String =
+    SLIDER_PHOTO_CALL.replace(gcode) { "TIMELAPSE_FOTO${it.groupValues[1]} WAIT=$ms" }

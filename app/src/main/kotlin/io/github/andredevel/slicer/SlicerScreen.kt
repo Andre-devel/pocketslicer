@@ -339,7 +339,10 @@ private fun Workspace(
     var phoneInset by remember { mutableStateOf<android.graphics.Rect?>(null) }
     val sliderTab = if (sliderPrinter && sliderPlan != null) {
         SliderTab(sliderTabSelected, { sliderTabSelected = it }) {
-            SliderPanel(sliderPlan, sliderTargets, sliderLayer, viewModel::setSliderConfig)
+            val printer = state.presets[PresetKind.PRINTER] ?: PresetChoice()
+            SliderPanel(sliderPlan, sliderTargets, sliderLayer, viewModel::setSliderConfig, printer.sliderParkMs, { ms ->
+                printer.values.values["time_lapse_gcode"]?.let { viewModel.setOption(PresetKind.PRINTER, "time_lapse_gcode", sliderGcodeWithPark(it, ms)) }
+            })
         }
     } else null
 

@@ -715,7 +715,7 @@
     <string name="slider_timeline_carriage">Carriage (0–%1$d mm)</string>
     <string name="slider_timeline_pan">Pan (±%1$d°)</string>
     <string name="slider_each_layer">Every layer</string>
-    <string name="slider_step_photo">Head parks, photo</string>
+    <string name="slider_step_photo">Head parked in the corner, photo</string>
     <string name="slider_step_pause">Pause so the photo stays sharp</string>
     <string name="slider_step_move">Moves to the next layer</string>
     <string name="slider_footer">Goes to the slider with the print (%1$d layers). Homing runs by itself when the print starts.</string>

@@ -51,7 +51,15 @@ import kotlin.math.abs
  * slider faz ao longo da impressão, na camada [layer] do seletor de camadas.
  */
 @Composable
-fun SliderPanel(plan: SliderPlan, targets: List<SliderTarget>, layer: Int, onConfig: (SliderConfig) -> Unit, modifier: Modifier = Modifier) {
+fun SliderPanel(
+    plan: SliderPlan,
+    targets: List<SliderTarget>,
+    layer: Int,
+    onConfig: (SliderConfig) -> Unit,
+    parkMs: Int,
+    onParkMs: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val config = plan.config
     val travel = SliderGeometry.TRAVEL
     val limit = SliderGeometry.PAN_LIMIT
@@ -143,7 +151,11 @@ fun SliderPanel(plan: SliderPlan, targets: List<SliderTarget>, layer: Int, onCon
                 Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.small).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                StepRow(1, stringResource(R.string.slider_step_photo))
+                // Vai para o G-code (WAIT= da macro): vale no próximo fatiamento.
+                StepRow(1, stringResource(R.string.slider_step_photo)) {
+                    val range = SliderGeometry.PARK_RANGE
+                    StepperField(parkMs, onParkMs, Modifier.width(170.dp), min = range.first, max = range.last, step = SliderGeometry.PAUSE_STEP, suffix = "ms")
+                }
                 StepRow(2, stringResource(R.string.slider_step_pause)) {
                     val range = SliderGeometry.PAUSE_RANGE
                     StepperField(config.pauseMs, { onConfig(config.copy(pauseMs = it)) }, Modifier.width(170.dp), min = range.first, max = range.last, step = SliderGeometry.PAUSE_STEP, suffix = "ms")

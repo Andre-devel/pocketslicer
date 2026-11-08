@@ -712,7 +712,7 @@
     <string name="slider_timeline_carriage">Carrinho (0–%1$d mm)</string>
     <string name="slider_timeline_pan">Pan (±%1$d°)</string>
     <string name="slider_each_layer">A cada camada</string>
-    <string name="slider_step_photo">Cabeçote estaciona, foto</string>
+    <string name="slider_step_photo">Cabeçote parado no canto, foto</string>
     <string name="slider_step_pause">Pausa para não borrar</string>
     <string name="slider_step_move">Move para a próxima camada</string>
     <string name="slider_footer">Vai para o slider junto com a impressão (%1$d camadas). Homing automático quando a impressão começar.</string>
