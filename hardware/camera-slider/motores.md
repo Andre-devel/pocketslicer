@@ -30,6 +30,7 @@ Força:
 - Drivers ULN2003: `+` no 5 V da fonte USB, `-` no GND da fonte, jumper de força colocado. O "5-12V" da plaquinha é a faixa do driver; os motores são de 5 V, então só 5 V.
 - GND comum obrigatório: `-` da fonte ligado a um GND do ESP32. Na bancada o `-` de um driver foi num GND do ESP32 e o da fonte no outro (funciona; a corrente do motor passa pela placa). Na montagem final, levar os `-` dos dois drivers e o GND do ESP32 a um ponto comum (Wago/borne) ligado à fonte.
 - Fim de curso: `NC` da chave sem ligar. O firmware usa `INPUT_PULLUP` (LOW = chave apertada).
+  Testado na bancada em 2026-11-08 (KW12 de rolete: 1 = COM, 3 = NO, 2 = NC): leitura sem repique com filtro de 20 ms, e o slider não dá passo com a chave apertada.
 
 Não usar RX0/TX0 (USB, gravação e serial), GPIO 6 a 11 (flash) nem D12 (atrapalha o boot). D34, D35, VP e VN são só entrada.
 
