@@ -993,11 +993,18 @@ struct AppPrinter
 {
     const char *index; // <app>/<fabricante>.json em vendors_dir
     const char *parent, *name, *time_lapse_gcode;
+    const char *layer_change_gcode = nullptr; // quando o do pai já tira a foto da própria câmera
 };
 const AppPrinter APP_PRINTERS[] = {
     {"CrealityPrint/Creality.json", "Creality K2 0.4 nozzle", "Creality K2 0.4 nozzle (time-lapse slider)",
      "; Slider de camera: requer slider_cam.cfg na impressora\n"
      "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH{else}TIMELAPSE_FOTO{endif}"},
+    // O layer change G-code da Q2 já faz o time-lapse da câmera dela (TIMELAPSE_TAKE_FRAME; no
+    // suave, ainda estaciona e limpa o bico): fica só o resto, para não estacionar duas vezes.
+    {"QIDIStudio/Q Series.json", "Q2 0.4 nozzle", "Q2 0.4 nozzle (time-lapse slider)",
+     "; Slider de camera: requer slider_cam.cfg na impressora\n"
+     "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH{else}TIMELAPSE_FOTO{endif}",
+     "G92 E0\nSET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}"},
 };
 
 // Grava as APP_PRINTERS do fabricante [index] na cópia dele em system_dir (feita por
@@ -1020,21 +1027,25 @@ void add_app_printers(const fs::path &index, const fs::path &system_dir)
     nlohmann::json vendor;
     std::map<std::string, std::string> added; // pai -> novo
     for (const AppPrinter &printer : APP_PRINTERS) {
-        if (id != printer.index || !fs::exists(dir / "machine" / (std::string(printer.parent) + ".json")))
+        if (id != printer.index)
             continue;
         if (vendor.is_null())
             vendor = read(index);
         if (!vendor.is_object() || !vendor.contains("machine_list"))
             return;
         nlohmann::json &machines = vendor["machine_list"];
-        // Logo depois do pai: o PresetBundle resolve "inherits" na ordem da lista.
+        // Logo depois do pai: o PresetBundle resolve "inherits" na ordem da lista. O arquivo do pai
+        // nem sempre tem o nome dele (Q2 0.4 nozzle fica em "Qidi Q2 0.4 nozzle.json").
         auto parent = std::find_if(machines.begin(), machines.end(), [&](const nlohmann::json &m) { return m.value("name", "") == printer.parent; });
-        if (parent == machines.end())
+        if (parent == machines.end() || !fs::exists(dir / parent->value("sub_path", "")))
             continue;
         const std::string sub_path = std::string("machine/") + printer.name + ".json";
         machines.insert(parent + 1, nlohmann::json{{"name", printer.name}, {"sub_path", sub_path}});
-        write(dir / sub_path, nlohmann::json{{"type", "machine"}, {"name", printer.name}, {"inherits", printer.parent},
-                                             {"from", "system"}, {"instantiation", "true"}, {"time_lapse_gcode", printer.time_lapse_gcode}});
+        nlohmann::json machine{{"type", "machine"}, {"name", printer.name}, {"inherits", printer.parent},
+                               {"from", "system"}, {"instantiation", "true"}, {"time_lapse_gcode", printer.time_lapse_gcode}};
+        if (printer.layer_change_gcode != nullptr)
+            machine["layer_change_gcode"] = printer.layer_change_gcode;
+        write(dir / sub_path, machine);
         added.emplace(printer.parent, printer.name);
     }
     if (added.empty())
