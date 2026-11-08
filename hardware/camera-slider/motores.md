@@ -8,15 +8,32 @@ Status: só anotação, nada implementado. Já funcionam: comunicação com o ES
 - Drivers nos 5 V da fonte USB (3,1 A), nunca no 3,3 V do ESP32. GND comum entre fonte, ESP32 e drivers.
 - Fim de curso KW12 na ponta do motor do slider: COM no GND, NA num GPIO com `INPUT_PULLUP` (LOW quando aperta).
 
-## Pinos sugeridos
+## Ligações (confirmadas na bancada em 2026-11-07)
 
-| Função | GPIO |
-|---|---|
-| Slider IN1..IN4 | 16, 17, 18, 19 |
-| Pan IN1..IN4 | 21, 22, 23, 25 |
-| Fim de curso | 27 |
+Rótulos impressos na placa ESP32 DevKit V1 (30 pinos, CP2102).
 
-Não usar GPIO 6 a 11 (flash) nem 12 (atrapalha o boot). GPIO 34 a 39 são só entrada.
+| Função | Pino na placa | GPIO | Lado da placa |
+|---|---|---|---|
+| Slider IN1 | RX2 | 16 | esquerdo (lado do 3V3) |
+| Slider IN2 | TX2 | 17 | esquerdo |
+| Slider IN3 | D18 | 18 | esquerdo (pula o D5) |
+| Slider IN4 | D19 | 19 | esquerdo |
+| Pan IN1 | D21 | 21 | esquerdo |
+| Pan IN2 | D22 | 22 | esquerdo (pula RX0 e TX0) |
+| Pan IN3 | D23 | 23 | esquerdo |
+| Pan IN4 | D25 | 25 | direito (lado do VIN, entre D26 e D33) |
+| Fim de curso (NO) | D27 | 27 | direito (entre D14 e D26) |
+| Fim de curso (COM) | GND | — | qualquer GND |
+
+Força:
+
+- Drivers ULN2003: `+` no 5 V da fonte USB, `-` no GND da fonte, jumper de força colocado. O "5-12V" da plaquinha é a faixa do driver; os motores são de 5 V, então só 5 V.
+- GND comum obrigatório: `-` da fonte ligado a um GND do ESP32. Na bancada o `-` de um driver foi num GND do ESP32 e o da fonte no outro (funciona; a corrente do motor passa pela placa). Na montagem final, levar os `-` dos dois drivers e o GND do ESP32 a um ponto comum (Wago/borne) ligado à fonte.
+- Fim de curso: `NC` da chave sem ligar. O firmware usa `INPUT_PULLUP` (LOW = chave apertada).
+
+Não usar RX0/TX0 (USB, gravação e serial), GPIO 6 a 11 (flash) nem D12 (atrapalha o boot). D34, D35, VP e VN são só entrada.
+
+Teste de bancada: cada motor sozinho na velocidade normal (~1500 µs por meio-passo) antes de testar juntos. No primeiro teste conjunto o pan seguia o ritmo do carrinho a ~1 rpm e parecia parado (só os LEDs piscavam).
 
 ## Biblioteca e passos
 
