@@ -117,7 +117,7 @@ class ToolpathRenderer(private val preview: Preview) {
         glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0)
 
         glBindBuffer(GL_ARRAY_BUFFER, buffers[1])
-        upload(GL_ARRAY_BUFFER, floatBuffer(toolpaths.extrusions))
+        uploadFloats(GL_ARRAY_BUFFER, toolpaths.extrusions.size) { toolpaths.extrusions[it] }
         // início (3), fim (3), largura e altura (2); a velocidade fica fora.
         for ((location, size, offset) in listOf(Triple(1, 3, 0), Triple(2, 3, 12), Triple(3, 2, 24))) {
             glEnableVertexAttribArray(location)
@@ -125,11 +125,10 @@ class ToolpathRenderer(private val preview: Preview) {
             glVertexAttribDivisor(location, 1)
         }
 
-        val layerRole = FloatArray(toolpaths.segmentCount * 2) { i ->
+        glBindBuffer(GL_ARRAY_BUFFER, buffers[2])
+        uploadFloats(GL_ARRAY_BUFFER, toolpaths.segmentCount * 2) { i ->
             if (i % 2 == 0) toolpaths.layers[i / 2].toFloat() else (toolpaths.roles[i / 2].toInt() and 0xFF).toFloat()
         }
-        glBindBuffer(GL_ARRAY_BUFFER, buffers[2])
-        upload(GL_ARRAY_BUFFER, floatBuffer(layerRole))
         glEnableVertexAttribArray(4)
         glVertexAttribPointer(4, 2, GL_FLOAT, false, 0, 0)
         glVertexAttribDivisor(4, 1)
@@ -146,13 +145,12 @@ class ToolpathRenderer(private val preview: Preview) {
 
         glBindVertexArray(travelVao)
         glBindBuffer(GL_ARRAY_BUFFER, buffers[5])
-        upload(GL_ARRAY_BUFFER, floatBuffer(toolpaths.travels))
+        uploadFloats(GL_ARRAY_BUFFER, toolpaths.travels.size) { toolpaths.travels[it] }
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0)
         // Uma camada por vértice (as duas pontas de cada deslocamento).
-        val travelLayers = FloatArray(toolpaths.travelLayers.size * 2) { toolpaths.travelLayers[it / 2].toFloat() }
         glBindBuffer(GL_ARRAY_BUFFER, buffers[6])
-        upload(GL_ARRAY_BUFFER, floatBuffer(travelLayers))
+        uploadFloats(GL_ARRAY_BUFFER, toolpaths.travelLayers.size * 2) { toolpaths.travelLayers[it / 2].toFloat() }
         glEnableVertexAttribArray(1)
         glVertexAttribPointer(1, 1, GL_FLOAT, false, 0, 0)
         glBindVertexArray(0)
@@ -234,6 +232,25 @@ class ToolpathRenderer(private val preview: Preview) {
             ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).apply { asFloatBuffer().put(values) }
 
         fun upload(target: Int, data: ByteBuffer) = glBufferData(target, data.capacity(), data, GL_STATIC_DRAW)
+
+        // Floats por envio. Um ByteBuffer direto fica no heap Java no ART: copiar os caminhos de
+        // uma vez dobra a memória deles (centenas de MB num G-code grande) e estoura o heap.
+        const val CHUNK_FLOATS = 1 shl 20
+
+        /** Envia [count] floats ([value] de cada índice) ao buffer ligado em [target], em pedaços. */
+        inline fun uploadFloats(target: Int, count: Int, value: (Int) -> Float) {
+            glBufferData(target, count * 4, null, GL_STATIC_DRAW)
+            val chunk = ByteBuffer.allocateDirect(minOf(count, CHUNK_FLOATS) * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            var start = 0
+            while (start < count) {
+                val size = minOf(CHUNK_FLOATS, count - start)
+                chunk.clear()
+                for (i in start until start + size) chunk.put(value(i))
+                chunk.flip()
+                glBufferSubData(target, start * 4, size * 4, chunk)
+                start += size
+            }
+        }
 
         const val VERTEX = """#version 300 es
             layout(location = 0) in vec3 aCorner;
