@@ -36,12 +36,13 @@ static void list(Engine &engine, const std::string &vendor)
 int main(int argc, char **argv)
 {
     const bool listing = argc == 4 && std::string(argv[2]) == "--list";
-    const bool project = (argc == 5 || argc == 6) && std::string(argv[2]) == "--project";
+    // --project ... [plate] [vendor printer]: troca de impressora depois de abrir, como o app.
+    const bool project = (argc == 5 || argc == 6 || argc == 8) && std::string(argv[2]) == "--project";
     if (argc != 8 && !listing && !project) {
         std::fprintf(stderr,
                      "usage: %s <resources_dir> <vendor> <printer> <process> <filament> <model> <out.gcode>\n"
                      "       %s <resources_dir> --list <vendor>\n"
-                     "       %s <resources_dir> --project <project.3mf> <out.gcode> [plate]\n",
+                     "       %s <resources_dir> --project <project.3mf> <out.gcode> [plate [vendor printer]]\n",
                      argv[0], argv[0], argv[0]);
         return 2;
     }
@@ -60,8 +61,15 @@ int main(int argc, char **argv)
         if (project) {
             std::printf("vendor: %s\n", engine.open_project(argv[3]).c_str());
             std::printf("plates: %zu\n", engine.plates().size());
-            if (argc == 6)
+            if (argc >= 6)
                 engine.select_plate(std::strtoul(argv[5], nullptr, 10) - 1);
+            if (argc == 8) {
+                // SlicerViewModel.selectVendor + selectPreset(PRINTER).
+                engine.load_vendor(argv[6]);
+                engine.select(PresetKind::Printer, argv[7]);
+                std::printf("printer: %s / process: %s\n", engine.selected(PresetKind::Printer).c_str(),
+                            engine.selected(PresetKind::Process).c_str());
+            }
             for (const slicer::ObjectMesh &mesh : engine.objects())
                 std::printf("object mesh: %zu vertices, %zu triangles\n", mesh.positions.size() / 3, mesh.indices.size() / 3);
             for (const slicer::Placement &p : engine.placements())

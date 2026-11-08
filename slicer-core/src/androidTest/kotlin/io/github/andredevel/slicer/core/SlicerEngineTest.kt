@@ -54,24 +54,27 @@ class SlicerEngineTest {
     }
 
     // Como no Bambu Studio, trocar de impressora (mesmo de fabricante) mantém a altura de camada,
-    // as alterações do processo e o tipo de cada filamento do projeto.
+    // as alterações do processo e do filamento e o tipo de cada filamento do projeto.
     @Test
     fun switchingPrinterKeepsProjectChoices() = runBlocking {
         engine.loadVendor("BBL")
         engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
         engine.setOption(PresetKind.PROCESS, "wall_loops", "5")
         engine.setFilamentPreset(0, "Bambu PETG HF @BBL A1")
+        engine.setOption(PresetKind.FILAMENT, "filament_flow_ratio", "1.01871")
 
         engine.select(PresetKind.PRINTER, "Bambu Lab X1 Carbon 0.4 nozzle")
         assertEquals("0.20mm Standard @BBL X1C", engine.selected(PresetKind.PROCESS))
         assertEquals("5", engine.values(PresetKind.PROCESS).values["wall_loops"])
         assertEquals("Bambu PETG HF @BBL X1C", engine.filamentPresets()[0])
+        assertEquals("1.01871", engine.values(PresetKind.FILAMENT).values["filament_flow_ratio"])
 
         engine.loadVendor("CrealityPrint/Creality")
         engine.select(PresetKind.PRINTER, "Creality K2 0.4 nozzle")
         assertEquals("0.2", engine.values(PresetKind.PROCESS).values["layer_height"])
         assertEquals("5", engine.values(PresetKind.PROCESS).values["wall_loops"])
         assertEquals(listOf("PETG"), engine.filamentTypes().take(1))
+        assertEquals("1.01871", engine.values(PresetKind.FILAMENT).values["filament_flow_ratio"])
     }
 
     // O processo de um projeto aberto é escolha do criador, mesmo sendo o padrão da impressora:

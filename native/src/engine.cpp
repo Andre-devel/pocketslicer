@@ -293,14 +293,16 @@ struct Engine::Impl {
 
     // Escolhas do projeto que a troca de impressora mantém, como no Bambu Studio: a altura de
     // camada (vai para o processo da impressora nova de altura mais próxima, de preferência o de
-    // mesmo nome), as alterações não salvas do processo e o tipo de cada filamento. O padrão de
-    // uma impressora, sem alterações, passa ao padrão da outra.
+    // mesmo nome), as alterações não salvas do processo e do filamento editado (o 1º, como o
+    // "Transferir" da GUI) e o tipo de cada filamento. O padrão de uma impressora, sem
+    // alterações, passa ao padrão da outra.
     struct Choices
     {
         bool                                             keep_process = false;
         std::string                                      process;
         double                                           layer_height = 0.;
         DynamicPrintConfig                               process_edits;
+        DynamicPrintConfig                               filament_edits; // do 1º filamento
         std::vector<std::pair<std::string, std::string>> filaments; // nome e tipo
     };
 
@@ -320,8 +322,12 @@ struct Engine::Impl {
         out.process      = prints.get_selected_preset_name();
         out.layer_height = wanted_layer_height.value_or(prints.get_edited_preset().config.opt_float("layer_height"));
         out.process_edits.apply_only(prints.get_edited_preset().config, prints.current_dirty_options());
-        for (const char *key : {"compatible_printers", "compatible_printers_condition", "inherits"})
+        const PresetCollection &filaments = bundle->filaments;
+        out.filament_edits.apply_only(filaments.get_edited_preset().config, filaments.current_dirty_options());
+        for (const char *key : {"compatible_printers", "compatible_printers_condition", "compatible_prints", "compatible_prints_condition", "inherits"}) {
             out.process_edits.erase(key);
+            out.filament_edits.erase(key);
+        }
         out.keep_process = process_chosen || !out.process_edits.empty() ||
                            out.process != bundle->printers.get_selected_preset().config.opt_string("default_print_profile");
         for (const std::string &name : bundle->filament_presets)
@@ -359,7 +365,8 @@ struct Engine::Impl {
 
         // Cada filamento: o de mesmo nome para a impressora nova, o padrão dela, um genérico ou
         // outro qualquer, sempre do mesmo tipo (PLA, PETG...); sem nenhum, fica o padrão.
-        const size_t count = std::min(choices.filaments.size(), bundle->filament_presets.size());
+        const size_t count      = std::min(choices.filaments.size(), bundle->filament_presets.size());
+        bool         first_kept = false;
         for (size_t i = 0; i < count; ++i) {
             const auto &[name, type] = choices.filaments[i];
             const Preset *pick       = nullptr;
@@ -376,9 +383,18 @@ struct Engine::Impl {
             }
             if (pick != nullptr)
                 bundle->set_filament_preset(i, pick->name);
+            first_kept |= i == 0 && pick != nullptr;
         }
-        if (!bundle->filament_presets.empty())
-            select_filament(bundle->filament_presets.front());
+        if (bundle->filament_presets.empty())
+            return;
+        select_filament(bundle->filament_presets.front());
+        // Só para um filamento do mesmo tipo: fluxo de PLA não vale para o PETG padrão.
+        if (first_kept) {
+            DynamicPrintConfig &filament = bundle->filaments.get_edited_preset().config;
+            for (const std::string &key : choices.filament_edits.keys())
+                if (filament.has(key))
+                    filament.set_key_value(key, choices.filament_edits.option(key)->clone());
+        }
     }
 
     ModelObject &object(size_t index);
