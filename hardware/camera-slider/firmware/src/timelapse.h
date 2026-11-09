@@ -22,7 +22,11 @@ struct TimelapsePlan {
   // da linha do trilho até ele.
   float targetX = Motion::kTravelMm / 2, targetDistance = 510;
   int pauseMs = 300;
+  // Idas e voltas (0 = só a ida) e camadas paradas em cada virada; ver slider_math.h.
+  int passes = 0;
+  int dwellLayers = 0;
 
+  float fraction(int layer) const;
   float carriage(int layer) const;
   float pan(int layer) const;  // já limitado a ±Motion::kPanLimitDeg
   // Falso (com [error]) se o JSON não tem um plano válido.

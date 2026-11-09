@@ -21,6 +21,8 @@ import kotlin.math.max
  * última camada. [followObject]: índice do objeto da placa que o pan [PanMode.FOLLOW] mantém no
  * centro. Ângulos em graus; positivo gira para +X da impressora. [espHost]: endereço do ESP32 do
  * slider (IP ou nome), para onde o plano vai ao iniciar a impressão; vazio = não manda.
+ * [passes]: idas e voltas de [start] a [end] ao longo da impressão (0 = só a ida); com elas o
+ * carrinho desacelera perto das pontas e fica [dwellLayers] camadas parado em cada virada.
  */
 data class SliderConfig(
     val start: Int = 0,
@@ -31,12 +33,15 @@ data class SliderConfig(
     val sweepStart: Int = -15,
     val sweepEnd: Int = 15,
     val pauseMs: Int = 300,
+    val passes: Int = 0,
+    val dwellLayers: Int = 0,
     val mount: SliderMount = SliderMount(),
     val espHost: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("start", start).put("end", end).put("panMode", panMode.name).put("followObject", followObject)
         .put("fixedAngle", fixedAngle).put("sweepStart", sweepStart).put("sweepEnd", sweepEnd).put("pauseMs", pauseMs)
+        .put("passes", passes).put("dwellLayers", dwellLayers)
         .put("railDistance", mount.railDistance).put("lateralOffset", mount.lateralOffset).put("espHost", espHost)
 
     companion object {
@@ -51,6 +56,8 @@ data class SliderConfig(
                 sweepStart = json.optInt("sweepStart", default.sweepStart),
                 sweepEnd = json.optInt("sweepEnd", default.sweepEnd),
                 pauseMs = json.optInt("pauseMs", default.pauseMs),
+                passes = json.optInt("passes", default.passes),
+                dwellLayers = json.optInt("dwellLayers", default.dwellLayers),
                 mount = SliderMount(json.optInt("railDistance", default.mount.railDistance), json.optInt("lateralOffset", default.mount.lateralOffset)),
                 espHost = json.optString("espHost", default.espHost),
             )
@@ -82,6 +89,8 @@ object SliderGeometry {
     const val PHONE_ASPECT = 9f / 16f
     const val PAUSE_STEP = 100
     val PAUSE_RANGE = 100..2000
+    val PASSES_RANGE = 0..5
+    val DWELL_RANGE = 0..50
     /** Cabeçote parado no canto por foto (WAIT= da macro TIMELAPSE_FOTO). */
     const val PARK_DEFAULT = 1500
     val PARK_RANGE = 300..5000
@@ -122,27 +131,33 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
     val railZeroX = bedCenter[0] + config.mount.lateralOffset - SliderGeometry.TRAVEL / 2f
     val railTopZ = SliderGeometry.LENS_HEIGHT - SliderGeometry.LENS_ABOVE_RAIL
 
-    private fun fraction(layer: Int) = if (layerCount > 1) layer.coerceIn(0, layerCount - 1).toFloat() / (layerCount - 1) else 0f
+    /** Onde a camada está entre [SliderConfig.start] (0) e [SliderConfig.end] (1); ver [sliderFraction]. */
+    fun fraction(layer: Int) = sliderFraction(layer, layerCount, config.passes, config.dwellLayers)
 
     /** Posição do carrinho no trilho (mm a partir da chave). */
-    fun carriage(layer: Int): Float = config.start + (config.end - config.start) * fraction(layer)
+    fun carriage(layer: Int): Float = carriageAt(fraction(layer))
+
+    private fun carriageAt(f: Float): Float = config.start + (config.end - config.start) * f
 
     fun carriageX(layer: Int): Float = railZeroX + carriage(layer)
 
     /** Ângulo que o pan precisaria ter, sem o limite. */
-    fun rawPan(layer: Int): Float = when (config.panMode) {
+    fun rawPan(layer: Int): Float = rawPanAt(fraction(layer))
+
+    private fun rawPanAt(f: Float): Float = when (config.panMode) {
         PanMode.FIXED -> config.fixedAngle.toFloat()
-        PanMode.SWEEP -> config.sweepStart + (config.sweepEnd - config.sweepStart) * fraction(layer)
-        PanMode.FOLLOW -> target?.let { Math.toDegrees(atan2((it[0] - carriageX(layer)).toDouble(), (it[1] - railY).toDouble())).toFloat() } ?: 0f
+        PanMode.SWEEP -> config.sweepStart + (config.sweepEnd - config.sweepStart) * f
+        PanMode.FOLLOW -> target?.let { Math.toDegrees(atan2((it[0] - railZeroX - carriageAt(f)).toDouble(), (it[1] - railY).toDouble())).toFloat() } ?: 0f
     }
 
     fun pan(layer: Int): Float = rawPan(layer).coerceIn(-SliderGeometry.PAN_LIMIT.toFloat(), SliderGeometry.PAN_LIMIT.toFloat())
 
     /**
      * Maior ângulo pedido ao longo da impressão, se passar do limite (o pan para nele). Nos três
-     * modos o ângulo varia num sentido só, então o maior está numa das pontas.
+     * modos o ângulo só depende de [fraction] e varia num sentido só com ela, então o maior está
+     * numa das pontas do trilho (com idas e voltas, a ponta [SliderConfig.end] é a virada).
      */
-    val saturation: Float? = max(abs(rawPan(0)), abs(rawPan(layerCount - 1))).takeIf { it > SliderGeometry.PAN_LIMIT + 0.05f }
+    val saturation: Float? = max(abs(rawPanAt(0f)), abs(rawPanAt(if (layerCount > 1) 1f else 0f))).takeIf { it > SliderGeometry.PAN_LIMIT + 0.05f }
 
     /** Posição da lente do celular (x, y, z na mesa). */
     fun lens(layer: Int) = floatArrayOf(carriageX(layer), railY, SliderGeometry.LENS_HEIGHT)
@@ -173,11 +188,42 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
         .put("sweepStart", config.sweepStart).put("sweepEnd", config.sweepEnd)
         .put("targetX", (target?.get(0) ?: (railZeroX + SliderGeometry.TRAVEL / 2f)) - railZeroX)
         .put("targetDistance", target?.let { it[1] - railY } ?: config.mount.railDistance.toFloat())
-        .put("pauseMs", config.pauseMs)
+        .put("pauseMs", config.pauseMs).put("passes", config.passes).put("dwellLayers", config.dwellLayers)
 
     private companion object {
         const val AIM_HEIGHT = 30f
     }
+}
+
+/**
+ * Onde a camada [layer] (de 0 a [layerCount] - 1) fica entre o início (0) e o fim (1) do curso.
+ * Sem [passes]: reta do início ao fim. Com [passes] idas e voltas: 2 x [passes] trechos de mesmo
+ * número de camadas, alternando o sentido, cada um com aceleração e desaceleração em cosseno, e
+ * [dwellLayers] camadas paradas em cada virada (menos, se não couberem). A mesma conta está no
+ * firmware (hardware/camera-slider/firmware/src/slider_math.h).
+ */
+fun sliderFraction(layer: Int, layerCount: Int, passes: Int, dwellLayers: Int): Float {
+    if (layerCount <= 1) return 0f
+    val t = layer.coerceIn(0, layerCount - 1).toFloat()
+    val span = (layerCount - 1).toFloat()
+    if (passes <= 0) return t / span
+    val legs = 2 * passes
+    val turns = legs - 1
+    // As paradas ocupam no máximo metade da impressão; o resto anda.
+    val dwell = dwellLayers.toFloat().coerceIn(0f, span * 0.5f / turns)
+    val legLength = (span - dwell * turns) / legs
+    val cycle = legLength + dwell
+    var leg = (t / cycle).toInt()
+    val u: Float
+    if (leg >= legs) {
+        leg = legs - 1
+        u = 1f
+    } else {
+        val r = t - leg * cycle
+        u = if (r >= legLength) 1f else r / legLength
+    }
+    val eased = ((1 - kotlin.math.cos(Math.PI * u)) / 2).toFloat()
+    return if (leg % 2 == 0) eased else 1 - eased
 }
 
 /**

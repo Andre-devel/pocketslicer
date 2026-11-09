@@ -7,7 +7,7 @@ Status (2026-11-09): código dos motores no firmware (`firmware/src/motion.*` e 
 - `motion.*`: AccelStepper sem bloquear; homing (busca a 400 meios-passos/s, recua 2 mm, volta a 120/s); limites 0 a 440 mm e ±25°; pré-movimento de 2 mm / 3° para chegar sempre no sentido da sequência; bobinas desligadas com o motor parado; chave apertada andando para o zero corrige X para 0.
 - `timelapse.*`: plano do app (`POST /plano`, salvo na placa). Quando `print_stats.state` muda para `printing` (e não volta de `paused`), faz homing e vai à camada 0 (carrinho e pan). O app manda o plano logo depois de a impressão ser aceita; se ele chega antes da primeira foto, a ida à camada 0 é refeita com ele. A cada TIMELAPSE_FOTO: foto, espera `pauseMs`, vai à próxima camada. Se o motor ainda estiver andando, a foto sai quando ele parar. Placa religada no meio da impressão: só tira fotos (camada desconhecida).
 - Página: posição, homing, mover, parar, zero do pan. Serial: `h` = homing.
-- Plano (JSON): `layers`, `start`, `end` (mm do trilho), `panMode` (`FOLLOW`/`FIXED`/`SWEEP`), `fixedAngle`, `sweepStart`, `sweepEnd`, `targetX` (mm a partir do zero do trilho), `targetDistance` (mm da linha do trilho até o objeto), `pauseMs`.
+- Plano (JSON): `layers`, `start`, `end` (mm do trilho), `panMode` (`FOLLOW`/`FIXED`/`SWEEP`), `fixedAngle`, `sweepStart`, `sweepEnd`, `targetX` (mm a partir do zero do trilho), `targetDistance` (mm da linha do trilho até o objeto), `pauseMs`, `passes`, `dwellLayers`.
 - Primeiro teste no slider montado: conferir o sentido de cada motor (`kSliderReversed`/`kPanReversed` em `motion.cpp`), o homing devagar com a mão perto da chave e a velocidade (`kSliderMaxSpeed` 700 meios-passos/s ≈ 6,9 mm/s). Risco: o Wi-Fi e o websocket rodam no mesmo laço que os passos; se o movimento engasgar, passar os motores para uma tarefa própria do FreeRTOS.
 
 ## Hardware
@@ -76,6 +76,7 @@ Teste de bancada: cada motor sozinho na velocidade normal (~1500 µs por meio-pa
 ## Modos que o app vai configurar
 
 - Por camada: carrinho anda de X_inicio a X_fim distribuído pelo total de camadas.
+- Ida e volta (2026-11-09): `passes` idas e voltas ao longo da impressão, cada trecho com aceleração e desaceleração em cosseno, e `dwellLayers` camadas paradas em cada virada (no máximo metade da impressão). A mesma conta no app (`sliderFraction`) e no firmware (`slider_math.h`, teste no PC em `firmware/test/slider_math_test.cpp`). A folga da redução aparece só na primeira chegada e em cada virada.
 - Pan "seguir": ângulo = atan2(X_peça - X_carrinho, Z_peça). A peça seguida é escolhida no app quando houver mais de uma; a posição vem do fatiamento. "Montagem" informa onde o trilho fica: distância do trilho ao centro da mesa (~510 mm) e deslocamento lateral (0 = trilho centrado).
 - Pan "fixo" (ângulo constante) e "varredura" (ângulo inicial a final ao longo da impressão).
 

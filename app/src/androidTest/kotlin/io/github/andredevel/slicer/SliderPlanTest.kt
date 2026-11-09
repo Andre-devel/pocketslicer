@@ -32,6 +32,25 @@ class SliderPlanTest {
         }
     }
 
+    /** Mesmos valores de hardware/camera-slider/firmware/test/slider_math_test.cpp. */
+    @Test
+    fun roundTripFractionMatchesTheFirmware() {
+        val cases = listOf(
+            listOf(25, 101, 0, 0) to 0.25f, listOf(0, 101, 1, 0) to 0f, listOf(25, 101, 1, 0) to 0.5f,
+            listOf(50, 101, 1, 0) to 1f, listOf(75, 101, 1, 0) to 0.5f, listOf(100, 101, 1, 0) to 0f,
+            listOf(45, 101, 1, 10) to 1f, listOf(50, 101, 1, 10) to 1f, listOf(55, 101, 1, 10) to 1f,
+            listOf(100, 101, 1, 10) to 0f, listOf(25, 101, 2, 0) to 1f,
+        )
+        for ((args, want) in cases) assertEquals("$args", want, sliderFraction(args[0], args[1], args[2], args[3]), 1e-4f)
+    }
+
+    /** Com ida e volta, o maior ângulo do seguir está na virada, não na última camada. */
+    @Test
+    fun roundTripSaturationLooksAtTheTurn() {
+        val far = SliderPlan(config.copy(start = 0, end = 440, passes = 1), 101, floatArrayOf(128f, 128f, 0f), floatArrayOf(-150f, 600f, 20f))
+        assertEquals(far.rawPan(50), -(far.saturation ?: 0f), 0.01f)
+    }
+
     /** Seguir sem objeto: o app mostra 0°, então o firmware recebe fixo em 0°. */
     @Test
     fun followWithoutTargetGoesAsFixedZero() {

@@ -46,8 +46,10 @@ AccelStepper pan = makeStepper(kPanPins, kPanReversed);
 long sliderSteps(float mm) { return lroundf(constrain(mm, 0.0f, Motion::kTravelMm) * kSliderStepsPerMm); }
 long panSteps(float deg) { return lroundf(constrain(deg, -Motion::kPanLimitDeg, Motion::kPanLimitDeg) * kPanStepsPerDeg); }
 
-// Pré-alvo que faz a chegada em [target] acontecer andando no sentido [approach].
+// Pré-alvo que faz a chegada em [target] acontecer andando no sentido [approach]. Já parado no
+// alvo não mexe (camadas paradas na virada do ida e volta): a folga saiu na chegada.
 long preTarget(long current, long target, int approach, long backlash, long minSteps, long maxSteps) {
+  if (current == target) return target;
   if (approach > 0 && current >= target) return max(minSteps, target - backlash);
   if (approach < 0 && current <= target) return min(maxSteps, target + backlash);
   return target;

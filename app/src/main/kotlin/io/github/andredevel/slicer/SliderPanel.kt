@@ -73,6 +73,21 @@ fun SliderPanel(
                 LabeledStepper(stringResource(R.string.slider_start), config.start, { onConfig(config.copy(start = it)) }, 0, travel, 10, "mm", Modifier.weight(1f))
                 LabeledStepper(stringResource(R.string.slider_end), config.end, { onConfig(config.copy(end = it)) }, 0, travel, 10, "mm", Modifier.weight(1f))
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                val passes = SliderGeometry.PASSES_RANGE
+                val dwell = SliderGeometry.DWELL_RANGE
+                LabeledStepper(stringResource(R.string.slider_passes), config.passes, { onConfig(config.copy(passes = it)) }, passes.first, passes.last, 1, "", Modifier.weight(1f))
+                if (config.passes > 0) {
+                    LabeledStepper(stringResource(R.string.slider_dwell), config.dwellLayers, { onConfig(config.copy(dwellLayers = it)) }, dwell.first, dwell.last, 1, stringResource(R.string.slider_layers_unit), Modifier.weight(1f))
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+            Text(
+                stringResource(if (config.passes > 0) R.string.slider_passes_hint else R.string.slider_one_way_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -186,7 +201,7 @@ fun SliderPanel(
 private fun LabeledStepper(label: String, value: Int, onCommit: (Int) -> Unit, min: Int, max: Int, step: Int, unit: String, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // A unidade vai no rótulo: dentro do campo estreito ela esconderia o número.
-        Text("$label ($unit)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Text(if (unit.isEmpty()) label else "$label ($unit)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         StepperField(value, onCommit, Modifier.fillMaxWidth(), min = min, max = max, step = step)
     }
 }

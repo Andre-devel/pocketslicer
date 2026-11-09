@@ -694,6 +694,11 @@
     <string name="slider_carriage">Carriage</string>
     <string name="slider_start">Start</string>
     <string name="slider_end">End</string>
+    <string name="slider_passes">Round trips</string>
+    <string name="slider_dwell">Stop at turn</string>
+    <string name="slider_layers_unit">layers</string>
+    <string name="slider_one_way_hint">0 = one way, from start to end over the whole print.</string>
+    <string name="slider_passes_hint">Goes to the end and back, slowing down near each end. At each turn it stays still for the layers set (0 = turns without stopping).</string>
     <string name="slider_home">0 · switch</string>
     <string name="slider_pan">Pan</string>
     <string name="pan_follow">Follow</string>

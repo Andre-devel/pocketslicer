@@ -691,6 +691,11 @@
     <string name="slider_carriage">Carrinho</string>
     <string name="slider_start">Início</string>
     <string name="slider_end">Fim</string>
+    <string name="slider_passes">Idas e voltas</string>
+    <string name="slider_dwell">Parada na virada</string>
+    <string name="slider_layers_unit">camadas</string>
+    <string name="slider_one_way_hint">0 = só ida, do início ao fim ao longo da impressão.</string>
+    <string name="slider_passes_hint">Vai até o fim e volta, desacelerando perto de cada ponta. Em cada virada fica parado pelas camadas escolhidas (0 = vira sem parar).</string>
     <string name="slider_home">0 · chave</string>
     <string name="slider_pan">Pan</string>
     <string name="pan_follow">Seguir</string>

@@ -2,6 +2,8 @@
 
 #include <ArduinoJson.h>
 
+#include "slider_math.h"
+
 namespace {
 
 const char *panModeName(PanMode mode) {
@@ -16,13 +18,12 @@ int sign(float v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
 
 }  // namespace
 
-float TimelapsePlan::carriage(int layer) const {
-  float f = layers > 1 ? constrain(layer, 0, layers - 1) / float(layers - 1) : 0;
-  return start + (end - start) * f;
-}
+float TimelapsePlan::fraction(int layer) const { return sliderFraction(layer, layers, passes, dwellLayers); }
+
+float TimelapsePlan::carriage(int layer) const { return start + (end - start) * fraction(layer); }
 
 float TimelapsePlan::pan(int layer) const {
-  float f = layers > 1 ? constrain(layer, 0, layers - 1) / float(layers - 1) : 0;
+  float f = fraction(layer);
   float deg;
   switch (panMode) {
     case PanMode::Follow: deg = degrees(atan2f(targetX - carriage(layer), targetDistance)); break;
@@ -56,8 +57,10 @@ bool TimelapsePlan::fromJson(const String &text, String &error) {
   p.targetX = doc["targetX"] | p.targetX;
   p.targetDistance = doc["targetDistance"] | p.targetDistance;
   p.pauseMs = doc["pauseMs"] | p.pauseMs;
+  p.passes = doc["passes"] | 0;
+  p.dwellLayers = doc["dwellLayers"] | 0;
   if (p.layers < 0 || p.start < 0 || p.end < 0 || p.start > Motion::kTravelMm || p.end > Motion::kTravelMm ||
-      p.targetDistance <= 0 || p.pauseMs < 0 || p.pauseMs > 10000) {
+      p.targetDistance <= 0 || p.pauseMs < 0 || p.pauseMs > 10000 || p.passes < 0 || p.passes > 20 || p.dwellLayers < 0) {
     error = "valor fora da faixa";
     return false;
   }
@@ -77,6 +80,8 @@ String TimelapsePlan::toJson() const {
   doc["targetX"] = targetX;
   doc["targetDistance"] = targetDistance;
   doc["pauseMs"] = pauseMs;
+  doc["passes"] = passes;
+  doc["dwellLayers"] = dwellLayers;
   String text;
   serializeJson(doc, text);
   return text;
@@ -89,9 +94,16 @@ void Timelapse::begin(Motion &motion, PhotoFn takePhoto) {
 
 void Timelapse::goToLayer(int layer) {
   if (plan_.layers <= 0) return;
-  // Sempre no sentido da sequência inteira: a folga da redução só aparece na primeira chegada.
-  int dirSlider = sign(plan_.carriage(plan_.layers - 1) - plan_.carriage(0));
-  int dirPan = sign(plan_.pan(plan_.layers - 1) - plan_.pan(0));
+  // Chega no sentido em que vai seguir depois desta camada: a folga da redução só aparece na
+  // primeira chegada e em cada virada (ida e volta), não entre camadas do mesmo trecho.
+  auto direction = [&](const std::function<float(int)> &value) {
+    int ahead = 0;
+    for (int next = layer + 1; next < plan_.layers && ahead == 0; next++) ahead = sign(value(next) - value(layer));
+    if (ahead != 0) return ahead;
+    return layer > 0 ? sign(value(layer) - value(layer - 1)) : 0;
+  };
+  int dirSlider = direction([&](int l) { return plan_.carriage(l); });
+  int dirPan = direction([&](int l) { return plan_.pan(l); });
   motion_->moveTo(plan_.carriage(layer), plan_.pan(layer), dirSlider, dirPan);
 }
 
