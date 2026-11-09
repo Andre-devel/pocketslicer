@@ -116,7 +116,7 @@ async function salvar(){
 st();setInterval(st,3000);
 </script></body></html>)HTML";
 
-// LED aceso por [ms] sem parar o laço (os motores precisam do loop() o tempo todo).
+// LED aceso por [ms] sem parar o laço.
 uint32_t ledOffAt = 0;
 void blink(uint32_t ms) {
   digitalWrite(kLedPin, HIGH);
@@ -303,11 +303,9 @@ void setup() {
 }
 
 void loop() {
-  motion.loop();
   server.handleClient();
   printer.loop();
   timelapse.loop();
-  motion.loop();
   if (moveAfterHoming && (timelapse.nextLayer() >= 0 || !motion.busy())) {
     // Homing que falhou (sem homed) ou impressão que começou: o plano manda, não o pedido.
     if (timelapse.nextLayer() < 0 && motion.homed()) motion.moveTo(pendingMm, pendingDeg);

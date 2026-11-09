@@ -8,7 +8,7 @@ namespace {
 // Sentido trocado na montagem: true inverte a ordem das bobinas (IN4, IN2, IN3, IN1), o que faz
 // o motor girar ao contrário sem mexer no resto. Calibrar na primeira montagem: o carrinho
 // precisa sair da chave com X positivo e o pan positivo girar para +X da impressora.
-constexpr bool kSliderReversed = false;
+constexpr bool kSliderReversed = true;
 constexpr bool kPanReversed = false;
 constexpr uint8_t kSliderPins[4] = {16, 17, 18, 19};  // IN1..IN4
 constexpr uint8_t kPanPins[4] = {21, 22, 23, 25};
@@ -26,7 +26,7 @@ constexpr float kSliderMaxSpeed = 700;  // ~6,9 mm/s
 constexpr float kSliderAccel = 350;
 constexpr float kPanMaxSpeed = 600;  // ~53°/s
 constexpr float kPanAccel = 300;
-constexpr float kHomeSeekSpeed = 400;
+constexpr float kHomeSeekSpeed = 200;
 constexpr float kHomeSlowSpeed = 120;
 constexpr float kHomeBackoffMm = 2;
 // O homing desiste se andar mais que o perfil inteiro sem achar a chave.
@@ -55,9 +55,19 @@ long preTarget(long current, long target, int approach, long backlash, long minS
   return target;
 }
 
+// Mutex recursivo: métodos públicos chamam uns aos outros (moveTo -> homing).
+SemaphoreHandle_t lock_;
+
+struct Guard {
+  Guard() { xSemaphoreTakeRecursive(lock_, portMAX_DELAY); }
+  ~Guard() { xSemaphoreGiveRecursive(lock_); }
+};
+
 }  // namespace
 
 void Motion::begin() {
+  lock_ = xSemaphoreCreateRecursiveMutex();
+  Guard g;
   pinMode(kEndstopPin, INPUT_PULLUP);
   endstopRaw_ = endstopPressed_ = digitalRead(kEndstopPin) == LOW;
   slider.setMaxSpeed(kSliderMaxSpeed);
@@ -67,10 +77,30 @@ void Motion::begin() {
   // Parado com as bobinas desligadas: o 28BYJ esquenta ligado e a redução segura a posição.
   slider.disableOutputs();
   pan.disableOutputs();
+  // Mesmo núcleo do loop() do Arduino, prioridade acima dele: quando o laço espera a rede, os
+  // passos continuam. O vTaskDelay(1) devolve o núcleo a cada tique (1 ms), então a velocidade
+  // máxima é 1000 passos/s por motor (acima do que o 28BYJ-48 aguenta).
+  xTaskCreatePinnedToCore(taskMain, "motores", 4096, this, 2, nullptr, ARDUINO_RUNNING_CORE);
 }
 
-float Motion::sliderMm() const { return slider.currentPosition() / kSliderStepsPerMm; }
-float Motion::panDeg() const { return pan.currentPosition() / kPanStepsPerDeg; }
+void Motion::taskMain(void *self) {
+  auto *m = static_cast<Motion *>(self);
+  for (;;) {
+    {
+      Guard g;
+      m->tick();
+    }
+    vTaskDelay(1);
+  }
+}
+
+bool Motion::homed() const { Guard g; return homed_; }
+bool Motion::homing() const { Guard g; return homingLocked(); }
+bool Motion::busy() const { Guard g; return phase_ != Phase::Idle; }
+String Motion::error() const { Guard g; return error_; }
+bool Motion::endstopPressed() const { Guard g; return endstopPressed_; }
+float Motion::sliderMm() const { Guard g; return slider.currentPosition() / kSliderStepsPerMm; }
+float Motion::panDeg() const { Guard g; return pan.currentPosition() / kPanStepsPerDeg; }
 
 void Motion::readEndstop() {
   bool raw = digitalRead(kEndstopPin) == LOW;
@@ -84,6 +114,7 @@ void Motion::readEndstop() {
 }
 
 void Motion::home() {
+  Guard g;
   error_ = "";
   homed_ = false;
   pan.setCurrentPosition(pan.currentPosition());
@@ -113,7 +144,8 @@ void Motion::finishHoming() {
 }
 
 void Motion::moveTo(float mm, float deg, int approachSlider, int approachPan) {
-  if (homing()) return;
+  Guard g;
+  if (homingLocked()) return;
   sliderTarget_ = homed_ ? sliderSteps(mm) : slider.currentPosition();
   panTarget_ = panSteps(deg);
   sliderPre_ = preTarget(slider.currentPosition(), sliderTarget_, approachSlider, lroundf(kSliderBacklashMm * kSliderStepsPerMm),
@@ -135,20 +167,22 @@ void Motion::startMove() {
 }
 
 void Motion::stop() {
+  Guard g;
   slider.setCurrentPosition(slider.currentPosition());
   pan.setCurrentPosition(pan.currentPosition());
-  if (homing()) slider.setMaxSpeed(kSliderMaxSpeed);
+  if (homingLocked()) slider.setMaxSpeed(kSliderMaxSpeed);
   phase_ = Phase::Idle;
   slider.disableOutputs();
   pan.disableOutputs();
 }
 
 void Motion::setPanZero() {
-  if (busy()) return;
+  Guard g;
+  if (phase_ != Phase::Idle) return;
   pan.setCurrentPosition(0);
 }
 
-void Motion::loop() {
+void Motion::tick() {
   readEndstop();
   switch (phase_) {
     case Phase::Idle:

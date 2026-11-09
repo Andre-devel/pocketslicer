@@ -9,7 +9,7 @@ Status (2026-11-09): código dos motores no firmware (`firmware/src/motion.*` e 
 - Página: posição, homing, mover, parar, zero do pan. Serial: `h` = homing.
 - `GET /mover` sem homing feito: faz o homing e depois vai à posição (os botões "Ir ao início"/"Ir ao fim" da aba Slider do app usam isso para conferir o enquadramento). Recusado (409) durante a impressão.
 - Plano (JSON): `layers`, `start`, `end` (mm do trilho), `panMode` (`FOLLOW`/`FIXED`/`SWEEP`), `fixedAngle`, `sweepStart`, `sweepEnd`, `targetX` (mm a partir do zero do trilho), `targetDistance` (mm da linha do trilho até o objeto), `pauseMs`, `passes`, `dwellLayers`.
-- Primeiro teste no slider montado: conferir o sentido de cada motor (`kSliderReversed`/`kPanReversed` em `motion.cpp`), o homing devagar com a mão perto da chave e a velocidade (`kSliderMaxSpeed` 700 meios-passos/s ≈ 6,9 mm/s). Risco: o Wi-Fi e o websocket rodam no mesmo laço que os passos; se o movimento engasgar, passar os motores para uma tarefa própria do FreeRTOS.
+- Primeiro teste no slider montado: conferir o sentido de cada motor (`kSliderReversed`/`kPanReversed` em `motion.cpp`), o homing devagar com a mão perto da chave e a velocidade (`kSliderMaxSpeed` 700 meios-passos/s ≈ 6,9 mm/s). Os passos saem de uma tarefa própria do FreeRTOS (2026-11-09): com a impressora desligada, a reconexão do websocket travava o laço ~5 s a cada tentativa e o motor parava. Sentido do carrinho já invertido (`kSliderReversed = true`); homing a 200 meios-passos/s.
 
 ## Hardware
 
