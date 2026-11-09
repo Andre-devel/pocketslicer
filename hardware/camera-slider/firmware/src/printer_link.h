@@ -11,9 +11,12 @@
 class PrinterLink {
  public:
   using ShotCallback = std::function<void(uint32_t shots)>;
+  // print_stats.state do Klipper: standby, printing, paused, complete, cancelled, error.
+  // [initial]: valor lido ao (re)conectar, não uma mudança vista acontecer.
+  using StateCallback = std::function<void(const String &state, bool initial)>;
 
   // host vazio = desligado. Pode ser chamado de novo para trocar de impressora.
-  void begin(const String &host, uint16_t port, ShotCallback onShot);
+  void begin(const String &host, uint16_t port, ShotCallback onShot, StateCallback onState);
   void loop();
 
   const String &host() const { return host_; }
@@ -21,14 +24,18 @@ class PrinterLink {
   // A macro existe e a assinatura foi aceita (Klipper pronto).
   bool subscribed() const { return subscribed_; }
   uint32_t shots() const { return shots_; }
+  const String &printState() const { return printState_; }
 
  private:
   void subscribe();
   void handleMessage(const uint8_t *payload, size_t length);
   void updateShots(uint32_t value, bool initial);
+  void updateState(const char *state, bool initial);
 
   String host_;
   ShotCallback onShot_;
+  StateCallback onState_;
+  String printState_;
   bool started_ = false;
   bool connected_ = false;
   bool subscribed_ = false;

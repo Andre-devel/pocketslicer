@@ -6,6 +6,7 @@
 namespace {
 
 constexpr const char *kMacroObject = "gcode_macro TIMELAPSE_FOTO";
+constexpr const char *kStatsObject = "print_stats";
 constexpr uint32_t kReconnectMs = 5000;
 
 WebSocketsClient socket;
@@ -13,10 +14,12 @@ PrinterLink *active = nullptr;
 
 }  // namespace
 
-void PrinterLink::begin(const String &host, uint16_t port, ShotCallback onShot) {
+void PrinterLink::begin(const String &host, uint16_t port, ShotCallback onShot, StateCallback onState) {
   if (started_) socket.disconnect();
   host_ = host;
   onShot_ = std::move(onShot);
+  onState_ = std::move(onState);
+  printState_ = "";
   connected_ = subscribed_ = haveShots_ = false;
   started_ = host_.length() > 0;
   if (!started_) {
@@ -67,6 +70,7 @@ void PrinterLink::subscribe() {
   doc["jsonrpc"] = "2.0";
   doc["method"] = "printer.objects.subscribe";
   doc["params"]["objects"][kMacroObject].add("shots");
+  doc["params"]["objects"][kStatsObject].add("state");
   doc["id"] = subscribeId_;
   String text;
   serializeJson(doc, text);
@@ -81,7 +85,9 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
   filter["method"] = true;
   filter["error"]["message"] = true;
   filter["result"]["status"][kMacroObject]["shots"] = true;
+  filter["result"]["status"][kStatsObject]["state"] = true;
   filter["params"][0][kMacroObject]["shots"] = true;
+  filter["params"][0][kStatsObject]["state"] = true;
   JsonDocument doc;
   if (deserializeJson(doc, payload, length, DeserializationOption::Filter(filter))) return;
 
@@ -99,6 +105,8 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
   if (strcmp(method, "notify_status_update") == 0) {
     JsonVariant shots = doc["params"][0][kMacroObject]["shots"];
     if (!shots.isNull()) updateShots(shots.as<uint32_t>(), false);
+    const char *state = doc["params"][0][kStatsObject]["state"];
+    if (state) updateState(state, false);
     return;
   }
   if (doc["id"] == subscribeId_) {
@@ -107,6 +115,8 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
       Serial.printf("[impressora] assinatura recusada: %s\n", doc["error"]["message"] | "?");
       return;
     }
+    const char *state = doc["result"]["status"][kStatsObject]["state"];
+    if (state) updateState(state, true);
     JsonVariant shots = doc["result"]["status"][kMacroObject]["shots"];
     subscribed_ = !shots.isNull();
     if (subscribed_) {
@@ -126,4 +136,11 @@ void PrinterLink::updateShots(uint32_t value, bool initial) {
   shots_ = value;
   haveShots_ = true;
   if (fire && onShot_) onShot_(value);
+}
+
+void PrinterLink::updateState(const char *state, bool initial) {
+  if (printState_ == state) return;
+  printState_ = state;
+  Serial.printf("[impressora] estado: %s\n", state);
+  if (onState_) onState_(printState_, initial);
 }

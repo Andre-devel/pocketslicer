@@ -1,0 +1,158 @@
+#include "timelapse.h"
+
+#include <ArduinoJson.h>
+
+namespace {
+
+const char *panModeName(PanMode mode) {
+  switch (mode) {
+    case PanMode::Follow: return "FOLLOW";
+    case PanMode::Sweep: return "SWEEP";
+    default: return "FIXED";
+  }
+}
+
+int sign(float v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
+
+}  // namespace
+
+float TimelapsePlan::carriage(int layer) const {
+  float f = layers > 1 ? constrain(layer, 0, layers - 1) / float(layers - 1) : 0;
+  return start + (end - start) * f;
+}
+
+float TimelapsePlan::pan(int layer) const {
+  float f = layers > 1 ? constrain(layer, 0, layers - 1) / float(layers - 1) : 0;
+  float deg;
+  switch (panMode) {
+    case PanMode::Follow: deg = degrees(atan2f(targetX - carriage(layer), targetDistance)); break;
+    case PanMode::Sweep: deg = sweepStart + (sweepEnd - sweepStart) * f; break;
+    default: deg = fixedAngle; break;
+  }
+  return constrain(deg, -Motion::kPanLimitDeg, Motion::kPanLimitDeg);
+}
+
+bool TimelapsePlan::fromJson(const String &text, String &error) {
+  JsonDocument doc;
+  if (deserializeJson(doc, text)) {
+    error = "JSON inválido";
+    return false;
+  }
+  TimelapsePlan p;
+  p.layers = doc["layers"] | 0;
+  p.start = doc["start"] | p.start;
+  p.end = doc["end"] | p.end;
+  String mode = doc["panMode"] | "FIXED";
+  if (mode == "FOLLOW") p.panMode = PanMode::Follow;
+  else if (mode == "SWEEP") p.panMode = PanMode::Sweep;
+  else if (mode == "FIXED") p.panMode = PanMode::Fixed;
+  else {
+    error = "panMode desconhecido";
+    return false;
+  }
+  p.fixedAngle = doc["fixedAngle"] | 0.0f;
+  p.sweepStart = doc["sweepStart"] | 0.0f;
+  p.sweepEnd = doc["sweepEnd"] | 0.0f;
+  p.targetX = doc["targetX"] | p.targetX;
+  p.targetDistance = doc["targetDistance"] | p.targetDistance;
+  p.pauseMs = doc["pauseMs"] | p.pauseMs;
+  if (p.layers < 0 || p.start < 0 || p.end < 0 || p.start > Motion::kTravelMm || p.end > Motion::kTravelMm ||
+      p.targetDistance <= 0 || p.pauseMs < 0 || p.pauseMs > 10000) {
+    error = "valor fora da faixa";
+    return false;
+  }
+  *this = p;
+  return true;
+}
+
+String TimelapsePlan::toJson() const {
+  JsonDocument doc;
+  doc["layers"] = layers;
+  doc["start"] = start;
+  doc["end"] = end;
+  doc["panMode"] = panModeName(panMode);
+  doc["fixedAngle"] = fixedAngle;
+  doc["sweepStart"] = sweepStart;
+  doc["sweepEnd"] = sweepEnd;
+  doc["targetX"] = targetX;
+  doc["targetDistance"] = targetDistance;
+  doc["pauseMs"] = pauseMs;
+  String text;
+  serializeJson(doc, text);
+  return text;
+}
+
+void Timelapse::begin(Motion &motion, PhotoFn takePhoto) {
+  motion_ = &motion;
+  takePhoto_ = std::move(takePhoto);
+}
+
+void Timelapse::goToLayer(int layer) {
+  if (plan_.layers <= 0) return;
+  // Sempre no sentido da sequência inteira: a folga da redução só aparece na primeira chegada.
+  int dirSlider = sign(plan_.carriage(plan_.layers - 1) - plan_.carriage(0));
+  int dirPan = sign(plan_.pan(plan_.layers - 1) - plan_.pan(0));
+  motion_->moveTo(plan_.carriage(layer), plan_.pan(layer), dirSlider, dirPan);
+}
+
+void Timelapse::onPrintState(const String &state, bool initial) {
+  String previous = state_;
+  state_ = state;
+  if (initial) {
+    if (state != "printing" && state != "paused") printing_ = false;
+    return;
+  }
+  if (state == "printing" && previous != "printing" && previous != "paused") {
+    printing_ = true;
+    nextLayer_ = 0;
+    photoPending_ = false;
+    moveAtMs_ = 0;
+    Serial.printf("[time-lapse] impressão começou; plano com %d camadas\n", plan_.layers);
+    if (plan_.layers > 0) motion_->home(plan_.carriage(0));
+  } else if (state != "printing" && state != "paused" && printing_) {
+    printing_ = false;
+    moveAtMs_ = 0;
+    photoPending_ = false;
+    Serial.printf("[time-lapse] impressão terminou (%s)\n", state.c_str());
+  }
+}
+
+void Timelapse::onShot(uint32_t shots) {
+  Serial.printf("[time-lapse] TIMELAPSE_FOTO #%u (camada %d)\n", shots, nextLayer_);
+  if (!printing_ || plan_.layers <= 0) {
+    // Teste pelo console, ou sem plano: só a foto.
+    takePhoto_();
+    return;
+  }
+  // Ida à camada anterior ainda agendada (pausa maior que o intervalo): vai agora.
+  if (moveAtMs_) {
+    moveAtMs_ = 0;
+    goToLayer(nextLayer_);
+  }
+  if (motion_->busy()) {
+    // Carrinho ainda andando (homing demorado ou camada muito rápida): foto quando parar, enquanto
+    // a macro ainda espera; foto atrasada é melhor que borrada.
+    Serial.println("[time-lapse] motor andando; foto quando parar");
+    photoPending_ = true;
+    return;
+  }
+  shootAndSchedule();
+}
+
+void Timelapse::shootAndSchedule() {
+  takePhoto_();
+  nextLayer_++;
+  moveAtMs_ = millis() + plan_.pauseMs;
+  if (moveAtMs_ == 0) moveAtMs_ = 1;
+}
+
+void Timelapse::loop() {
+  if (photoPending_ && !motion_->busy()) {
+    photoPending_ = false;
+    shootAndSchedule();
+  }
+  if (moveAtMs_ && int32_t(millis() - moveAtMs_) >= 0) {
+    moveAtMs_ = 0;
+    goToLayer(nextLayer_);
+  }
+}
