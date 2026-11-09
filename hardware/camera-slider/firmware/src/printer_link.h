@@ -31,11 +31,17 @@ class PrinterLink {
   void handleMessage(const uint8_t *payload, size_t length);
   void updateShots(uint32_t value, bool initial);
   void updateState(const char *state, bool initial);
+  // total_duration do print_stats: volta a zero numa impressão nova.
+  void updateDuration(float seconds, bool initial);
 
   String host_;
   ShotCallback onShot_;
   StateCallback onState_;
   String printState_;
+  float duration_ = 0;
+  // Snapshot da reconexão com a duração menor que a última vista: outra impressão começou
+  // enquanto a conexão estava fora, mesmo com o estado igual ("printing" antes e depois).
+  bool restartedWhileAway_ = false;
   bool started_ = false;
   bool connected_ = false;
   bool subscribed_ = false;

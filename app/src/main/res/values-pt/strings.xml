@@ -714,6 +714,17 @@
     <string name="slider_mount_hint">Onde o trilho fica em relação à mesa. Medir uma vez.</string>
     <string name="slider_esp_host">Endereço do ESP32</string>
     <string name="slider_esp_host_hint">IP que aparece na página do slider, por exemplo 192.168.1.60. O plano vai para lá ao iniciar a impressão.</string>
+    <string name="slider_esp_no_host">Informe o endereço do ESP32 em Montagem para o plano ir ao slider.</string>
+    <string name="slider_esp_checking">Procurando o slider em %1$s…</string>
+    <string name="slider_esp_unreachable">Slider não encontrado em %1$s. Confira o IP na página do slider e se ele está no mesmo Wi-Fi.</string>
+    <string name="slider_esp_ok">Slider conectado (celular pareado, impressora pronta). %1$s</string>
+    <string name="slider_esp_problems">Slider conectado, mas: %1$s. %2$s</string>
+    <string name="slider_esp_no_ble">celular não pareado pelo Bluetooth</string>
+    <string name="slider_esp_no_printer">nenhuma impressora configurada no slider</string>
+    <string name="slider_esp_printer_down">sem TIMELAPSE_FOTO em %1$s</string>
+    <string name="slider_esp_motor_error">motor: %1$s</string>
+    <string name="slider_esp_plan">Plano salvo: %1$d camadas.</string>
+    <string name="slider_esp_no_plan">Nenhum plano salvo ainda.</string>
     <string name="slider_rail_distance">Trilho → centro da mesa</string>
     <string name="slider_lateral">Deslocamento lateral</string>
     <string name="slider_timeline">Ao longo da impressão</string>

@@ -48,7 +48,7 @@ internal object Http {
 
     class Response(val code: Int, val body: String)
 
-    suspend fun get(url: URL, headers: Map<String, String>): Response = request(url) { connection ->
+    suspend fun get(url: URL, headers: Map<String, String>, readTimeoutMs: Int = READ_TIMEOUT_MS): Response = request(url, readTimeoutMs) { connection ->
         headers.forEach(connection::setRequestProperty)
     }
 

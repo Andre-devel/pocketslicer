@@ -238,6 +238,32 @@ fun sliderPlan(state: SlicerUiState, targets: List<SliderTarget>): SliderPlan? {
     return SliderPlan(config, layerCount, scene.bed.center(), target?.center?.takeIf { config.panMode == PanMode.FOLLOW })
 }
 
+/**
+ * O que o ESP32 do slider diz de si (GET /status): celular pareado por Bluetooth, macro
+ * TIMELAPSE_FOTO assinada na impressora dele, camadas do plano salvo (0 = nenhum) e erro do
+ * último homing (vazio se nenhum).
+ */
+data class SliderStatus(val ble: Boolean, val printerHost: String, val printerReady: Boolean, val planLayers: Int, val motorError: String)
+
+/** Lê o estado do ESP32 em [host]; falha com [SendException]. */
+suspend fun fetchSliderStatus(host: String): SliderStatus {
+    val response = Http.get(Http.baseUrl(host).resolve("/status"), emptyMap(), readTimeoutMs = 5_000)
+    if (response.code != 200) throw SendException(R.string.send_error_http, response.code, response.body.take(200))
+    val json = try {
+        JSONObject(response.body)
+    } catch (e: org.json.JSONException) {
+        throw SendException(R.string.send_error_io, e.message.orEmpty(), cause = e)
+    }
+    val printer = json.optJSONObject("printer")
+    return SliderStatus(
+        ble = json.optBoolean("ble"),
+        printerHost = printer?.optString("host").orEmpty(),
+        printerReady = printer?.optBoolean("subscribed") == true,
+        planLayers = json.optJSONObject("plan")?.optInt("layers") ?: 0,
+        motorError = json.optJSONObject("motion")?.optString("error").orEmpty(),
+    )
+}
+
 /** Manda [plan] ao ESP32 em [host]; falha com [SendException] (sem resposta, recusado). */
 suspend fun sendSliderPlan(host: String, plan: SliderPlan) {
     val response = Http.postJson(Http.baseUrl(host).resolve("/plano"), emptyMap(), plan.espJson().toString(), readTimeoutMs = 10_000)

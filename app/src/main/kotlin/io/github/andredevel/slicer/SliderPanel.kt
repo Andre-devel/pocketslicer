@@ -19,6 +19,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
+import android.util.Log
+import io.github.andredevel.slicer.send.SendException
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +70,7 @@ fun SliderPanel(
     val travel = SliderGeometry.TRAVEL
     val limit = SliderGeometry.PAN_LIMIT
     Column(modifier, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        SliderEspStatus(config.espHost)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionLabel(stringResource(R.string.slider_carriage))
             RailBar(plan, layer)
@@ -195,6 +200,49 @@ fun SliderPanel(
 
         Text(stringResource(R.string.slider_footer, plan.layerCount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** Resultado da última consulta ao ESP32: o estado, ou o erro já traduzido. */
+private sealed interface EspProbe {
+    data object Waiting : EspProbe
+    data class Ok(val status: SliderStatus) : EspProbe
+    data object Failed : EspProbe
+}
+
+/** Faixa do topo com o estado do ESP32 em [host], consultado a cada 5 s enquanto o painel está aberto. */
+@Composable
+private fun SliderEspStatus(host: String) {
+    val probe by produceState<EspProbe>(EspProbe.Waiting, host) {
+        if (host.isBlank()) return@produceState
+        while (true) {
+            value = try {
+                EspProbe.Ok(fetchSliderStatus(host))
+            } catch (e: SendException) {
+                // O texto do erro fala de impressora; aqui basta dizer que o slider não respondeu.
+                Log.d("SliderPanel", "status $host", e.cause)
+                EspProbe.Failed
+            }
+            delay(5_000)
+        }
+    }
+    val (tone, text) = when {
+        host.isBlank() -> Tone.INFO to stringResource(R.string.slider_esp_no_host)
+        probe is EspProbe.Waiting -> Tone.INFO to stringResource(R.string.slider_esp_checking, host)
+        probe is EspProbe.Failed -> Tone.WARNING to stringResource(R.string.slider_esp_unreachable, host)
+        else -> {
+            val status = (probe as EspProbe.Ok).status
+            val problems = buildList {
+                if (!status.ble) add(stringResource(R.string.slider_esp_no_ble))
+                if (status.printerHost.isBlank()) add(stringResource(R.string.slider_esp_no_printer))
+                else if (!status.printerReady) add(stringResource(R.string.slider_esp_printer_down, status.printerHost))
+                if (status.motorError.isNotBlank()) add(stringResource(R.string.slider_esp_motor_error, status.motorError))
+            }
+            val plan = if (status.planLayers > 0) stringResource(R.string.slider_esp_plan, status.planLayers) else stringResource(R.string.slider_esp_no_plan)
+            if (problems.isEmpty()) Tone.SUCCESS to stringResource(R.string.slider_esp_ok, plan)
+            else Tone.WARNING to stringResource(R.string.slider_esp_problems, problems.joinToString(" · "), plan)
+        }
+    }
+    Banner(tone, text, Modifier.fillMaxWidth())
 }
 
 @Composable

@@ -20,6 +20,7 @@ void PrinterLink::begin(const String &host, uint16_t port, ShotCallback onShot, 
   onShot_ = std::move(onShot);
   onState_ = std::move(onState);
   printState_ = "";
+  duration_ = 0;
   connected_ = subscribed_ = haveShots_ = false;
   started_ = host_.length() > 0;
   if (!started_) {
@@ -71,6 +72,7 @@ void PrinterLink::subscribe() {
   doc["method"] = "printer.objects.subscribe";
   doc["params"]["objects"][kMacroObject].add("shots");
   doc["params"]["objects"][kStatsObject].add("state");
+  doc["params"]["objects"][kStatsObject].add("total_duration");
   doc["id"] = subscribeId_;
   String text;
   serializeJson(doc, text);
@@ -86,8 +88,10 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
   filter["error"]["message"] = true;
   filter["result"]["status"][kMacroObject]["shots"] = true;
   filter["result"]["status"][kStatsObject]["state"] = true;
+  filter["result"]["status"][kStatsObject]["total_duration"] = true;
   filter["params"][0][kMacroObject]["shots"] = true;
   filter["params"][0][kStatsObject]["state"] = true;
+  filter["params"][0][kStatsObject]["total_duration"] = true;
   JsonDocument doc;
   if (deserializeJson(doc, payload, length, DeserializationOption::Filter(filter))) return;
 
@@ -105,6 +109,8 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
   if (strcmp(method, "notify_status_update") == 0) {
     JsonVariant shots = doc["params"][0][kMacroObject]["shots"];
     if (!shots.isNull()) updateShots(shots.as<uint32_t>(), false);
+    JsonVariant duration = doc["params"][0][kStatsObject]["total_duration"];
+    if (!duration.isNull()) updateDuration(duration.as<float>(), false);
     const char *state = doc["params"][0][kStatsObject]["state"];
     if (state) updateState(state, false);
     return;
@@ -115,6 +121,8 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
       Serial.printf("[impressora] assinatura recusada: %s\n", doc["error"]["message"] | "?");
       return;
     }
+    JsonVariant duration = doc["result"]["status"][kStatsObject]["total_duration"];
+    if (!duration.isNull()) updateDuration(duration.as<float>(), true);
     const char *state = doc["result"]["status"][kStatsObject]["state"];
     if (state) updateState(state, true);
     JsonVariant shots = doc["result"]["status"][kMacroObject]["shots"];
@@ -138,7 +146,23 @@ void PrinterLink::updateShots(uint32_t value, bool initial) {
   if (fire && onShot_) onShot_(value);
 }
 
+void PrinterLink::updateDuration(float seconds, bool initial) {
+  // Na reconexão, duração menor que a última vista = outra impressão (ou a mesma recomeçada).
+  restartedWhileAway_ = initial && seconds + 1 < duration_;
+  duration_ = seconds;
+}
+
 void PrinterLink::updateState(const char *state, bool initial) {
+  if (restartedWhileAway_) {
+    restartedWhileAway_ = false;
+    if (strcmp(state, "printing") == 0 && printState_ == "printing") {
+      // Passa pelo fim da impressão anterior para quem acompanha ver o começo da nova.
+      Serial.println("[impressora] outra impressão começou enquanto a conexão estava fora");
+      printState_ = "complete";
+      if (onState_) onState_(printState_, false);
+      initial = false;
+    }
+  }
   if (printState_ == state) return;
   printState_ = state;
   Serial.printf("[impressora] estado: %s\n", state);

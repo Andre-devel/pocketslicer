@@ -717,6 +717,17 @@
     <string name="slider_mount_hint">Where the rail sits relative to the bed. Measure once.</string>
     <string name="slider_esp_host">ESP32 address</string>
     <string name="slider_esp_host_hint">IP shown on the slider\'s page, e.g. 192.168.1.60. The plan goes there when you start the print.</string>
+    <string name="slider_esp_no_host">Set the ESP32 address under Mounting so the plan goes to the slider.</string>
+    <string name="slider_esp_checking">Looking for the slider at %1$s…</string>
+    <string name="slider_esp_unreachable">Slider not found at %1$s. Check the IP on the slider\'s page and that it is on the same Wi-Fi.</string>
+    <string name="slider_esp_ok">Slider connected (phone paired, printer ready). %1$s</string>
+    <string name="slider_esp_problems">Slider connected, but: %1$s. %2$s</string>
+    <string name="slider_esp_no_ble">phone not paired over Bluetooth</string>
+    <string name="slider_esp_no_printer">no printer set on the slider</string>
+    <string name="slider_esp_printer_down">no TIMELAPSE_FOTO from %1$s</string>
+    <string name="slider_esp_motor_error">motor: %1$s</string>
+    <string name="slider_esp_plan">Saved plan: %1$d layers.</string>
+    <string name="slider_esp_no_plan">No plan saved yet.</string>
     <string name="slider_rail_distance">Rail → bed center</string>
     <string name="slider_lateral">Side offset</string>
     <string name="slider_timeline">Over the print</string>
