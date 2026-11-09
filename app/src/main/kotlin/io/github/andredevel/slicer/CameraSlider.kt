@@ -150,7 +150,10 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
         PanMode.FOLLOW -> target?.let { Math.toDegrees(atan2((it[0] - railZeroX - carriageAt(f)).toDouble(), (it[1] - railY).toDouble())).toFloat() } ?: 0f
     }
 
-    fun pan(layer: Int): Float = rawPan(layer).coerceIn(-SliderGeometry.PAN_LIMIT.toFloat(), SliderGeometry.PAN_LIMIT.toFloat())
+    fun pan(layer: Int): Float = panAt(fraction(layer))
+
+    /** Pan (com o limite) com o carrinho em [f] do caminho: 0 no início, 1 no fim (a virada, com idas e voltas). */
+    fun panAt(f: Float): Float = rawPanAt(f).coerceIn(-SliderGeometry.PAN_LIMIT.toFloat(), SliderGeometry.PAN_LIMIT.toFloat())
 
     /**
      * Maior ângulo pedido ao longo da impressão, se passar do limite (o pan para nele). Nos três
@@ -267,6 +270,27 @@ suspend fun fetchSliderStatus(host: String): SliderStatus {
 /** Manda [plan] ao ESP32 em [host]; falha com [SendException] (sem resposta, recusado). */
 suspend fun sendSliderPlan(host: String, plan: SliderPlan) {
     val response = Http.postJson(Http.baseUrl(host).resolve("/plano"), emptyMap(), plan.espJson().toString(), readTimeoutMs = 10_000)
+    if (response.code != 200) throw SendException(R.string.send_error_http, response.code, response.body.take(200))
+}
+
+/**
+ * Leva o carrinho a [mm] (a partir da chave) e o pan a [deg] (GET /mover), para conferir o
+ * enquadramento; o ESP32 faz o homing antes se ainda não fez. Falha com [SendException].
+ */
+suspend fun moveSlider(host: String, mm: Float, deg: Float) {
+    val path = String.format(java.util.Locale.US, "/mover?x=%.1f&pan=%.1f", mm, deg)
+    sliderCommand(host, path)
+}
+
+/** Para os motores do slider (GET /parar). */
+suspend fun stopSlider(host: String) = sliderCommand(host, "/parar")
+
+private suspend fun sliderCommand(host: String, path: String) {
+    val response = Http.get(Http.baseUrl(host).resolve(path), emptyMap(), readTimeoutMs = 5_000)
+    if (response.code == 409) {
+        val error = runCatching { JSONObject(response.body).optString("error") }.getOrNull().orEmpty()
+        throw SendException(R.string.slider_refused, error.ifBlank { response.body.take(200) })
+    }
     if (response.code != 200) throw SendException(R.string.send_error_http, response.code, response.body.take(200))
 }
 

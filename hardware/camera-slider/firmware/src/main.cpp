@@ -6,7 +6,7 @@
 // Pela serial (115200): "f" tira foto, "s" mostra o estado, "h" faz homing, "t"/"e" testam teclas.
 // Pela rede: http://slider-cam.local/ (ou o IP mostrado na serial), GET /foto, GET /status,
 // GET /impressora?host=<IP> (vazio desliga; fica salvo na placa), GET|POST /plano (JSON do
-// app; fica salvo na placa), GET /home, GET /mover?x=<mm>&pan=<graus>, GET /parar,
+// app; fica salvo na placa), GET /home, GET /mover?x=<mm>&pan=<graus> (faz o homing antes se preciso), GET /parar,
 // GET /pan-zero (posição atual do pan vira 0).
 
 #include <Arduino.h>
@@ -55,6 +55,9 @@ PrinterLink printer;
 Motion motion;
 Timelapse timelapse;
 bool apMode = false;
+// /mover antes do homing: faz o homing e vai depois (o app manda direto para conferir o enquadramento).
+bool moveAfterHoming = false;
+float pendingMm = 0, pendingDeg = 0;
 uint32_t photos = 0;
 
 const char kPage[] PROGMEM = R"HTML(<!doctype html>
@@ -238,6 +241,7 @@ void startServer() {
     server.send(200, "application/json", "{\"ok\":true,\"plan\":" + timelapse.plan().toJson() + "}");
   });
   server.on("/home", HTTP_GET, [] {
+    moveAfterHoming = false;
     motion.home();
     sendOk(true);
   });
@@ -245,11 +249,19 @@ void startServer() {
     if (motion.homing()) return sendOk(false, "homing em andamento");
     float x = server.hasArg("x") ? server.arg("x").toFloat() : motion.sliderMm();
     float deg = server.hasArg("pan") ? server.arg("pan").toFloat() : motion.panDeg();
-    if (server.hasArg("x") && !motion.homed()) return sendOk(false, "faça o homing antes de mover o carrinho");
+    if (timelapse.nextLayer() >= 0) return sendOk(false, "impressão em andamento");
+    if (server.hasArg("x") && !motion.homed()) {
+      moveAfterHoming = true;
+      pendingMm = x;
+      pendingDeg = deg;
+      motion.home();
+      return sendOk(true);
+    }
     motion.moveTo(x, deg);
     sendOk(true);
   });
   server.on("/parar", HTTP_GET, [] {
+    moveAfterHoming = false;
     motion.stop();
     sendOk(true);
   });
@@ -296,6 +308,11 @@ void loop() {
   printer.loop();
   timelapse.loop();
   motion.loop();
+  if (moveAfterHoming && (timelapse.nextLayer() >= 0 || !motion.busy())) {
+    // Homing que falhou (sem homed) ou impressão que começou: o plano manda, não o pedido.
+    if (timelapse.nextLayer() < 0 && motion.homed()) motion.moveTo(pendingMm, pendingDeg);
+    moveAfterHoming = false;
+  }
   if (ledOffAt && int32_t(millis() - ledOffAt) >= 0) {
     ledOffAt = 0;
     digitalWrite(kLedPin, LOW);

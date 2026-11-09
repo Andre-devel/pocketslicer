@@ -59,6 +59,41 @@ class SliderPlanTest {
         assertEquals(0, json.getInt("fixedAngle"))
     }
 
+    /** Botões "Ir ao início"/"Ir ao fim": GET /mover com o carrinho e o pan da ponta; 409 vira o erro do ESP32. */
+    @Test
+    fun moveSliderAsksMoverAndReportsTheRefusal() {
+        val end = plan.panAt(1f)
+        assertEquals(plan.pan(119), end, 0.01f)
+        assertEquals("GET /mover?x=400.0&pan=${String.format(java.util.Locale.US, "%.1f", end)} HTTP/1.1", serveOnce("200 OK", "{\"ok\":true}") { runBlocking { moveSlider(it, 400f, end) } })
+        try {
+            serveOnce("409 Conflict", "{\"ok\":false,\"error\":\"impressão em andamento\"}") { runBlocking { moveSlider(it, 40f, 0f) } }
+            org.junit.Assert.fail("409 devia falhar")
+        } catch (e: io.github.andredevel.slicer.send.SendException) {
+            assertEquals(R.string.slider_refused, e.text)
+            assertEquals("impressão em andamento", e.args.single())
+        }
+    }
+
+    /** Responde uma vez com [status] e [body]; devolve a primeira linha do pedido. */
+    private fun serveOnce(status: String, body: String, call: (String) -> Unit): String = ServerSocket(0).use { server ->
+        var line = ""
+        val reader = thread {
+            server.accept().use { socket ->
+                val input = socket.getInputStream().bufferedReader()
+                line = input.readLine()
+                while (input.readLine().isNotEmpty()) Unit
+                val bytes = body.toByteArray()
+                socket.getOutputStream().write("HTTP/1.1 $status\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray() + bytes)
+            }
+        }
+        try {
+            call("127.0.0.1:${server.localPort}")
+        } finally {
+            reader.join(5000)
+        }
+        line
+    }
+
     @Test
     fun sendSliderPlanPostsTheJsonToPlano() {
         ServerSocket(0).use { server ->

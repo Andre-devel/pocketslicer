@@ -728,6 +728,13 @@
     <string name="slider_esp_motor_error">motor: %1$s</string>
     <string name="slider_esp_plan">Saved plan: %1$d layers.</string>
     <string name="slider_esp_no_plan">No plan saved yet.</string>
+    <string name="slider_go_start">Go to start</string>
+    <string name="slider_go_end">Go to end</string>
+    <string name="slider_stop">Stop</string>
+    <string name="slider_go_hint">Moves the phone to the position and angle of the start or the end of the plan (the turn, with round trips) so you can check the framing for real. Homes first if needed.</string>
+    <string name="slider_going">Going to %1$d mm, %2$s°.</string>
+    <string name="slider_stopped">Stopped.</string>
+    <string name="slider_refused">The slider refused: %1$s</string>
     <string name="slider_rail_distance">Rail → bed center</string>
     <string name="slider_lateral">Side offset</string>
     <string name="slider_timeline">Over the print</string>

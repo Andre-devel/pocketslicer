@@ -26,6 +26,11 @@ import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import io.github.andredevel.slicer.ui.components.AppButton
+import io.github.andredevel.slicer.ui.components.ButtonStyle
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
@@ -93,6 +98,7 @@ fun SliderPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (config.espHost.isNotBlank()) SliderMoveButtons(config.espHost, plan)
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -243,6 +249,41 @@ private fun SliderEspStatus(host: String) {
         }
     }
     Banner(tone, text, Modifier.fillMaxWidth())
+}
+
+/**
+ * Botões que levam o celular à posição e ao ângulo do início e do fim do plano, para conferir o
+ * enquadramento de verdade antes de imprimir, e um para parar os motores.
+ */
+@Composable
+private fun SliderMoveButtons(host: String, plan: SliderPlan) {
+    val scope = rememberCoroutineScope()
+    var result by remember(host) { mutableStateOf<Pair<Tone, String>?>(null) }
+    val context = LocalContext.current
+    fun run(going: String?, action: suspend () -> Unit) {
+        result = null
+        scope.launch {
+            result = try {
+                action()
+                Tone.SUCCESS to (going ?: context.getString(R.string.slider_stopped))
+            } catch (e: SendException) {
+                Log.d("SliderPanel", "move $host", e.cause)
+                Tone.WARNING to if (e.text == R.string.slider_refused) context.getString(e.text, *e.args) else context.getString(R.string.slider_esp_unreachable, host)
+            }
+        }
+    }
+    fun goTo(f: Float) {
+        val mm = plan.config.start + (plan.config.end - plan.config.start) * f
+        val deg = plan.panAt(f)
+        run(context.getString(R.string.slider_going, mm.toInt(), String.format(Locale.US, "%+.1f", deg))) { moveSlider(host, mm, deg) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        AppButton(stringResource(R.string.slider_go_start), { goTo(0f) }, Modifier.weight(1f), style = ButtonStyle.OUTLINED)
+        AppButton(stringResource(R.string.slider_go_end), { goTo(1f) }, Modifier.weight(1f), style = ButtonStyle.OUTLINED)
+        AppButton(stringResource(R.string.slider_stop), { run(null) { stopSlider(host) } }, style = ButtonStyle.TEXT, color = MaterialTheme.colorScheme.error)
+    }
+    Text(stringResource(R.string.slider_go_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    result?.let { (tone, text) -> Banner(tone, text, Modifier.fillMaxWidth()) }
 }
 
 @Composable

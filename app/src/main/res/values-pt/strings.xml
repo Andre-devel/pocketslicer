@@ -725,6 +725,13 @@
     <string name="slider_esp_motor_error">motor: %1$s</string>
     <string name="slider_esp_plan">Plano salvo: %1$d camadas.</string>
     <string name="slider_esp_no_plan">Nenhum plano salvo ainda.</string>
+    <string name="slider_go_start">Ir ao início</string>
+    <string name="slider_go_end">Ir ao fim</string>
+    <string name="slider_stop">Parar</string>
+    <string name="slider_go_hint">Leva o celular à posição e ao ângulo do início ou do fim do plano (a virada, com idas e voltas) para conferir o enquadramento de verdade. Faz o homing antes, se precisar.</string>
+    <string name="slider_going">Indo para %1$d mm, %2$s°.</string>
+    <string name="slider_stopped">Parado.</string>
+    <string name="slider_refused">O slider recusou: %1$s</string>
     <string name="slider_rail_distance">Trilho → centro da mesa</string>
     <string name="slider_lateral">Deslocamento lateral</string>
     <string name="slider_timeline">Ao longo da impressão</string>
