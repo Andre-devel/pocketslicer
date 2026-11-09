@@ -15,8 +15,8 @@ class Motion {
   void begin();
   void loop();
 
-  // Procura a chave devagar, recua, volta mais devagar e define X = 0. Depois vai a [thenMm].
-  void home(float thenMm = 0);
+  // Procura a chave devagar, recua, volta mais devagar e define X = 0 (fica parado ali).
+  void home();
   // Leva o carrinho a [mm] e o pan a [deg] (limitados). Sem homing, o carrinho fica parado.
   // [approach]: chega em cada eixo vindo deste sentido (+1 ou -1, 0 = tanto faz), para tirar a
   // folga da redução antes de uma sequência que vai andar nesse sentido.
@@ -46,7 +46,6 @@ class Motion {
   bool endstopPressed_ = false;
   bool endstopRaw_ = false;
   uint32_t endstopChangedMs_ = 0;
-  float afterHomeMm_ = 0;
   // Alvo final e pré-alvo (com folga) de cada eixo, em passos.
   long sliderTarget_ = 0, panTarget_ = 0;
   long sliderPre_ = 0, panPre_ = 0;

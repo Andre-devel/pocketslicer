@@ -81,10 +81,9 @@ void Motion::readEndstop() {
   }
 }
 
-void Motion::home(float thenMm) {
+void Motion::home() {
   error_ = "";
   homed_ = false;
-  afterHomeMm_ = thenMm;
   pan.setCurrentPosition(pan.currentPosition());
   pan.disableOutputs();
   slider.enableOutputs();
@@ -106,8 +105,9 @@ void Motion::finishHoming() {
   slider.setCurrentPosition(0);
   slider.setMaxSpeed(kSliderMaxSpeed);
   homed_ = true;
+  phase_ = Phase::Idle;
+  slider.disableOutputs();
   Serial.println("[motor] homing ok (X = 0)");
-  moveTo(afterHomeMm_, panDeg(), afterHomeMm_ > 0 ? 1 : 0, 0);
 }
 
 void Motion::moveTo(float mm, float deg, int approachSlider, int approachPan) {

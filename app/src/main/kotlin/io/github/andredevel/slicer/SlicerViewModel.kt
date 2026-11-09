@@ -1515,9 +1515,6 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             stepStart = now
         }
         _state.update { it.copy(send = SendState.Working(R.string.send_connecting, steps = steps)) }
-        // Slider de câmera: o plano chega ao ESP32 antes de a impressão começar (ele faz homing ao
-        // ver o estado "printing"). Sem resposta, a impressão segue e o aviso fica no fim.
-        val sliderOk = if (start) sendSliderPlanFor(_state.value) else true
         // O primeiro progresso chega com a conexão aberta.
         uploader(host.kind, app.assets).upload(
             host, file, gcodeName(), start,
@@ -1536,6 +1533,10 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD) // arquivo vazio: sem progresso
         while (steps.current != null) advance(all.getOrNull(all.indexOf(steps.current) + 1))
         if (start) PrintWatchService.start(app, printStarted = true)
+        // Slider de câmera: o plano vai só com a impressão aceita (impressora ocupada não troca o
+        // plano da impressão em curso). O ESP32 já começou o homing ao ver "printing" e, se a
+        // primeira foto ainda não saiu, refaz a ida à camada 0 com este plano.
+        val sliderOk = !start || sendSliderPlanFor(_state.value)
         val text = when {
             !start -> R.string.send_done
             sliderOk -> R.string.send_started
@@ -1545,14 +1546,14 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Manda o plano do slider ao ESP32 se a impressora é a do slider e há endereço; falso só
-     * quando tentou e falhou.
+     * Manda o plano do slider ao ESP32 se a impressora é a do slider e há endereço; falso quando
+     * devia mandar e não conseguiu (sem plano ou sem resposta): o ESP32 ficaria com o anterior.
      */
     private suspend fun sendSliderPlanFor(state: SlicerUiState): Boolean {
         val host = state.sliderConfig.espHost.trim()
         if (host.isEmpty() || state.presets[PresetKind.PRINTER]?.isSliderPrinter != true) return true
-        val scene = state.scene ?: return true
-        val plan = sliderPlan(state, withContext(Dispatchers.Default) { sliderTargets(scene.meshes, scene.placements) }) ?: return true
+        val scene = state.scene ?: return false
+        val plan = sliderPlan(state, withContext(Dispatchers.Default) { sliderTargets(scene.meshes, scene.placements) }) ?: return false
         return try {
             sendSliderPlan(host, plan)
             true

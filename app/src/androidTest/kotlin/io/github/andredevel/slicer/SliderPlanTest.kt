@@ -32,6 +32,14 @@ class SliderPlanTest {
         }
     }
 
+    /** Seguir sem objeto: o app mostra 0°, então o firmware recebe fixo em 0°. */
+    @Test
+    fun followWithoutTargetGoesAsFixedZero() {
+        val json = SliderPlan(config, 120, floatArrayOf(128f, 128f, 0f), null).espJson()
+        assertEquals("FIXED", json.getString("panMode"))
+        assertEquals(0, json.getInt("fixedAngle"))
+    }
+
     @Test
     fun sendSliderPlanPostsTheJsonToPlano() {
         ServerSocket(0).use { server ->

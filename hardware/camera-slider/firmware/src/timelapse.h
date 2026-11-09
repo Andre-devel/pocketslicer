@@ -37,8 +37,9 @@ class Timelapse {
   void begin(Motion &motion, PhotoFn takePhoto);
   void loop();
 
-  // Plano novo do app (já salvo pelo chamador).
-  void setPlan(const TimelapsePlan &plan) { plan_ = plan; }
+  // Plano novo do app (já salvo pelo chamador). O app manda depois de iniciar a impressão; se
+  // ela já começou e a primeira foto ainda não saiu, o plano novo vale desde a camada 0.
+  void setPlan(const TimelapsePlan &plan);
   const TimelapsePlan &plan() const { return plan_; }
   // [initial]: estado lido ao conectar (placa religada no meio da impressão): só registra, sem
   // homing nem sequência, porque a camada atual é desconhecida.
@@ -50,6 +51,8 @@ class Timelapse {
 
  private:
   void goToLayer(int layer);
+  // Homing e ida à camada 0 do plano (sai em loop() quando o homing acaba).
+  void startPositioning();
   // Foto da camada atual e, depois de pauseMs, ida à próxima.
   void shootAndSchedule();
 
@@ -61,6 +64,8 @@ class Timelapse {
   int nextLayer_ = 0;
   // Foto pedida com o motor ainda andando: sai quando ele parar.
   bool photoPending_ = false;
+  // Homing do início da impressão em andamento; ao terminar, vai à camada 0.
+  bool positioning_ = false;
   // Hora de começar a ir à próxima camada (0 = nada agendado).
   uint32_t moveAtMs_ = 0;
 };

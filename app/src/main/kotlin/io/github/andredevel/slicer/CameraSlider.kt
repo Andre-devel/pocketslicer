@@ -163,11 +163,13 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
     /**
      * Plano para o firmware (POST /plano, hardware/camera-slider/firmware/src/timelapse.h): o
      * objeto seguido vai no sistema do trilho (X a partir do zero do trilho, distância da linha
-     * do trilho), e o ESP32 refaz as contas de [carriage] e [rawPan] a cada camada.
+     * do trilho), e o ESP32 refaz as contas de [carriage] e [rawPan] a cada camada. Seguir sem
+     * objeto vira fixo em 0°, como [rawPan] mostra.
      */
     fun espJson(): JSONObject = JSONObject()
         .put("layers", layerCount).put("start", config.start).put("end", config.end)
-        .put("panMode", config.panMode.name).put("fixedAngle", config.fixedAngle)
+        .put("panMode", if (config.panMode == PanMode.FOLLOW && target == null) PanMode.FIXED.name else config.panMode.name)
+        .put("fixedAngle", if (config.panMode == PanMode.FOLLOW) 0 else config.fixedAngle)
         .put("sweepStart", config.sweepStart).put("sweepEnd", config.sweepEnd)
         .put("targetX", (target?.get(0) ?: (railZeroX + SliderGeometry.TRAVEL / 2f)) - railZeroX)
         .put("targetDistance", target?.let { it[1] - railY } ?: config.mount.railDistance.toFloat())

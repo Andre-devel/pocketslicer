@@ -108,12 +108,35 @@ void Timelapse::onPrintState(const String &state, bool initial) {
     photoPending_ = false;
     moveAtMs_ = 0;
     Serial.printf("[time-lapse] impressão começou; plano com %d camadas\n", plan_.layers);
-    if (plan_.layers > 0) motion_->home(plan_.carriage(0));
+    positioning_ = false;
+    if (plan_.layers > 0) startPositioning();
   } else if (state != "printing" && state != "paused" && printing_) {
     printing_ = false;
+    positioning_ = false;
     moveAtMs_ = 0;
     photoPending_ = false;
     Serial.printf("[time-lapse] impressão terminou (%s)\n", state.c_str());
+  }
+}
+
+void Timelapse::startPositioning() {
+  positioning_ = true;
+  motion_->home();
+}
+
+void Timelapse::setPlan(const TimelapsePlan &plan) {
+  plan_ = plan;
+  if (!printing_ || nextLayer_ > 0 || plan_.layers <= 0) return;
+  // Impressão já começou com o plano anterior (ou sem plano): refaz a ida à camada 0.
+  moveAtMs_ = 0;
+  if (motion_->homing()) {
+    positioning_ = true;  // ao terminar, loop() vai à camada 0 do plano novo
+  } else if (motion_->homed()) {
+    positioning_ = false;
+    motion_->stop();
+    goToLayer(0);
+  } else {
+    startPositioning();
   }
 }
 
@@ -147,6 +170,11 @@ void Timelapse::shootAndSchedule() {
 }
 
 void Timelapse::loop() {
+  if (positioning_ && !motion_->busy()) {
+    positioning_ = false;
+    // Homing falhou: segue só com as fotos (motion.error() aparece na página).
+    if (motion_->homed()) goToLayer(0);
+  }
   if (photoPending_ && !motion_->busy()) {
     photoPending_ = false;
     shootAndSchedule();
