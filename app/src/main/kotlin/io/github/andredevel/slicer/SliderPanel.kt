@@ -32,10 +32,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.andredevel.slicer.render.PreviewSettings
 import io.github.andredevel.slicer.ui.components.AppIconButton
 import io.github.andredevel.slicer.ui.components.Banner
+import io.github.andredevel.slicer.ui.components.CommitField
 import io.github.andredevel.slicer.ui.components.SectionLabel
 import io.github.andredevel.slicer.ui.components.Segment
 import io.github.andredevel.slicer.ui.components.SegmentedTabs
@@ -133,6 +135,11 @@ fun SliderPanel(
                 val lateral = SliderGeometry.LATERAL_RANGE
                 LabeledStepper(stringResource(R.string.slider_rail_distance), mount.railDistance, { onConfig(config.copy(mount = mount.copy(railDistance = it))) }, distance.first, distance.last, 10, "mm", Modifier.weight(1f))
                 LabeledStepper(stringResource(R.string.slider_lateral), mount.lateralOffset, { onConfig(config.copy(mount = mount.copy(lateralOffset = it))) }, lateral.first, lateral.last, 10, "mm", Modifier.weight(1f))
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(R.string.slider_esp_host), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                CommitField(config.espHost, { onConfig(config.copy(espHost = it.trim())) }, Modifier.fillMaxWidth(), keyboardType = KeyboardType.Uri)
+                Text(stringResource(R.string.slider_esp_host_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 

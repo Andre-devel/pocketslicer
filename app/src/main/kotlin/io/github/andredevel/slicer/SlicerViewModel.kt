@@ -1515,6 +1515,9 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             stepStart = now
         }
         _state.update { it.copy(send = SendState.Working(R.string.send_connecting, steps = steps)) }
+        // Slider de câmera: o plano chega ao ESP32 antes de a impressão começar (ele faz homing ao
+        // ver o estado "printing"). Sem resposta, a impressão segue e o aviso fica no fim.
+        val sliderOk = if (start) sendSliderPlanFor(_state.value) else true
         // O primeiro progresso chega com a conexão aberta.
         uploader(host.kind, app.assets).upload(
             host, file, gcodeName(), start,
@@ -1533,7 +1536,30 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD) // arquivo vazio: sem progresso
         while (steps.current != null) advance(all.getOrNull(all.indexOf(steps.current) + 1))
         if (start) PrintWatchService.start(app, printStarted = true)
-        SendState.Done(if (start) R.string.send_started else R.string.send_done, host.name, steps = steps)
+        val text = when {
+            !start -> R.string.send_done
+            sliderOk -> R.string.send_started
+            else -> R.string.send_started_slider_failed
+        }
+        SendState.Done(text, host.name, steps = steps)
+    }
+
+    /**
+     * Manda o plano do slider ao ESP32 se a impressora é a do slider e há endereço; falso só
+     * quando tentou e falhou.
+     */
+    private suspend fun sendSliderPlanFor(state: SlicerUiState): Boolean {
+        val host = state.sliderConfig.espHost.trim()
+        if (host.isEmpty() || state.presets[PresetKind.PRINTER]?.isSliderPrinter != true) return true
+        val scene = state.scene ?: return true
+        val plan = sliderPlan(state, withContext(Dispatchers.Default) { sliderTargets(scene.meshes, scene.placements) }) ?: return true
+        return try {
+            sendSliderPlan(host, plan)
+            true
+        } catch (e: SendException) {
+            Log.w(TAG, "slider plan to $host: ${app.getString(e.text, *e.args)}", e.cause)
+            false
+        }
     }
 
     fun cancelSend() {

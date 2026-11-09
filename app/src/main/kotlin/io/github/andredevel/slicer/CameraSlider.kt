@@ -4,6 +4,9 @@ import io.github.andredevel.slicer.core.Bed
 import io.github.andredevel.slicer.core.ObjectMesh
 import io.github.andredevel.slicer.core.Placement
 import android.opengl.Matrix
+import io.github.andredevel.slicer.send.Http
+import io.github.andredevel.slicer.send.Http.resolve
+import io.github.andredevel.slicer.send.SendException
 import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -16,7 +19,8 @@ import kotlin.math.max
  *
  * [start]/[end]: posição do carrinho (mm a partir da chave de fim de curso) na primeira e na
  * última camada. [followObject]: índice do objeto da placa que o pan [PanMode.FOLLOW] mantém no
- * centro. Ângulos em graus; positivo gira para +X da impressora.
+ * centro. Ângulos em graus; positivo gira para +X da impressora. [espHost]: endereço do ESP32 do
+ * slider (IP ou nome), para onde o plano vai ao iniciar a impressão; vazio = não manda.
  */
 data class SliderConfig(
     val start: Int = 0,
@@ -28,11 +32,12 @@ data class SliderConfig(
     val sweepEnd: Int = 15,
     val pauseMs: Int = 300,
     val mount: SliderMount = SliderMount(),
+    val espHost: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("start", start).put("end", end).put("panMode", panMode.name).put("followObject", followObject)
         .put("fixedAngle", fixedAngle).put("sweepStart", sweepStart).put("sweepEnd", sweepEnd).put("pauseMs", pauseMs)
-        .put("railDistance", mount.railDistance).put("lateralOffset", mount.lateralOffset)
+        .put("railDistance", mount.railDistance).put("lateralOffset", mount.lateralOffset).put("espHost", espHost)
 
     companion object {
         fun fromJson(json: JSONObject): SliderConfig {
@@ -47,6 +52,7 @@ data class SliderConfig(
                 sweepEnd = json.optInt("sweepEnd", default.sweepEnd),
                 pauseMs = json.optInt("pauseMs", default.pauseMs),
                 mount = SliderMount(json.optInt("railDistance", default.mount.railDistance), json.optInt("lateralOffset", default.mount.lateralOffset)),
+                espHost = json.optString("espHost", default.espHost),
             )
         }
     }
@@ -154,9 +160,40 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
         return floatArrayOf(lens[0] + distance * kotlin.math.tan(angle).toFloat(), railY + distance, z)
     }
 
+    /**
+     * Plano para o firmware (POST /plano, hardware/camera-slider/firmware/src/timelapse.h): o
+     * objeto seguido vai no sistema do trilho (X a partir do zero do trilho, distância da linha
+     * do trilho), e o ESP32 refaz as contas de [carriage] e [rawPan] a cada camada.
+     */
+    fun espJson(): JSONObject = JSONObject()
+        .put("layers", layerCount).put("start", config.start).put("end", config.end)
+        .put("panMode", config.panMode.name).put("fixedAngle", config.fixedAngle)
+        .put("sweepStart", config.sweepStart).put("sweepEnd", config.sweepEnd)
+        .put("targetX", (target?.get(0) ?: (railZeroX + SliderGeometry.TRAVEL / 2f)) - railZeroX)
+        .put("targetDistance", target?.let { it[1] - railY } ?: config.mount.railDistance.toFloat())
+        .put("pauseMs", config.pauseMs)
+
     private companion object {
         const val AIM_HEIGHT = 30f
     }
+}
+
+/**
+ * Plano do slider para a cena e o fatiamento de [state], com [targets] = [sliderTargets] da
+ * cena; null sem cena ou sem fatiamento.
+ */
+fun sliderPlan(state: SlicerUiState, targets: List<SliderTarget>): SliderPlan? {
+    val layerCount = state.preview?.toolpaths?.layerCount ?: 0
+    val scene = state.scene?.takeIf { layerCount > 0 } ?: return null
+    val config = state.sliderConfig
+    val target = targets.getOrNull(config.followObject.coerceAtMost(targets.size - 1).coerceAtLeast(0))
+    return SliderPlan(config, layerCount, scene.bed.center(), target?.center?.takeIf { config.panMode == PanMode.FOLLOW })
+}
+
+/** Manda [plan] ao ESP32 em [host]; falha com [SendException] (sem resposta, recusado). */
+suspend fun sendSliderPlan(host: String, plan: SliderPlan) {
+    val response = Http.postJson(Http.baseUrl(host).resolve("/plano"), emptyMap(), plan.espJson().toString(), readTimeoutMs = 10_000)
+    if (response.code != 200) throw SendException(R.string.send_error_http, response.code, response.body.take(200))
 }
 
 /** Centro do retângulo que envolve a mesa. */

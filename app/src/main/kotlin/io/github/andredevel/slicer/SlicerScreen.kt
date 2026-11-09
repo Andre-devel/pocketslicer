@@ -326,13 +326,7 @@ private fun Workspace(
     val sliderTargets = remember(sliderScene?.meshes, sliderScene?.placements) {
         sliderScene?.let { sliderTargets(it.meshes, it.placements) }.orEmpty()
     }
-    val sliderPlan = remember(state.sliderConfig, layerCount, sliderScene?.bed, sliderTargets) {
-        val config = state.sliderConfig
-        sliderScene?.takeIf { layerCount > 0 }?.let { scene ->
-            val target = sliderTargets.getOrNull(config.followObject.coerceAtMost(sliderTargets.size - 1).coerceAtLeast(0))
-            SliderPlan(config, layerCount, scene.bed.center(), target?.center?.takeIf { config.panMode == PanMode.FOLLOW })
-        }
-    }
+    val sliderPlan = remember(state.sliderConfig, layerCount, sliderScene?.bed, sliderTargets) { sliderPlan(state, sliderTargets) }
     val sliderActive = previewing && sliderPrinter && sliderTabSelected && sliderPlan != null
     val sliderLayer = previewSettings.maxLayer.coerceIn(0, (layerCount - 1).coerceAtLeast(0))
     var viewportCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }

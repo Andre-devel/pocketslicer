@@ -281,6 +281,7 @@
     <string name="print_start">Print</string>
     <string name="send_starting">Starting the print…</string>
     <string name="send_started">Print started on %1$s.</string>
+    <string name="send_started_slider_failed">Print started on %1$s, but the camera slider did not get the plan. Check its address in the Slider tab.</string>
     <string name="send_error_busy">%1$s is busy (%2$s). Wait for it to finish before starting another print.</string>
     <string name="close">Close</string>
     <string name="minimize">Minimize</string>
@@ -709,6 +710,8 @@
     <string name="slider_saturated">The angle goes past %1$d°. The pan stops at the limit.</string>
     <string name="slider_mount">Mounting</string>
     <string name="slider_mount_hint">Where the rail sits relative to the bed. Measure once.</string>
+    <string name="slider_esp_host">ESP32 address</string>
+    <string name="slider_esp_host_hint">IP shown on the slider\'s page, e.g. 192.168.1.60. The plan goes there when you start the print.</string>
     <string name="slider_rail_distance">Rail → bed center</string>
     <string name="slider_lateral">Side offset</string>
     <string name="slider_timeline">Over the print</string>
