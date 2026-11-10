@@ -1516,7 +1516,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         }
         _state.update { it.copy(send = SendState.Working(R.string.send_connecting, steps = steps)) }
         // Antes da impressão começar, para o ESP32 já estar ligado a ela quando o estado virar "printing".
-        if (start) pointSliderFor(_state.value, host)
+        if (start) prepareSliderFor(_state.value, host)
         // O primeiro progresso chega com a conexão aberta.
         uploader(host.kind, app.assets).upload(
             host, file, gcodeName(), start,
@@ -1566,15 +1566,16 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Aponta o ESP32 do slider para [printer], se ela é a do slider e há endereço. Sem resposta, só
-     * registra: o envio do plano, depois, falha do mesmo jeito e avisa.
+     * Aponta o ESP32 do slider para [printer] e começa o homing ([prepareSlider]), se ela é a do
+     * slider e há endereço. Sem resposta, só registra: o envio do plano, depois, falha do mesmo
+     * jeito e avisa.
      */
-    private suspend fun pointSliderFor(state: SlicerUiState, printer: PrinterHost) {
+    private suspend fun prepareSliderFor(state: SlicerUiState, printer: PrinterHost) {
         val host = state.sliderConfig.espHost.trim()
         val printerHost = printer.hostName ?: return
         if (host.isEmpty() || state.presets[PresetKind.PRINTER]?.isSliderPrinter != true) return
         try {
-            pointSliderAt(host, printerHost)
+            prepareSlider(host, printerHost)
         } catch (e: SendException) {
             Log.w(TAG, "slider printer $host -> $printerHost: ${app.getString(e.text, *e.args)}", e.cause)
         }

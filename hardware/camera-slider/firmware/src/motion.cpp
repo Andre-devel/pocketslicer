@@ -26,7 +26,9 @@ constexpr float kSliderMaxSpeed = 700;  // ~6,9 mm/s
 constexpr float kSliderAccel = 350;
 constexpr float kPanMaxSpeed = 600;  // ~53°/s
 constexpr float kPanAccel = 300;
-constexpr float kHomeSeekSpeed = 200;
+// Procura na velocidade normal (440 mm em ~1 min); a precisão vem da volta lenta. O 200 de antes
+// era uma tentativa contra os travamentos, que eram do loop() (resolvido com a tarefa própria).
+constexpr float kHomeSeekSpeed = kSliderMaxSpeed;
 constexpr float kHomeSlowSpeed = 120;
 constexpr float kHomeBackoffMm = 2;
 // O homing desiste se andar mais que o perfil inteiro sem achar a chave.

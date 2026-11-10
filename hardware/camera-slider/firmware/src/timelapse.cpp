@@ -134,8 +134,11 @@ void Timelapse::onPrintState(const String &state, bool initial) {
 }
 
 void Timelapse::startPositioning() {
+  // loop() vai à camada 0 quando o motor parar. Com homing já feito (o app manda antes de enviar
+  // o G-code) ou em andamento, não refaz: perder passo no caminho para a chave é corrigido no
+  // Moving, e repetir o homing atrasaria as primeiras fotos.
   positioning_ = true;
-  motion_->home();
+  if (!motion_->homed() && !motion_->homing()) motion_->home();
 }
 
 void Timelapse::setPlan(const TimelapsePlan &plan) {
