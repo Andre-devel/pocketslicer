@@ -127,6 +127,7 @@ void Motion::home() {
   pan.disableOutputs();
   slider.enableOutputs();
   slider.setMaxSpeed(kHomeSeekSpeed);
+  slider.setAcceleration(kSliderAccel);  // a última ida pode ter deixado reduzida
   if (endstopPressed_) {
     // Já na chave: só recua e faz a volta lenta.
     slider.setCurrentPosition(0);
@@ -168,6 +169,18 @@ void Motion::startMove() {
   long p = preDone_ ? panTarget_ : panPre_;
   slider.moveTo(s);
   pan.moveTo(p);
+  // Chegada juntos: o eixo com menos tempo de caminho anda mais devagar, na mesma proporção
+  // (velocidade e aceleração), e o pan não chega antes do carrinho, nem o contrário. As duas
+  // razões aceleração/velocidade são iguais, então os perfis têm o mesmo formato.
+  float ts = abs(slider.distanceToGo()) / kSliderMaxSpeed;
+  float tp = abs(pan.distanceToGo()) / kPanMaxSpeed;
+  float longest = max(ts, tp);
+  float ks = longest > 0 ? max(ts / longest, 0.05f) : 1;
+  float kp = longest > 0 ? max(tp / longest, 0.05f) : 1;
+  slider.setMaxSpeed(kSliderMaxSpeed * ks);
+  slider.setAcceleration(kSliderAccel * ks);
+  pan.setMaxSpeed(kPanMaxSpeed * kp);
+  pan.setAcceleration(kPanAccel * kp);
   if (slider.distanceToGo() != 0) slider.enableOutputs();
   if (pan.distanceToGo() != 0) pan.enableOutputs();
   phase_ = Phase::Moving;
