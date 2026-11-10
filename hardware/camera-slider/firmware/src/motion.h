@@ -1,6 +1,8 @@
 // Motores do slider (carrinho) e do pan (celular): 28BYJ-48 com ULN2003, ver ../motores.md.
 //
-// Carrinho em mm a partir da chave de fim de curso (0 a kTravelMm); só anda depois do homing.
+// Carrinho em mm a partir da ponta esquerda do curso, olhando a impressora por trás do slider
+// (0 a kTravelMm, mesmo sentido do X da impressora); só anda depois do homing. Com a chave de fim
+// de curso na ponta direita (setSwitchRight), a conversão para passos fica toda aqui.
 // Pan em graus, positivo para +X da impressora, zero = posição ao ligar (ou "definir zero").
 // Os passos saem de uma tarefa própria do FreeRTOS (begin() a cria): o laço principal pode travar
 // segundos (reconexão do websocket com a impressora desligada) sem parar os motores. Todos os
@@ -24,6 +26,9 @@ class Motion {
   void moveTo(float mm, float deg, int approachSlider = 0, int approachPan = 0);
   void stop();
   void setPanZero();
+  // Chave de fim de curso na ponta direita: o zero dos passos fica em kTravelMm.
+  void setSwitchRight(bool right);
+  bool switchRight() const;
 
   bool homed() const;
   bool homing() const;
@@ -41,6 +46,8 @@ class Motion {
   static void taskMain(void *self);
   // Um passo da máquina de estados; roda só na tarefa dos motores.
   void tick();
+  // mm a partir da esquerda <-> mm a partir da chave (a conversão é a mesma nos dois sentidos).
+  float fromSwitch(float mm) const { return switchRight_ ? kTravelMm - mm : mm; }
   bool homingLocked() const { return phase_ != Phase::Idle && phase_ != Phase::Moving; }
   void startMove();
   void readEndstop();
@@ -55,5 +62,6 @@ class Motion {
   long sliderTarget_ = 0, panTarget_ = 0;
   long sliderPre_ = 0, panPre_ = 0;
   bool preDone_ = true;
+  bool switchRight_ = false;
   String error_;
 };

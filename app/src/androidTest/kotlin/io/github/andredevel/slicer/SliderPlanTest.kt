@@ -64,9 +64,9 @@ class SliderPlanTest {
     fun moveSliderAsksMoverAndReportsTheRefusal() {
         val end = plan.panAt(1f)
         assertEquals(plan.pan(119), end, 0.01f)
-        assertEquals("GET /mover?x=400.0&pan=${String.format(java.util.Locale.US, "%.1f", end)} HTTP/1.1", serveOnce("200 OK", "{\"ok\":true}") { runBlocking { moveSlider(it, 400f, end) } })
+        assertEquals("GET /mover?x=400.0&pan=${String.format(java.util.Locale.US, "%.1f", end)}&switchRight=1 HTTP/1.1", serveOnce("200 OK", "{\"ok\":true}") { runBlocking { moveSlider(it, 400f, end, true) } })
         try {
-            serveOnce("409 Conflict", "{\"ok\":false,\"error\":\"impressão em andamento\"}") { runBlocking { moveSlider(it, 40f, 0f) } }
+            serveOnce("409 Conflict", "{\"ok\":false,\"error\":\"impressão em andamento\"}") { runBlocking { moveSlider(it, 40f, 0f, false) } }
             org.junit.Assert.fail("409 devia falhar")
         } catch (e: io.github.andredevel.slicer.send.SendException) {
             assertEquals(R.string.slider_refused, e.text)

@@ -25,6 +25,8 @@ struct TimelapsePlan {
   // Idas e voltas (0 = só a ida) e camadas paradas em cada virada; ver slider_math.h.
   int passes = 0;
   int dwellLayers = 0;
+  // Chave de fim de curso na ponta direita (montagem do app); main.cpp repassa ao Motion.
+  bool switchRight = false;
 
   float fraction(int layer) const;
   float carriage(int layer) const;

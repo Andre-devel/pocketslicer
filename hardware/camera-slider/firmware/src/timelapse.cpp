@@ -59,6 +59,7 @@ bool TimelapsePlan::fromJson(const String &text, String &error) {
   p.pauseMs = doc["pauseMs"] | p.pauseMs;
   p.passes = doc["passes"] | 0;
   p.dwellLayers = doc["dwellLayers"] | 0;
+  p.switchRight = doc["switchRight"] | false;
   if (p.layers < 0 || p.start < 0 || p.end < 0 || p.start > Motion::kTravelMm || p.end > Motion::kTravelMm ||
       p.targetDistance <= 0 || p.pauseMs < 0 || p.pauseMs > 10000 || p.passes < 0 || p.passes > 20 || p.dwellLayers < 0) {
     error = "valor fora da faixa";
@@ -82,6 +83,7 @@ String TimelapsePlan::toJson() const {
   doc["pauseMs"] = pauseMs;
   doc["passes"] = passes;
   doc["dwellLayers"] = dwellLayers;
+  doc["switchRight"] = switchRight;
   String text;
   serializeJson(doc, text);
   return text;

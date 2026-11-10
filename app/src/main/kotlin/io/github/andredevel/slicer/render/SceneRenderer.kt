@@ -490,7 +490,7 @@ class SceneRenderer(var dark: Boolean) : GLSurfaceView.Renderer {
             Matrix.scaleM(it, 0, length, 6f, 0.6f)
         }
         box(HOME_SWITCH) {
-            Matrix.translateM(it, 0, plan.railZeroX - 8f, y - 12f, top - 20f)
+            Matrix.translateM(it, 0, plan.railZeroX + if (plan.config.mount.switchRight) travel else -8f, y - 12f, top - 20f)
             Matrix.scaleM(it, 0, 8f, 24f, 32f)
         }
         val x = plan.carriageX(layer)

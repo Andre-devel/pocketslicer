@@ -147,6 +147,8 @@ String statusJson() {
   json += ",\"endstop\":";
   json += motion.endstopPressed() ? "true" : "false";
   json += ",\"x\":" + String(motion.sliderMm(), 1) + ",\"pan\":" + String(motion.panDeg(), 1);
+  json += ",\"switchRight\":";
+  json += motion.switchRight() ? "true" : "false";
   json += ",\"error\":\"" + motion.error() + "\"}";
   json += ",\"plan\":" + timelapse.plan().toJson() + ",\"layer\":" + String(timelapse.nextLayer()) + "}";
   return json;
@@ -203,6 +205,13 @@ void startWifi() {
   Serial.printf("[wifi] rede \"%s\" (%s), IP %s\n", kApSsid, pass ? "com senha" : "aberta", WiFi.softAPIP().toString().c_str());
 }
 
+// Lado da chave (montagem no app): chega com o plano e com /mover; fica salvo para a página do
+// ESP32 e para depois de religar.
+void setSwitchRight(bool right) {
+  motion.setSwitchRight(right);
+  if (prefs.getBool("switchRight", false) != right) prefs.putBool("switchRight", right);
+}
+
 void startServer() {
   server.on("/", HTTP_GET, [] { server.send_P(200, "text/html; charset=utf-8", kPage); });
   server.on("/status", HTTP_GET, [] { server.send(200, "application/json", statusJson()); });
@@ -234,6 +243,7 @@ void startServer() {
         server.send(400, "application/json", "{\"ok\":false,\"error\":\"" + error + "\"}");
         return;
       }
+      setSwitchRight(plan.switchRight);
       timelapse.setPlan(plan);
       prefs.putString("plan", plan.toJson());
       Serial.println("[plano] novo: " + plan.toJson());
@@ -247,6 +257,7 @@ void startServer() {
   });
   server.on("/mover", HTTP_GET, [] {
     if (motion.homing()) return sendOk(false, "homing em andamento");
+    if (server.hasArg("switchRight")) setSwitchRight(server.arg("switchRight") == "1");
     float x = server.hasArg("x") ? server.arg("x").toFloat() : motion.sliderMm();
     float deg = server.hasArg("pan") ? server.arg("pan").toFloat() : motion.panDeg();
     if (timelapse.nextLayer() >= 0) return sendOk(false, "impressão em andamento");
@@ -290,6 +301,7 @@ void setup() {
   startServer();
   prefs.begin("slider", false);
   motion.begin();
+  motion.setSwitchRight(prefs.getBool("switchRight", false));
   timelapse.begin(motion, takePhoto);
   if (prefs.isKey("plan")) {
     TimelapsePlan plan;

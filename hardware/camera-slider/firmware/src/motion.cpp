@@ -99,7 +99,13 @@ bool Motion::homing() const { Guard g; return homingLocked(); }
 bool Motion::busy() const { Guard g; return phase_ != Phase::Idle; }
 String Motion::error() const { Guard g; return error_; }
 bool Motion::endstopPressed() const { Guard g; return endstopPressed_; }
-float Motion::sliderMm() const { Guard g; return slider.currentPosition() / kSliderStepsPerMm; }
+float Motion::sliderMm() const { Guard g; return fromSwitch(slider.currentPosition() / kSliderStepsPerMm); }
+bool Motion::switchRight() const { Guard g; return switchRight_; }
+
+void Motion::setSwitchRight(bool right) {
+  Guard g;
+  switchRight_ = right;
+}
 float Motion::panDeg() const { Guard g; return pan.currentPosition() / kPanStepsPerDeg; }
 
 void Motion::readEndstop() {
@@ -146,7 +152,8 @@ void Motion::finishHoming() {
 void Motion::moveTo(float mm, float deg, int approachSlider, int approachPan) {
   Guard g;
   if (homingLocked()) return;
-  sliderTarget_ = homed_ ? sliderSteps(mm) : slider.currentPosition();
+  sliderTarget_ = homed_ ? sliderSteps(fromSwitch(mm)) : slider.currentPosition();
+  if (switchRight_) approachSlider = -approachSlider;
   panTarget_ = panSteps(deg);
   sliderPre_ = preTarget(slider.currentPosition(), sliderTarget_, approachSlider, lroundf(kSliderBacklashMm * kSliderStepsPerMm),
                          0, sliderSteps(kTravelMm));

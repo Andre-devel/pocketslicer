@@ -734,6 +734,9 @@
     <string name="slider_refused">O slider recusou: %1$s</string>
     <string name="slider_rail_distance">Trilho → centro da mesa</string>
     <string name="slider_lateral">Deslocamento lateral</string>
+    <string name="slider_switch_side">Lado da chave (olhando por trás do slider)</string>
+    <string name="slider_switch_left">Esquerda</string>
+    <string name="slider_switch_right">Direita</string>
     <string name="slider_timeline">Ao longo da impressão</string>
     <string name="slider_timeline_carriage">Carrinho (0–%1$d mm)</string>
     <string name="slider_timeline_pan">Pan (±%1$d°)</string>

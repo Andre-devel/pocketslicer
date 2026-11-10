@@ -737,6 +737,9 @@
     <string name="slider_refused">The slider refused: %1$s</string>
     <string name="slider_rail_distance">Rail → bed center</string>
     <string name="slider_lateral">Side offset</string>
+    <string name="slider_switch_side">Endstop side (seen from behind the slider)</string>
+    <string name="slider_switch_left">Left</string>
+    <string name="slider_switch_right">Right</string>
     <string name="slider_timeline">Over the print</string>
     <string name="slider_timeline_carriage">Carriage (0–%1$d mm)</string>
     <string name="slider_timeline_pan">Pan (±%1$d°)</string>

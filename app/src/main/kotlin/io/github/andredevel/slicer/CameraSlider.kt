@@ -42,7 +42,8 @@ data class SliderConfig(
         .put("start", start).put("end", end).put("panMode", panMode.name).put("followObject", followObject)
         .put("fixedAngle", fixedAngle).put("sweepStart", sweepStart).put("sweepEnd", sweepEnd).put("pauseMs", pauseMs)
         .put("passes", passes).put("dwellLayers", dwellLayers)
-        .put("railDistance", mount.railDistance).put("lateralOffset", mount.lateralOffset).put("espHost", espHost)
+        .put("railDistance", mount.railDistance).put("lateralOffset", mount.lateralOffset).put("switchRight", mount.switchRight)
+        .put("espHost", espHost)
 
     companion object {
         fun fromJson(json: JSONObject): SliderConfig {
@@ -58,7 +59,11 @@ data class SliderConfig(
                 pauseMs = json.optInt("pauseMs", default.pauseMs),
                 passes = json.optInt("passes", default.passes),
                 dwellLayers = json.optInt("dwellLayers", default.dwellLayers),
-                mount = SliderMount(json.optInt("railDistance", default.mount.railDistance), json.optInt("lateralOffset", default.mount.lateralOffset)),
+                mount = SliderMount(
+                    json.optInt("railDistance", default.mount.railDistance),
+                    json.optInt("lateralOffset", default.mount.lateralOffset),
+                    json.optBoolean("switchRight", default.mount.switchRight),
+                ),
                 espHost = json.optString("espHost", default.espHost),
             )
         }
@@ -68,14 +73,15 @@ data class SliderConfig(
 /**
  * Onde o trilho fica, medido uma vez: [railDistance] do trilho ao centro da mesa (mm, na
  * direção Y da impressora) e [lateralOffset] do meio do trilho ao centro da mesa em X
- * (0 = trilho centrado; positivo = deslocado para +X).
+ * (0 = trilho centrado; positivo = deslocado para +X). [switchRight]: chave de fim de curso na
+ * ponta direita (+X); as posições do carrinho continuam contadas da esquerda e o ESP32 converte.
  */
-data class SliderMount(val railDistance: Int = 510, val lateralOffset: Int = 0)
+data class SliderMount(val railDistance: Int = 510, val lateralOffset: Int = 0, val switchRight: Boolean = false)
 
 enum class PanMode { FOLLOW, FIXED, SWEEP }
 
 object SliderGeometry {
-    /** Curso útil do carrinho (mm); 0 é a ponta da chave, à esquerda de quem olha a impressora. */
+    /** Curso útil do carrinho (mm); 0 é a ponta esquerda de quem olha a impressora (+X da impressora). */
     const val TRAVEL = 440
     /** Limite do pan por software (graus, para cada lado). */
     const val PAN_LIMIT = 25
@@ -192,6 +198,7 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
         .put("targetX", (target?.get(0) ?: (railZeroX + SliderGeometry.TRAVEL / 2f)) - railZeroX)
         .put("targetDistance", target?.let { it[1] - railY } ?: config.mount.railDistance.toFloat())
         .put("pauseMs", config.pauseMs).put("passes", config.passes).put("dwellLayers", config.dwellLayers)
+        .put("switchRight", config.mount.switchRight)
 
     private companion object {
         const val AIM_HEIGHT = 30f
@@ -274,11 +281,12 @@ suspend fun sendSliderPlan(host: String, plan: SliderPlan) {
 }
 
 /**
- * Leva o carrinho a [mm] (a partir da chave) e o pan a [deg] (GET /mover), para conferir o
- * enquadramento; o ESP32 faz o homing antes se ainda não fez. Falha com [SendException].
+ * Leva o carrinho a [mm] (a partir da ponta esquerda) e o pan a [deg] (GET /mover), para conferir o
+ * enquadramento; o ESP32 faz o homing antes se ainda não fez. [switchRight] vai junto porque o
+ * ESP32 converte mm em passos a partir da chave. Falha com [SendException].
  */
-suspend fun moveSlider(host: String, mm: Float, deg: Float) {
-    val path = String.format(java.util.Locale.US, "/mover?x=%.1f&pan=%.1f", mm, deg)
+suspend fun moveSlider(host: String, mm: Float, deg: Float, switchRight: Boolean) {
+    val path = String.format(java.util.Locale.US, "/mover?x=%.1f&pan=%.1f&switchRight=%d", mm, deg, if (switchRight) 1 else 0)
     sliderCommand(host, path)
 }
 

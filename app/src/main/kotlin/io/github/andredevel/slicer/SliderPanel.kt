@@ -163,6 +163,17 @@ fun SliderPanel(
                 LabeledStepper(stringResource(R.string.slider_lateral), mount.lateralOffset, { onConfig(config.copy(mount = mount.copy(lateralOffset = it))) }, lateral.first, lateral.last, 10, "mm", Modifier.weight(1f))
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(R.string.slider_switch_side), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SegmentedTabs(
+                    listOf(Segment(stringResource(R.string.slider_switch_left)), Segment(stringResource(R.string.slider_switch_right))),
+                    if (config.mount.switchRight) 1 else 0,
+                    { onConfig(config.copy(mount = config.mount.copy(switchRight = it == 1))) },
+                    Modifier.fillMaxWidth(),
+                    check = false,
+                    compact = true,
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(R.string.slider_esp_host), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 CommitField(config.espHost, { onConfig(config.copy(espHost = it.trim())) }, Modifier.fillMaxWidth(), keyboardType = KeyboardType.Uri)
                 Text(stringResource(R.string.slider_esp_host_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -275,7 +286,7 @@ private fun SliderMoveButtons(host: String, plan: SliderPlan) {
     fun goTo(f: Float) {
         val mm = plan.config.start + (plan.config.end - plan.config.start) * f
         val deg = plan.panAt(f)
-        run(context.getString(R.string.slider_going, mm.toInt(), String.format(Locale.US, "%+.1f", deg))) { moveSlider(host, mm, deg) }
+        run(context.getString(R.string.slider_going, mm.toInt(), String.format(Locale.US, "%+.1f", deg))) { moveSlider(host, mm, deg, plan.config.mount.switchRight) }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         AppButton(stringResource(R.string.slider_go_start), { goTo(0f) }, Modifier.weight(1f), style = ButtonStyle.OUTLINED)
