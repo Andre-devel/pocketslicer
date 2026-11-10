@@ -62,6 +62,9 @@ class Motion {
   long sliderTarget_ = 0, panTarget_ = 0;
   long sliderPre_ = 0, panPre_ = 0;
   bool preDone_ = true;
+  // Trecho em andamento (de onde saiu e para onde vai, em passos) e qual eixo dita a proporção.
+  long sliderFrom_ = 0, panFrom_ = 0, sliderGoal_ = 0, panGoal_ = 0;
+  bool sliderLeads_ = true;
   bool switchRight_ = false;
   String error_;
 };

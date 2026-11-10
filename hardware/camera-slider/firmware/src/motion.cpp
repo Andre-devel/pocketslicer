@@ -127,7 +127,6 @@ void Motion::home() {
   pan.disableOutputs();
   slider.enableOutputs();
   slider.setMaxSpeed(kHomeSeekSpeed);
-  slider.setAcceleration(kSliderAccel);  // a última ida pode ter deixado reduzida
   if (endstopPressed_) {
     // Já na chave: só recua e faz a volta lenta.
     slider.setCurrentPosition(0);
@@ -169,18 +168,16 @@ void Motion::startMove() {
   long p = preDone_ ? panTarget_ : panPre_;
   slider.moveTo(s);
   pan.moveTo(p);
-  // Chegada juntos: o eixo com menos tempo de caminho anda mais devagar, na mesma proporção
-  // (velocidade e aceleração), e o pan não chega antes do carrinho, nem o contrário. As duas
-  // razões aceleração/velocidade são iguais, então os perfis têm o mesmo formato.
-  float ts = abs(slider.distanceToGo()) / kSliderMaxSpeed;
-  float tp = abs(pan.distanceToGo()) / kPanMaxSpeed;
-  float longest = max(ts, tp);
-  float ks = longest > 0 ? max(ts / longest, 0.05f) : 1;
-  float kp = longest > 0 ? max(tp / longest, 0.05f) : 1;
-  slider.setMaxSpeed(kSliderMaxSpeed * ks);
-  slider.setAcceleration(kSliderAccel * ks);
-  pan.setMaxSpeed(kPanMaxSpeed * kp);
-  pan.setAcceleration(kPanAccel * kp);
+  // Os dois eixos andam juntos, na mesma proporção do caminho: o que levaria mais tempo na
+  // velocidade máxima (o líder) anda pela aceleração dele, e o outro vai sendo levado à mesma
+  // fração do trecho a cada tique (ver tick). Cada alvo novo recomeça a proporção de onde está.
+  sliderFrom_ = slider.currentPosition();
+  panFrom_ = pan.currentPosition();
+  sliderGoal_ = s;
+  panGoal_ = p;
+  sliderLeads_ = abs(s - sliderFrom_) / kSliderMaxSpeed >= abs(p - panFrom_) / kPanMaxSpeed;
+  slider.setMaxSpeed(kSliderMaxSpeed);
+  pan.setMaxSpeed(kPanMaxSpeed);
   if (slider.distanceToGo() != 0) slider.enableOutputs();
   if (pan.distanceToGo() != 0) pan.enableOutputs();
   phase_ = Phase::Moving;
@@ -244,12 +241,19 @@ void Motion::tick() {
       // Chave apertada andando para o zero: perdeu passo. Para ali e assume X = 0.
       if (endstopPressed_ && slider.distanceToGo() < 0) {
         Serial.printf("[motor] fim de curso em X = %.1f mm; corrigindo para 0\n", sliderMm());
+        sliderFrom_ -= slider.currentPosition();
         slider.setCurrentPosition(0);
-        slider.moveTo(preDone_ ? sliderTarget_ : sliderPre_);
+        slider.moveTo(sliderGoal_);
       }
-      bool s = slider.run();
-      bool p = pan.run();
-      if (s || p) return;
+      AccelStepper &lead = sliderLeads_ ? slider : pan;
+      AccelStepper &follow = sliderLeads_ ? pan : slider;
+      long leadFrom = sliderLeads_ ? sliderFrom_ : panFrom_, leadGoal = sliderLeads_ ? sliderGoal_ : panGoal_;
+      long followFrom = sliderLeads_ ? panFrom_ : sliderFrom_, followGoal = sliderLeads_ ? panGoal_ : sliderGoal_;
+      bool l = lead.run();
+      float f = !l || leadGoal == leadFrom ? 1 : constrain(float(lead.currentPosition() - leadFrom) / (leadGoal - leadFrom), 0.0f, 1.0f);
+      follow.moveTo(followFrom + lroundf((followGoal - followFrom) * f));
+      bool fo = follow.run();
+      if (l || fo) return;
       if (!preDone_) {
         preDone_ = true;
         startMove();
