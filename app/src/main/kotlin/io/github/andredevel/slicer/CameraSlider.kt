@@ -85,6 +85,12 @@ object SliderGeometry {
     const val TRAVEL = 440
     /** Limite do pan por software (graus, para cada lado). */
     const val PAN_LIMIT = 25
+    /**
+     * Velocidades que o slider de verdade acompanha (mm/s e graus/s), um pouco abaixo das máximas
+     * do firmware (kSliderMaxSpeed ~6,9 mm/s, kPanMaxSpeed ~53°/s) por causa da aceleração.
+     */
+    const val CARRIAGE_SPEED = 6f
+    const val PAN_SPEED = 45f
     /** Comprimento do perfil V-slot. */
     const val PROFILE_LENGTH = 600f
     /** Altura da lente acima da mesa (mm) e acima do topo do perfil. */
@@ -133,14 +139,14 @@ fun sliderTargets(meshes: List<ObjectMesh>, placements: List<Placement>): List<S
  */
 class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: FloatArray, val target: FloatArray?) {
     val railY = bedCenter[1] - config.mount.railDistance
-    /** X da mesa do zero do trilho (ponta da chave). */
+    /** X da mesa do zero do trilho (ponta esquerda do curso). */
     val railZeroX = bedCenter[0] + config.mount.lateralOffset - SliderGeometry.TRAVEL / 2f
     val railTopZ = SliderGeometry.LENS_HEIGHT - SliderGeometry.LENS_ABOVE_RAIL
 
     /** Onde a camada está entre [SliderConfig.start] (0) e [SliderConfig.end] (1); ver [sliderFraction]. */
     fun fraction(layer: Int) = sliderFraction(layer, layerCount, config.passes, config.dwellLayers)
 
-    /** Posição do carrinho no trilho (mm a partir da chave). */
+    /** Posição do carrinho no trilho (mm a partir da ponta esquerda). */
     fun carriage(layer: Int): Float = carriageAt(fraction(layer))
 
     private fun carriageAt(f: Float): Float = config.start + (config.end - config.start) * f
@@ -157,6 +163,20 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
     }
 
     fun pan(layer: Int): Float = panAt(fraction(layer))
+
+    /**
+     * Tempo para o slider de verdade percorrer as camadas de [from] até a última no ritmo da
+     * animação: cada camada dura o que o trecho mais rápido (carrinho ou pan) pede.
+     */
+    fun followMillis(from: Int): Long {
+        var slowest = 0f
+        for (layer in from until layerCount - 1) {
+            val mm = abs(carriage(layer + 1) - carriage(layer)) / SliderGeometry.CARRIAGE_SPEED
+            val deg = abs(pan(layer + 1) - pan(layer)) / SliderGeometry.PAN_SPEED
+            slowest = maxOf(slowest, mm, deg)
+        }
+        return (slowest * 1000 * (layerCount - 1 - from)).toLong()
+    }
 
     /** Pan (com o limite) com o carrinho em [f] do caminho: 0 no início, 1 no fim (a virada, com idas e voltas). */
     fun panAt(f: Float): Float = rawPanAt(f).coerceIn(-SliderGeometry.PAN_LIMIT.toFloat(), SliderGeometry.PAN_LIMIT.toFloat())
@@ -253,7 +273,18 @@ fun sliderPlan(state: SlicerUiState, targets: List<SliderTarget>): SliderPlan? {
  * TIMELAPSE_FOTO assinada na impressora dele, camadas do plano salvo (0 = nenhum) e erro do
  * último homing (vazio se nenhum).
  */
-data class SliderStatus(val ble: Boolean, val printerHost: String, val printerReady: Boolean, val planLayers: Int, val motorError: String)
+data class SliderStatus(
+    val ble: Boolean,
+    val printerHost: String,
+    val printerReady: Boolean,
+    val planLayers: Int,
+    val motorError: String,
+    /** Motor andando ou homing em andamento. */
+    val motorBusy: Boolean = false,
+    /** Homing feito e posição do carrinho (mm a partir da ponta esquerda). */
+    val homed: Boolean = false,
+    val carriage: Float = 0f,
+)
 
 /** Lê o estado do ESP32 em [host]; falha com [SendException]. */
 suspend fun fetchSliderStatus(host: String): SliderStatus {
@@ -271,6 +302,9 @@ suspend fun fetchSliderStatus(host: String): SliderStatus {
         printerReady = printer?.optBoolean("subscribed") == true,
         planLayers = json.optJSONObject("plan")?.optInt("layers") ?: 0,
         motorError = json.optJSONObject("motion")?.optString("error").orEmpty(),
+        motorBusy = json.optJSONObject("motion")?.optBoolean("busy") == true,
+        homed = json.optJSONObject("motion")?.optBoolean("homed") == true,
+        carriage = json.optJSONObject("motion")?.optDouble("x")?.toFloat() ?: 0f,
     )
 }
 

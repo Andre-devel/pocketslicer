@@ -22,13 +22,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
 import android.util.Log
 import io.github.andredevel.slicer.send.SendException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import io.github.andredevel.slicer.ui.components.AppButton
 import io.github.andredevel.slicer.ui.components.ButtonStyle
 import androidx.compose.runtime.rememberUpdatedState
@@ -384,7 +390,8 @@ private fun Timeline(plan: SliderPlan, layer: Int) {
 
 /**
  * Barra de baixo do viewport com o slider: camada, posição do carrinho e ângulo do pan
- * (amarelo quando para no limite), e ▶ que percorre as camadas até a última.
+ * (amarelo quando para no limite), e ▶ que percorre as camadas até a última (com o slider de
+ * verdade junto, se o ESP32 estiver configurado).
  */
 @Composable
 fun SliderReadout(plan: SliderPlan, layer: Int, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
@@ -394,7 +401,7 @@ fun SliderReadout(plan: SliderPlan, layer: Int, settings: PreviewSettings, onSet
         ReadoutValue(stringResource(R.string.slider_carriage), "${oneDecimal(plan.carriage(layer))} mm")
         ReadoutValue(stringResource(R.string.slider_pan), "${signed(plan.pan(layer))}°", if (limited) PocketTheme.colors.warning else MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.weight(1f))
-        PlayLayersButton(plan.layerCount, settings, onSettings)
+        PlayLayersButton(plan, settings, onSettings)
     }
 }
 
@@ -406,21 +413,84 @@ private fun ReadoutValue(label: String, value: String, color: Color = MaterialTh
     }
 }
 
-/** ▶ leva a camada de cima até a última em [PLAY_LAYERS_MILLIS] (da última, recomeça da primeira); tocar de novo pausa. */
+/**
+ * ▶ leva a camada de cima até a última em [PLAY_LAYERS_MILLIS] (da última, recomeça da primeira);
+ * tocar de novo pausa. Com o ESP32 configurado, o slider de verdade vai antes à camada de partida
+ * (com homing, se precisar), a animação desacelera para ele acompanhar ([SliderPlan.followMillis])
+ * e a pausa para os motores. ESP32 fora do ar ou ocupado com uma impressão: só a animação.
+ */
 @Composable
-private fun PlayLayersButton(layerCount: Int, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
+private fun PlayLayersButton(plan: SliderPlan, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
+    val layerCount = plan.layerCount
     var playing by remember(layerCount) { mutableStateOf(false) }
     val current by rememberUpdatedState(settings)
+    val currentPlan by rememberUpdatedState(plan)
     LaunchedEffect(playing) {
         if (!playing) return@LaunchedEffect
+        val plan = currentPlan
+        val host = plan.config.espHost
         val last = layerCount - 1
         val from = current.maxLayer.coerceIn(0, last).takeIf { it < last } ?: current.minLayer.coerceIn(0, last)
-        val start = withFrameMillis { it }
-        while (true) {
-            val elapsed = withFrameMillis { it } - start
-            val layer = (from + (last - from) * elapsed / PLAY_LAYERS_MILLIS).toInt().coerceAtMost(last)
-            if (layer != current.maxLayer) onSettings(current.copy(maxLayer = layer, maxMove = Int.MAX_VALUE))
-            if (layer >= last) break
+        if (from != current.maxLayer) onSettings(current.copy(maxLayer = from, maxMove = Int.MAX_VALUE))
+        suspend fun send(layer: Int) = moveSlider(host, plan.carriage(layer), plan.pan(layer), plan.config.mount.switchRight)
+        // Verdadeiro depois que o ESP32 aceitou o primeiro movimento: só então a pausa manda parar
+        // (um ESP32 que recusou por estar imprimindo não pode ter o motor parado por aqui).
+        var moved = false
+        try {
+            val follow = host.isNotBlank() && try {
+                send(from)
+                moved = true
+                // Sem homing, o ESP32 faz o homing e só depois vai à camada: espera chegar nela.
+                val goal = plan.carriage(from)
+                withTimeout(SLIDER_READY_TIMEOUT) {
+                    do {
+                        delay(500)
+                        val status = fetchSliderStatus(host)
+                        if (!status.motorBusy && status.motorError.isNotBlank()) throw SendException(R.string.slider_refused, status.motorError)
+                    } while (status.motorBusy || !status.homed || abs(status.carriage - goal) > 1f)
+                }
+                true
+            } catch (e: SendException) {
+                Log.d("SliderPanel", "play sem o slider: $host", e.cause)
+                false
+            } catch (e: TimeoutCancellationException) {
+                false
+            }
+            val duration = if (follow) maxOf(PLAY_LAYERS_MILLIS, plan.followMillis(from)) else PLAY_LAYERS_MILLIS
+            val target = MutableStateFlow(from)
+            // Manda a camada mais recente a cada SLIDER_FOLLOW_INTERVAL; o firmware troca o alvo andando.
+            val sender = if (!follow) null else launch {
+                var sent = from
+                while (sent != last) {
+                    delay(SLIDER_FOLLOW_INTERVAL)
+                    val layer = target.value
+                    if (layer == sent) continue
+                    sent = layer
+                    try {
+                        send(layer)
+                    } catch (e: SendException) {
+                        Log.d("SliderPanel", "play: slider não acompanhou a camada $layer", e.cause)
+                    }
+                }
+            }
+            val start = withFrameMillis { it }
+            while (true) {
+                val elapsed = withFrameMillis { it } - start
+                val layer = (from + (last - from) * elapsed / duration).toInt().coerceAtMost(last)
+                target.value = layer
+                if (layer != current.maxLayer) onSettings(current.copy(maxLayer = layer, maxMove = Int.MAX_VALUE))
+                if (layer >= last) break
+            }
+            sender?.join()
+        } catch (e: CancellationException) {
+            // Pausa (também durante a ida à camada de partida): o carrinho para onde está.
+            if (moved) withContext(NonCancellable) {
+                try {
+                    stopSlider(host)
+                } catch (_: SendException) {
+                }
+            }
+            throw e
         }
         playing = false
     }
@@ -432,8 +502,14 @@ private fun PlayLayersButton(layerCount: Int, settings: PreviewSettings, onSetti
     )
 }
 
-/** Duração de ▶ da primeira à última camada. */
+/** Duração de ▶ da primeira à última camada (mais, se o slider de verdade não acompanhar). */
 private const val PLAY_LAYERS_MILLIS = 12_000L
+
+/** Intervalo entre os alvos mandados ao ESP32 durante ▶. */
+private const val SLIDER_FOLLOW_INTERVAL = 250L
+
+/** Espera máxima para o slider chegar à camada de partida (o homing devagar leva uns 4 min). */
+private const val SLIDER_READY_TIMEOUT = 300_000L
 
 /** Rótulo e moldura do quadro em que o viewport desenha a visão do celular; [modifier] dá o tamanho e a posição dele. */
 @Composable
