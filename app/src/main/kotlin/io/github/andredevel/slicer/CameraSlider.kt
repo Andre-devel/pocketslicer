@@ -324,6 +324,15 @@ suspend fun moveSlider(host: String, mm: Float, deg: Float, switchRight: Boolean
     sliderCommand(host, path)
 }
 
+/**
+ * Aponta o ESP32 em [host] para a impressora [printer] (GET /impressora): é pelo Moonraker dela que
+ * ele vê as camadas. Só troca se ainda não aponta, porque trocar refaz a conexão.
+ */
+suspend fun pointSliderAt(host: String, printer: String) {
+    if (fetchSliderStatus(host).printerHost == printer) return
+    sliderCommand(host, "/impressora?host=" + android.net.Uri.encode(printer))
+}
+
 /** Para os motores do slider (GET /parar). */
 suspend fun stopSlider(host: String) = sliderCommand(host, "/parar")
 
