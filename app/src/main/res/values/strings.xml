@@ -711,8 +711,6 @@
     <string name="slider_angle">Angle</string>
     <string name="slider_sweep_start">Start angle</string>
     <string name="slider_sweep_end">End angle</string>
-    <string name="slider_saturated_follow">At the ends the pan would need %1$s°. It stops at %2$d° and the object drifts a bit off center there.</string>
-    <string name="slider_saturated">The angle goes past %1$d°. The pan stops at the limit.</string>
     <string name="slider_mount">Mounting</string>
     <string name="slider_mount_hint">Where the rail sits relative to the bed. Measure once.</string>
     <string name="slider_esp_host">ESP32 address</string>
@@ -742,7 +740,7 @@
     <string name="slider_switch_right">Right</string>
     <string name="slider_timeline">Over the print</string>
     <string name="slider_timeline_carriage">Carriage (0–%1$d mm)</string>
-    <string name="slider_timeline_pan">Pan (±%1$d°)</string>
+    <string name="slider_timeline_pan">Pan (±%1$s°)</string>
     <string name="slider_each_layer">Every layer</string>
     <string name="slider_step_photo">Head parked in the corner, photo</string>
     <string name="slider_step_pause">Pause so the photo stays sharp</string>

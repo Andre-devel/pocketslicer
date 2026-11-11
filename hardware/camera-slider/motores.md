@@ -4,7 +4,7 @@ Status (2026-11-09): código dos motores no firmware (`firmware/src/motion.*` e 
 
 ## Firmware (2026-11-09, falta testar)
 
-- `motion.*`: AccelStepper sem bloquear; homing (busca a 700 meios-passos/s, ~1 min no curso inteiro, recua 2 mm, volta a 120/s); limites 0 a 440 mm e ±25°; pré-movimento de 2 mm / 3° para chegar sempre no sentido da sequência; bobinas desligadas com o motor parado; chave apertada andando para o zero corrige X para 0.
+- `motion.*`: AccelStepper sem bloquear; homing (busca a 700 meios-passos/s, ~1 min no curso inteiro, recua 2 mm, volta a 120/s); limite 0 a 440 mm no carrinho (pan sem limite); pré-movimento de 2 mm / 3° para chegar sempre no sentido da sequência; bobinas desligadas com o motor parado; chave apertada andando para o zero corrige X para 0.
 - `timelapse.*`: plano do app (`POST /plano`, salvo na placa). Quando `print_stats.state` muda para `printing` (e não volta de `paused`), vai à camada 0 (carrinho e pan), com homing antes só se ainda não foi feito. O app pede o homing (`GET /home`) antes de enviar o G-code, e ele corre junto com o upload e a calibração da impressora. O app manda o plano logo depois de a impressão ser aceita; se ele chega antes da primeira foto, a ida à camada 0 é refeita com ele. A cada TIMELAPSE_FOTO: foto, espera `pauseMs`, vai à próxima camada. Se o motor ainda estiver andando, a foto sai quando ele parar. Placa religada no meio da impressão: só tira fotos (camada desconhecida). Se a conexão cai e outra impressão começa antes de voltar, a duração (`print_stats.total_duration`) menor na reconexão faz o ESP32 tratar como impressão nova.
 - Página: posição, homing, mover, parar, zero do pan. Serial: `h` = homing.
 - `GET /mover` sem homing feito: faz o homing e depois vai à posição (os botões "Ir ao início"/"Ir ao fim" da aba Slider do app usam isso para conferir o enquadramento). Recusado (409) durante a impressão.
@@ -56,7 +56,7 @@ Teste de bancada: cada motor sozinho na velocidade normal (~1500 µs por meio-pa
 ## Limites e coordenadas
 
 - Slider: X de 0 a 440 mm; X = 0 na chave. Limite por software em 0 e 440.
-- Pan: 0° = celular perpendicular ao trilho, olhando a impressora. Limite por software ±25°.
+- Pan: 0° = celular perpendicular ao trilho, olhando a impressora. Sem limite por software.
 - Pan sem chave: zero = posição ao ligar, mais comando "definir zero aqui".
 
 ## Velocidade
@@ -86,7 +86,6 @@ Teste de bancada: cada motor sozinho na velocidade normal (~1500 µs por meio-pa
 1. Total de camadas: o app já sabe (aparece na interface) e manda junto com a configuração.
 2. Homing: o ESP32 faz sozinho quando `print_stats.state` virar `printing` (já escuta o websocket; sem macro nova nem mudança no G-code inicial). Confirmado.
 3. Ordem por camada: foto, pausa curta para não borrar, e então move para a posição da próxima camada. O carrinho já chega parado na foto seguinte.
-4. Pan "seguir" além de ±25°: para no limite (a peça sai um pouco do centro nas pontas) e a tela avisa.
 5. Pré-movimento no sentido certo depois do homing/zero, para tirar a folga antes da primeira foto.
 6. Configuração: o app manda para o ESP32 junto com o envio da impressão para a K2 (perfil de time-lapse).
 

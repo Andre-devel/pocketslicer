@@ -24,13 +24,11 @@ float TimelapsePlan::carriage(int layer) const { return start + (end - start) * 
 
 float TimelapsePlan::pan(int layer) const {
   float f = fraction(layer);
-  float deg;
   switch (panMode) {
-    case PanMode::Follow: deg = degrees(atan2f(targetX - carriage(layer), targetDistance)); break;
-    case PanMode::Sweep: deg = sweepStart + (sweepEnd - sweepStart) * f; break;
-    default: deg = fixedAngle; break;
+    case PanMode::Follow: return degrees(atan2f(targetX - carriage(layer), targetDistance));
+    case PanMode::Sweep: return sweepStart + (sweepEnd - sweepStart) * f;
+    default: return fixedAngle;
   }
-  return constrain(deg, -Motion::kPanLimitDeg, Motion::kPanLimitDeg);
 }
 
 bool TimelapsePlan::fromJson(const String &text, String &error) {

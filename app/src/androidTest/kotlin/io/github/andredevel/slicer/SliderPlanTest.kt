@@ -28,7 +28,7 @@ class SliderPlanTest {
             val carriage = 40 + (400 - 40) * layer / 119.0
             assertEquals(plan.carriage(layer).toDouble(), carriage, 0.01)
             val firmwarePan = Math.toDegrees(atan2(targetX - carriage, distance))
-            assertEquals(plan.rawPan(layer).toDouble(), firmwarePan, 0.01)
+            assertEquals(plan.pan(layer).toDouble(), firmwarePan, 0.01)
         }
     }
 
@@ -46,9 +46,9 @@ class SliderPlanTest {
 
     /** Com ida e volta, o maior ângulo do seguir está na virada, não na última camada. */
     @Test
-    fun roundTripSaturationLooksAtTheTurn() {
+    fun roundTripMaxPanLooksAtTheTurn() {
         val far = SliderPlan(config.copy(start = 0, end = 440, passes = 1), 101, floatArrayOf(128f, 128f, 0f), floatArrayOf(-150f, 600f, 20f))
-        assertEquals(far.rawPan(50), -(far.saturation ?: 0f), 0.01f)
+        assertEquals(far.pan(50), -far.maxPan, 0.01f)
     }
 
     /** Seguir sem objeto: o app mostra 0°, então o firmware recebe fixo em 0°. */

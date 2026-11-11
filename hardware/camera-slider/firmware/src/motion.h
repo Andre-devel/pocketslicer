@@ -14,13 +14,12 @@
 class Motion {
  public:
   static constexpr float kTravelMm = 440;
-  static constexpr float kPanLimitDeg = 25;
 
   void begin();
 
   // Procura a chave devagar, recua, volta mais devagar e define X = 0 (fica parado ali).
   void home();
-  // Leva o carrinho a [mm] e o pan a [deg] (limitados). Sem homing, o carrinho fica parado.
+  // Leva o carrinho a [mm] e o pan a [deg] (carrinho limitado ao curso). Sem homing, o carrinho fica parado.
   // [approach]: chega em cada eixo vindo deste sentido (+1 ou -1, 0 = tanto faz), para tirar a
   // folga da redução antes de uma sequência que vai andar nesse sentido.
   void moveTo(float mm, float deg, int approachSlider = 0, int approachPan = 0);

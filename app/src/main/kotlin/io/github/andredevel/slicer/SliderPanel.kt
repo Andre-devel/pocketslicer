@@ -79,7 +79,7 @@ fun SliderPanel(
 ) {
     val config = plan.config
     val travel = SliderGeometry.TRAVEL
-    val limit = SliderGeometry.PAN_LIMIT
+    val range = SliderGeometry.PAN_RANGE
     Column(modifier, verticalArrangement = Arrangement.spacedBy(18.dp)) {
         SliderEspStatus(config.espHost)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -142,19 +142,11 @@ fun SliderPanel(
                         }
                     }
                 }
-                PanMode.FIXED -> LabeledStepper(stringResource(R.string.slider_angle), config.fixedAngle, { onConfig(config.copy(fixedAngle = it)) }, -limit, limit, 1, "°", Modifier.fillMaxWidth(0.5f))
+                PanMode.FIXED -> LabeledStepper(stringResource(R.string.slider_angle), config.fixedAngle, { onConfig(config.copy(fixedAngle = it)) }, -range, range, 1, "°", Modifier.fillMaxWidth(0.5f))
                 PanMode.SWEEP -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LabeledStepper(stringResource(R.string.slider_sweep_start), config.sweepStart, { onConfig(config.copy(sweepStart = it)) }, -limit, limit, 1, "°", Modifier.weight(1f))
-                    LabeledStepper(stringResource(R.string.slider_sweep_end), config.sweepEnd, { onConfig(config.copy(sweepEnd = it)) }, -limit, limit, 1, "°", Modifier.weight(1f))
+                    LabeledStepper(stringResource(R.string.slider_sweep_start), config.sweepStart, { onConfig(config.copy(sweepStart = it)) }, -range, range, 1, "°", Modifier.weight(1f))
+                    LabeledStepper(stringResource(R.string.slider_sweep_end), config.sweepEnd, { onConfig(config.copy(sweepEnd = it)) }, -range, range, 1, "°", Modifier.weight(1f))
                 }
-            }
-            plan.saturation?.let { worst ->
-                Banner(
-                    Tone.WARNING,
-                    if (config.panMode == PanMode.FOLLOW) stringResource(R.string.slider_saturated_follow, oneDecimal(worst), limit)
-                    else stringResource(R.string.slider_saturated, limit),
-                    Modifier.fillMaxWidth(),
-                )
             }
         }
 
@@ -191,7 +183,7 @@ fun SliderPanel(
             Timeline(plan, layer)
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 LegendLine(MaterialTheme.colorScheme.primary, stringResource(R.string.slider_timeline_carriage, travel))
-                LegendLine(PocketTheme.colors.info, stringResource(R.string.slider_timeline_pan, limit))
+                LegendLine(PocketTheme.colors.info, stringResource(R.string.slider_timeline_pan, oneDecimal(plan.maxPan)))
             }
         }
 
@@ -358,7 +350,7 @@ private fun RailBar(plan: SliderPlan, layer: Int) {
     }
 }
 
-/** Posição do carrinho (0 a [SliderGeometry.TRAVEL]) e ângulo do pan (±limite) por camada, com a camada atual marcada. */
+/** Posição do carrinho (0 a [SliderGeometry.TRAVEL]) e ângulo do pan (± o maior ângulo do plano) por camada, com a camada atual marcada. */
 @Composable
 private fun Timeline(plan: SliderPlan, layer: Int) {
     val scheme = MaterialTheme.colorScheme
@@ -378,7 +370,7 @@ private fun Timeline(plan: SliderPlan, layer: Int) {
             val l = last * i / samples
             val px = pad + w * i / samples
             val cy = pad + h * (1 - plan.carriage(l) / SliderGeometry.TRAVEL)
-            val py = pad + h / 2 * (1 - plan.pan(l) / SliderGeometry.PAN_LIMIT)
+            val py = pad + h / 2 * (1 - plan.pan(l) / plan.maxPan)
             if (i == 0) { carriage.moveTo(px, cy); pan.moveTo(px, py) } else { carriage.lineTo(px, cy); pan.lineTo(px, py) }
         }
         drawPath(carriage, scheme.primary, style = Stroke(2.dp.toPx()))
@@ -390,16 +382,15 @@ private fun Timeline(plan: SliderPlan, layer: Int) {
 
 /**
  * Barra de baixo do viewport com o slider: camada, posição do carrinho e ângulo do pan
- * (amarelo quando para no limite), e ▶ que percorre as camadas até a última (com o slider de
+ * e ▶ que percorre as camadas até a última (com o slider de
  * verdade junto, se o ESP32 estiver configurado).
  */
 @Composable
 fun SliderReadout(plan: SliderPlan, layer: Int, settings: PreviewSettings, onSettings: (PreviewSettings) -> Unit) {
-    val limited = abs(plan.rawPan(layer)) > SliderGeometry.PAN_LIMIT + 0.05f
     Row(Modifier.padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
         ReadoutValue(stringResource(R.string.slider_layer), "${layer + 1} / ${plan.layerCount}")
         ReadoutValue(stringResource(R.string.slider_carriage), "${oneDecimal(plan.carriage(layer))} mm")
-        ReadoutValue(stringResource(R.string.slider_pan), "${signed(plan.pan(layer))}°", if (limited) PocketTheme.colors.warning else MaterialTheme.colorScheme.onSurface)
+        ReadoutValue(stringResource(R.string.slider_pan), "${signed(plan.pan(layer))}°")
         Spacer(Modifier.weight(1f))
         PlayLayersButton(plan, settings, onSettings)
     }

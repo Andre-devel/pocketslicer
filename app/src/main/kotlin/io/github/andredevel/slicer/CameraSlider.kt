@@ -10,11 +10,10 @@ import io.github.andredevel.slicer.send.SendException
 import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.atan2
-import kotlin.math.max
 
 /**
  * Slider de câmera da K2 (hardware/camera-slider, ver motores.md): um carrinho num trilho de
- * [SliderGeometry.TRAVEL] mm na frente da impressora, com o celular num pan de ±[SliderGeometry.PAN_LIMIT]°.
+ * [SliderGeometry.TRAVEL] mm na frente da impressora, com o celular num pan.
  * A cada camada o ESP32 tira a foto, espera [pauseMs] e leva o carrinho e o pan à posição da próxima.
  *
  * [start]/[end]: posição do carrinho (mm a partir da chave de fim de curso) na primeira e na
@@ -83,8 +82,8 @@ enum class PanMode { FOLLOW, FIXED, SWEEP }
 object SliderGeometry {
     /** Curso útil do carrinho (mm); 0 é a ponta esquerda de quem olha a impressora (+X da impressora). */
     const val TRAVEL = 440
-    /** Limite do pan por software (graus, para cada lado). */
-    const val PAN_LIMIT = 25
+    /** Faixa dos ângulos que a tela deixa escolher (graus, para cada lado). */
+    const val PAN_RANGE = 180
     /**
      * Velocidades que o slider de verdade acompanha (mm/s e graus/s), um pouco abaixo das máximas
      * do firmware (kSliderMaxSpeed ~6,9 mm/s, kPanMaxSpeed ~53°/s) por causa da aceleração.
@@ -153,10 +152,8 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
 
     fun carriageX(layer: Int): Float = railZeroX + carriage(layer)
 
-    /** Ângulo que o pan precisaria ter, sem o limite. */
-    fun rawPan(layer: Int): Float = rawPanAt(fraction(layer))
-
-    private fun rawPanAt(f: Float): Float = when (config.panMode) {
+    /** Pan com o carrinho em [f] do caminho: 0 no início, 1 no fim (a virada, com idas e voltas). */
+    fun panAt(f: Float): Float = when (config.panMode) {
         PanMode.FIXED -> config.fixedAngle.toFloat()
         PanMode.SWEEP -> config.sweepStart + (config.sweepEnd - config.sweepStart) * f
         PanMode.FOLLOW -> target?.let { Math.toDegrees(atan2((it[0] - railZeroX - carriageAt(f)).toDouble(), (it[1] - railY).toDouble())).toFloat() } ?: 0f
@@ -178,15 +175,12 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
         return (slowest * 1000 * (layerCount - 1 - from)).toLong()
     }
 
-    /** Pan (com o limite) com o carrinho em [f] do caminho: 0 no início, 1 no fim (a virada, com idas e voltas). */
-    fun panAt(f: Float): Float = rawPanAt(f).coerceIn(-SliderGeometry.PAN_LIMIT.toFloat(), SliderGeometry.PAN_LIMIT.toFloat())
-
     /**
-     * Maior ângulo pedido ao longo da impressão, se passar do limite (o pan para nele). Nos três
-     * modos o ângulo só depende de [fraction] e varia num sentido só com ela, então o maior está
-     * numa das pontas do trilho (com idas e voltas, a ponta [SliderConfig.end] é a virada).
+     * Maior ângulo (em módulo) ao longo da impressão, pelo menos 1°. Nos três modos o ângulo só
+     * depende de [fraction] e varia num sentido só com ela, então o maior está numa das pontas do
+     * trilho (com idas e voltas, a ponta [SliderConfig.end] é a virada).
      */
-    val saturation: Float? = max(abs(rawPanAt(0f)), abs(rawPanAt(if (layerCount > 1) 1f else 0f))).takeIf { it > SliderGeometry.PAN_LIMIT + 0.05f }
+    val maxPan: Float = maxOf(1f, abs(panAt(0f)), abs(panAt(if (layerCount > 1) 1f else 0f)))
 
     /** Posição da lente do celular (x, y, z na mesa). */
     fun lens(layer: Int) = floatArrayOf(carriageX(layer), railY, SliderGeometry.LENS_HEIGHT)
@@ -207,8 +201,8 @@ class SliderPlan(val config: SliderConfig, val layerCount: Int, bedCenter: Float
     /**
      * Plano para o firmware (POST /plano, hardware/camera-slider/firmware/src/timelapse.h): o
      * objeto seguido vai no sistema do trilho (X a partir do zero do trilho, distância da linha
-     * do trilho), e o ESP32 refaz as contas de [carriage] e [rawPan] a cada camada. Seguir sem
-     * objeto vira fixo em 0°, como [rawPan] mostra.
+     * do trilho), e o ESP32 refaz as contas de [carriage] e [pan] a cada camada. Seguir sem
+     * objeto vira fixo em 0°, como [pan] mostra.
      */
     fun espJson(): JSONObject = JSONObject()
         .put("layers", layerCount).put("start", config.start).put("end", config.end)

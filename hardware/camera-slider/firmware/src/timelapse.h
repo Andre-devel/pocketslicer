@@ -30,7 +30,7 @@ struct TimelapsePlan {
 
   float fraction(int layer) const;
   float carriage(int layer) const;
-  float pan(int layer) const;  // já limitado a ±Motion::kPanLimitDeg
+  float pan(int layer) const;
   // Falso (com [error]) se o JSON não tem um plano válido.
   bool fromJson(const String &text, String &error);
   String toJson() const;
