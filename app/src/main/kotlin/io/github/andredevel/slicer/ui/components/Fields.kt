@@ -168,9 +168,9 @@ fun AxisFields(
     }
 }
 
-/** Número inteiro com botões − e + (de [step] em [step]); o valor digitado vale ao confirmar. */
+/** Número inteiro com botões − e + (de [step] em [step]), entre [min] e [max]; o valor digitado vale ao confirmar. */
 @Composable
-fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modifier, min: Int? = null, enabled: Boolean = true, step: Int = 1, suffix: String? = null) {
+fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modifier, min: Int? = null, enabled: Boolean = true, step: Int = 1, suffix: String? = null, max: Int? = null) {
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier
@@ -184,13 +184,13 @@ fun StepperField(value: Int, onCommit: (Int) -> Unit, modifier: Modifier = Modif
         }
         CommitField(
             value = "$value",
-            onCommit = { text -> text.trim().toIntOrNull()?.takeIf { min == null || it >= min }?.let(onCommit) },
+            onCommit = { text -> text.trim().toIntOrNull()?.takeIf { (min == null || it >= min) && (max == null || it <= max) }?.let(onCommit) },
             modifier = Modifier.weight(1f),
             enabled = enabled,
             keyboardType = KeyboardType.Number,
             suffix = suffix,
         )
-        IconButton(onClick = { onCommit(value + step) }, Modifier.size(LocalFieldHeight.current), enabled = enabled) {
+        IconButton(onClick = { onCommit(max?.let { minOf(it, value + step) } ?: (value + step)) }, Modifier.size(LocalFieldHeight.current), enabled = enabled && (max == null || value < max)) {
             Icon(painterResource(R.drawable.ic_add), stringResource(R.string.increase))
         }
     }

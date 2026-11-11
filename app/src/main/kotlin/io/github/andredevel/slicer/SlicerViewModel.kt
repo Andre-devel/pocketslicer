@@ -272,6 +272,8 @@ data class SlicerUiState(
     val dirty: Boolean = false,
     /** Moeda do custo (ISO 4217) escolhida em Configurações; null segue o idioma. */
     val currency: String? = null,
+    /** Slider de câmera da K2 (aba Slider do Visualizar). */
+    val sliderConfig: SliderConfig = SliderConfig(),
     val autoUpdate: Boolean = true,
     val update: UpdateState = UpdateState.Idle,
     /** Pergunta se instala a versão baixada (ao terminar o download ou por Instalar em Configurações). */
@@ -353,7 +355,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             val recents = withContext(Dispatchers.IO) { recentStore.load() }
             val currency = withContext(Dispatchers.IO) { settings.currency }
             val autoUpdate = withContext(Dispatchers.IO) { settings.autoUpdate }
-            _state.update { it.copy(printers = printers, recents = recents, currency = currency, autoUpdate = autoUpdate) }
+            val sliderConfig = withContext(Dispatchers.IO) { settings.sliderConfig }
+            _state.update { it.copy(printers = printers, recents = recents, currency = currency, autoUpdate = autoUpdate, sliderConfig = sliderConfig) }
             val due = System.currentTimeMillis() - withContext(Dispatchers.IO) { settings.lastUpdateCheck } >= UPDATE_CHECK_INTERVAL_MS
             if (autoUpdate && due) checkUpdate(automatic = true)
         }
@@ -382,6 +385,11 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
+    }
+
+    fun setSliderConfig(config: SliderConfig) {
+        settings.sliderConfig = config
+        _state.update { it.copy(sliderConfig = config) }
     }
 
     fun setCurrency(currency: String?) {
@@ -1507,6 +1515,8 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
             stepStart = now
         }
         _state.update { it.copy(send = SendState.Working(R.string.send_connecting, steps = steps)) }
+        // Antes da impressão começar, para o ESP32 já estar ligado a ela quando o estado virar "printing".
+        if (start) prepareSliderFor(_state.value, host)
         // O primeiro progresso chega com a conexão aberta.
         uploader(host.kind, app.assets).upload(
             host, file, gcodeName(), start,
@@ -1525,7 +1535,50 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         if (steps.current == SendStep.CONNECT) advance(SendStep.UPLOAD) // arquivo vazio: sem progresso
         while (steps.current != null) advance(all.getOrNull(all.indexOf(steps.current) + 1))
         if (start) PrintWatchService.start(app, printStarted = true)
-        SendState.Done(if (start) R.string.send_started else R.string.send_done, host.name, steps = steps)
+        // Slider de câmera: o plano vai só com a impressão aceita (impressora ocupada não troca o
+        // plano da impressão em curso). O ESP32 já começou o homing ao ver "printing" e, se a
+        // primeira foto ainda não saiu, refaz a ida à camada 0 com este plano.
+        val sliderOk = !start || sendSliderPlanFor(_state.value)
+        val text = when {
+            !start -> R.string.send_done
+            sliderOk -> R.string.send_started
+            else -> R.string.send_started_slider_failed
+        }
+        SendState.Done(text, host.name, steps = steps)
+    }
+
+    /**
+     * Manda o plano do slider ao ESP32 se a impressora é a do slider e há endereço; falso quando
+     * devia mandar e não conseguiu (sem plano ou sem resposta): o ESP32 ficaria com o anterior.
+     */
+    private suspend fun sendSliderPlanFor(state: SlicerUiState): Boolean {
+        val host = state.sliderConfig.espHost.trim()
+        if (host.isEmpty() || state.presets[PresetKind.PRINTER]?.isSliderPrinter != true) return true
+        val scene = state.scene ?: return false
+        val plan = sliderPlan(state, withContext(Dispatchers.Default) { sliderTargets(scene.meshes, scene.placements) }) ?: return false
+        return try {
+            sendSliderPlan(host, plan)
+            true
+        } catch (e: SendException) {
+            Log.w(TAG, "slider plan to $host: ${app.getString(e.text, *e.args)}", e.cause)
+            false
+        }
+    }
+
+    /**
+     * Aponta o ESP32 do slider para [printer] e começa o homing ([prepareSlider]), se ela é a do
+     * slider e há endereço. Sem resposta, só registra: o envio do plano, depois, falha do mesmo
+     * jeito e avisa.
+     */
+    private suspend fun prepareSliderFor(state: SlicerUiState, printer: PrinterHost) {
+        val host = state.sliderConfig.espHost.trim()
+        val printerHost = printer.hostName ?: return
+        if (host.isEmpty() || state.presets[PresetKind.PRINTER]?.isSliderPrinter != true) return
+        try {
+            prepareSlider(host, printerHost)
+        } catch (e: SendException) {
+            Log.w(TAG, "slider printer $host -> $printerHost: ${app.getString(e.text, *e.args)}", e.cause)
+        }
     }
 
     fun cancelSend() {

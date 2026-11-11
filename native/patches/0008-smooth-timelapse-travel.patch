@@ -1,0 +1,15 @@
+diff --git a/src/libslic3r/GCode.cpp b/src/libslic3r/GCode.cpp
+--- a/src/libslic3r/GCode.cpp
++++ b/src/libslic3r/GCode.cpp
+@@ -4699,6 +4699,11 @@
+         gcode += this->placeholder_parser_process("timelapse_gcode",
+              print.config().time_lapse_gcode.value, m_writer.filament()->id(), &config)
+              + "\n";
++        // No time-lapse suave a torre vem logo depois, e o G-code de time-lapse deixou o cabeçote
++        // em outro lugar (estacionado): como no das Bambu (insert_timelapse_gcode), a posição
++        // fica desconhecida e a viagem até a torre vai direto, sem a rampa a partir do modelo.
++        if (has_wipe_tower && m_wipe_tower->enable_timelapse_print())
++            m_writer.set_current_position_clear(false);
+     }
+ 
+     if (!m_config.layer_change_gcode.value.empty()) {

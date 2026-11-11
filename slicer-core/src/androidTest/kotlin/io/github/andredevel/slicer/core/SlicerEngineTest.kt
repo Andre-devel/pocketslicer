@@ -16,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.nio.file.Files
+import kotlin.math.abs
 
 /** Fatia modelos de testdata/ no aparelho com os perfis empacotados no APK. */
 @RunWith(AndroidJUnit4::class)
@@ -53,24 +54,27 @@ class SlicerEngineTest {
     }
 
     // Como no Bambu Studio, trocar de impressora (mesmo de fabricante) mantém a altura de camada,
-    // as alterações do processo e o tipo de cada filamento do projeto.
+    // as alterações do processo e do filamento e o tipo de cada filamento do projeto.
     @Test
     fun switchingPrinterKeepsProjectChoices() = runBlocking {
         engine.loadVendor("BBL")
         engine.select(PresetKind.PRINTER, "Bambu Lab A1 0.4 nozzle")
         engine.setOption(PresetKind.PROCESS, "wall_loops", "5")
         engine.setFilamentPreset(0, "Bambu PETG HF @BBL A1")
+        engine.setOption(PresetKind.FILAMENT, "filament_flow_ratio", "1.01871")
 
         engine.select(PresetKind.PRINTER, "Bambu Lab X1 Carbon 0.4 nozzle")
         assertEquals("0.20mm Standard @BBL X1C", engine.selected(PresetKind.PROCESS))
         assertEquals("5", engine.values(PresetKind.PROCESS).values["wall_loops"])
         assertEquals("Bambu PETG HF @BBL X1C", engine.filamentPresets()[0])
+        assertEquals("1.01871", engine.values(PresetKind.FILAMENT).values["filament_flow_ratio"])
 
         engine.loadVendor("CrealityPrint/Creality")
         engine.select(PresetKind.PRINTER, "Creality K2 0.4 nozzle")
         assertEquals("0.2", engine.values(PresetKind.PROCESS).values["layer_height"])
         assertEquals("5", engine.values(PresetKind.PROCESS).values["wall_loops"])
         assertEquals(listOf("PETG"), engine.filamentTypes().take(1))
+        assertEquals("1.01871", engine.values(PresetKind.FILAMENT).values["filament_flow_ratio"])
     }
 
     // O processo de um projeto aberto é escolha do criador, mesmo sendo o padrão da impressora:
@@ -747,6 +751,67 @@ class SlicerEngineTest {
         // Trocar de impressora volta para o tipo padrão dela.
         engine.select(PresetKind.PRINTER, "Q2 0.4 nozzle")
         assertTrue(engine.bedTypes().current in engine.bedTypes().values)
+    }
+
+    // Slider de câmera (hardware/camera-slider): a impressora "(time-lapse slider)" do app chama a
+    // macro a cada camada; no time-lapse suave, que liga a torre de purga, antes da torre de cada camada.
+    @Test
+    fun crealityK2TimelapseSliderPrinter() = runBlocking {
+        assertTimelapseSliderPrinter("CrealityPrint/Creality", "Creality K2 0.4 nozzle", bedCenter = 130f)
+    }
+
+    @Test
+    fun qidiQ2TimelapseSliderPrinter() = runBlocking {
+        assertTimelapseSliderPrinter("QIDIStudio/Q Series", "Q2 0.4 nozzle", bedCenter = 135f)
+        // A foto da câmera da própria Q2 (e o estacionamento dela no suave) sai do layer change.
+        val gcode = File(work, "Q2 0.4 nozzle-smooth.gcode").readLines()
+        assertTrue(gcode.none { it.startsWith("TIMELAPSE_TAKE_FRAME") })
+        assertTrue(gcode.any { it.startsWith("SET_PRINT_STATS_INFO CURRENT_LAYER=") })
+    }
+
+    private suspend fun assertTimelapseSliderPrinter(vendor: String, printer: String, bedCenter: Float) {
+        val slider = "$printer (time-lapse slider)"
+        engine.loadVendor(vendor)
+        engine.loadModel(testAsset("cube20.stl"))
+        // A impressora normal continua sem o slider.
+        engine.select(PresetKind.PRINTER, printer)
+        val processes = engine.presets(PresetKind.PROCESS)
+        val filaments = engine.presets(PresetKind.FILAMENT)
+        val plain = File(work, "$printer.gcode")
+        engine.slice(plain) { _, _ -> }
+        assertTrue(plain.useLines { lines -> lines.none { it.startsWith("TIMELAPSE_FOTO") } })
+
+        // A do slider tem os mesmos processos e filamentos (compatíveis pelo nome).
+        assertTrue(slider in engine.presets(PresetKind.PRINTER))
+        engine.select(PresetKind.PRINTER, slider)
+        assertEquals(processes, engine.presets(PresetKind.PROCESS))
+        assertEquals(filaments, engine.presets(PresetKind.FILAMENT))
+        val traditional = File(work, "$printer-traditional.gcode")
+        engine.slice(traditional) { _, _ -> }
+        assertTrue(traditional.useLines { lines -> lines.count { it == "TIMELAPSE_FOTO WAIT=1500" } > 10 })
+
+        engine.setOption(PresetKind.PROCESS, "enable_prime_tower", "0")
+        engine.setOption(PresetKind.PROCESS, "timelapse_type", "1")
+        assertEquals("1", engine.values(PresetKind.PROCESS).values["enable_prime_tower"])
+        val gcode = File(work, "$printer-smooth.gcode")
+        engine.slice(gcode) { _, _ -> }
+        val lines = gcode.readLines()
+        val shots = lines.indices.filter { lines[it] == "TIMELAPSE_FOTO MODE=SMOOTH WAIT=1500" }
+        assertTrue(shots.size > 10)
+        assertTrue(lines.none { it == "TIMELAPSE_FOTO WAIT=1500" })
+        // Depois da foto vem a torre, antes do modelo (os perfis marcam "; FEATURE:").
+        val after = lines.subList(shots[1], lines.size)
+        assertEquals("; FEATURE: Prime tower", after.first { it.startsWith("; FEATURE:") })
+        // A macro deixa o cabeçote estacionado e no alto: a viagem vai direto à torre (longe do
+        // cubo de 20 mm no centro), sem a rampa a partir do modelo nem descer antes.
+        val moves = after.filter { it.startsWith("G1 ") }
+        val firstXy = moves.indexOfFirst { " X" in it || " Y" in it }
+        assertTrue(moves.take(firstXy).none { " Z" in it })
+        val far = listOf(" X", " Y").any { axis ->
+            val value = Regex("$axis([-0-9.]+)").find(moves[firstXy])?.groupValues?.get(1)?.toFloat()
+            value != null && abs(value - bedCenter) > 15f
+        }
+        assertTrue("${moves[firstXy]} vai ao modelo", far)
     }
 
     @Test

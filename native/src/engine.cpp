@@ -61,6 +61,7 @@ const char *const FILAMENT_PALETTE[] = {"#00C1AE", "#F4E2C1", "#ED1C24", "#00FF7
                                         "#ED1E79", "#2EBDEF", "#345B2F", "#800080", "#FA8173", "#800000", "#F7B763", "#A4C41E"};
 
 void copy_for_orca(const fs::path &src, const fs::path &dst);
+void add_app_printers(const fs::path &index, const fs::path &system_dir);
 } // namespace
 
 struct Engine::Impl {
@@ -292,14 +293,16 @@ struct Engine::Impl {
 
     // Escolhas do projeto que a troca de impressora mantém, como no Bambu Studio: a altura de
     // camada (vai para o processo da impressora nova de altura mais próxima, de preferência o de
-    // mesmo nome), as alterações não salvas do processo e o tipo de cada filamento. O padrão de
-    // uma impressora, sem alterações, passa ao padrão da outra.
+    // mesmo nome), as alterações não salvas do processo e do filamento editado (o 1º, como o
+    // "Transferir" da GUI) e o tipo de cada filamento. O padrão de uma impressora, sem
+    // alterações, passa ao padrão da outra.
     struct Choices
     {
         bool                                             keep_process = false;
         std::string                                      process;
         double                                           layer_height = 0.;
         DynamicPrintConfig                               process_edits;
+        DynamicPrintConfig                               filament_edits; // do 1º filamento
         std::vector<std::pair<std::string, std::string>> filaments; // nome e tipo
     };
 
@@ -319,8 +322,12 @@ struct Engine::Impl {
         out.process      = prints.get_selected_preset_name();
         out.layer_height = wanted_layer_height.value_or(prints.get_edited_preset().config.opt_float("layer_height"));
         out.process_edits.apply_only(prints.get_edited_preset().config, prints.current_dirty_options());
-        for (const char *key : {"compatible_printers", "compatible_printers_condition", "inherits"})
+        const PresetCollection &filaments = bundle->filaments;
+        out.filament_edits.apply_only(filaments.get_edited_preset().config, filaments.current_dirty_options());
+        for (const char *key : {"compatible_printers", "compatible_printers_condition", "compatible_prints", "compatible_prints_condition", "inherits"}) {
             out.process_edits.erase(key);
+            out.filament_edits.erase(key);
+        }
         out.keep_process = process_chosen || !out.process_edits.empty() ||
                            out.process != bundle->printers.get_selected_preset().config.opt_string("default_print_profile");
         for (const std::string &name : bundle->filament_presets)
@@ -358,7 +365,8 @@ struct Engine::Impl {
 
         // Cada filamento: o de mesmo nome para a impressora nova, o padrão dela, um genérico ou
         // outro qualquer, sempre do mesmo tipo (PLA, PETG...); sem nenhum, fica o padrão.
-        const size_t count = std::min(choices.filaments.size(), bundle->filament_presets.size());
+        const size_t count      = std::min(choices.filaments.size(), bundle->filament_presets.size());
+        bool         first_kept = false;
         for (size_t i = 0; i < count; ++i) {
             const auto &[name, type] = choices.filaments[i];
             const Preset *pick       = nullptr;
@@ -375,9 +383,18 @@ struct Engine::Impl {
             }
             if (pick != nullptr)
                 bundle->set_filament_preset(i, pick->name);
+            first_kept |= i == 0 && pick != nullptr;
         }
-        if (!bundle->filament_presets.empty())
-            select_filament(bundle->filament_presets.front());
+        if (bundle->filament_presets.empty())
+            return;
+        select_filament(bundle->filament_presets.front());
+        // Só para um filamento do mesmo tipo: fluxo de PLA não vale para o PETG padrão.
+        if (first_kept) {
+            DynamicPrintConfig &filament = bundle->filaments.get_edited_preset().config;
+            for (const std::string &key : choices.filament_edits.keys())
+                if (filament.has(key))
+                    filament.set_key_value(key, choices.filament_edits.option(key)->clone());
+        }
     }
 
     ModelObject &object(size_t index);
@@ -638,6 +655,8 @@ void Engine::load_vendor(const std::string &vendor)
         else
             copy_for_orca(json.parent_path() / json.stem(), system_dir / json.stem());
     }
+    if (index.parent_path() != m->profiles_dir)
+        add_app_printers(index, system_dir);
 
     auto bundle = std::make_unique<PresetBundle>();
     bundle->load_presets(m->app_config, ForwardCompatibilitySubstitutionRule::EnableSystemSilent);
@@ -979,6 +998,98 @@ void drop_out_of_range(const fs::path &path)
     }
     boost::nowide::ofstream out(path.string());
     out << profile.dump(4);
+}
+
+// Impressoras que o app acrescenta a um fabricante: um perfil de sistema que herda de [parent]
+// e só troca o time-lapse G-code. Ver hardware/camera-slider: a macro TIMELAPSE_FOTO
+// (klipper/slider_cam.cfg) precisa estar na impressora; sem ela o Klipper só avisa
+// "Unknown command" a cada camada. O perfil normal fica sem time-lapse (liga/desliga trocando
+// de impressora).
+struct AppPrinter
+{
+    const char *index; // <app>/<fabricante>.json em vendors_dir
+    const char *parent, *name, *time_lapse_gcode;
+    const char *layer_change_gcode = nullptr; // quando o do pai já tira a foto da própria câmera
+};
+const AppPrinter APP_PRINTERS[] = {
+    {"CrealityPrint/Creality.json", "Creality K2 0.4 nozzle", "Creality K2 0.4 nozzle (time-lapse slider)",
+     "; Slider de camera: requer slider_cam.cfg na impressora. WAIT = ms parado para a foto\n"
+     "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH WAIT=1500{else}TIMELAPSE_FOTO WAIT=1500{endif}"},
+    // O layer change G-code da Q2 já faz o time-lapse da câmera dela (TIMELAPSE_TAKE_FRAME; no
+    // suave, ainda estaciona e limpa o bico): fica só o resto, para não estacionar duas vezes.
+    {"QIDIStudio/Q Series.json", "Q2 0.4 nozzle", "Q2 0.4 nozzle (time-lapse slider)",
+     "; Slider de camera: requer slider_cam.cfg na impressora. WAIT = ms parado para a foto\n"
+     "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH WAIT=1500{else}TIMELAPSE_FOTO WAIT=1500{endif}",
+     "G92 E0\nSET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}"},
+};
+
+// Grava as APP_PRINTERS do fabricante [index] na cópia dele em system_dir (feita por
+// copy_for_orca). Processos e filamentos do fabricante listam as impressoras compatíveis pelo
+// nome, e um perfil de sistema não herda a compatibilidade do pai (is_compatible_with_printer),
+// então o nome novo entra ao lado do pai nessas listas.
+void add_app_printers(const fs::path &index, const fs::path &system_dir)
+{
+    const std::string id = index.parent_path().filename().string() + "/" + index.filename().string();
+    const fs::path    dir = system_dir / index.stem();
+    const fs::path    copy = system_dir / index.filename();
+    auto read = [](const fs::path &path) {
+        boost::nowide::ifstream in(path.string());
+        return nlohmann::json::parse(in, nullptr, false);
+    };
+    auto write = [](const fs::path &path, const nlohmann::json &json) {
+        boost::nowide::ofstream out(path.string());
+        out << json.dump(4);
+    };
+    nlohmann::json vendor;
+    std::map<std::string, std::string> added; // pai -> novo
+    for (const AppPrinter &printer : APP_PRINTERS) {
+        if (id != printer.index)
+            continue;
+        if (vendor.is_null())
+            vendor = read(index);
+        if (!vendor.is_object() || !vendor.contains("machine_list"))
+            return;
+        nlohmann::json &machines = vendor["machine_list"];
+        // Logo depois do pai: o PresetBundle resolve "inherits" na ordem da lista. O arquivo do pai
+        // nem sempre tem o nome dele (Q2 0.4 nozzle fica em "Qidi Q2 0.4 nozzle.json").
+        auto parent = std::find_if(machines.begin(), machines.end(), [&](const nlohmann::json &m) { return m.value("name", "") == printer.parent; });
+        if (parent == machines.end() || !fs::exists(dir / parent->value("sub_path", "")))
+            continue;
+        const std::string sub_path = std::string("machine/") + printer.name + ".json";
+        machines.insert(parent + 1, nlohmann::json{{"name", printer.name}, {"sub_path", sub_path}});
+        nlohmann::json machine{{"type", "machine"}, {"name", printer.name}, {"inherits", printer.parent},
+                               {"from", "system"}, {"instantiation", "true"}, {"time_lapse_gcode", printer.time_lapse_gcode}};
+        if (printer.layer_change_gcode != nullptr)
+            machine["layer_change_gcode"] = printer.layer_change_gcode;
+        write(dir / sub_path, machine);
+        added.emplace(printer.parent, printer.name);
+    }
+    if (added.empty())
+        return;
+    // O índice em system_dir é um link para o de vendors_dir, que fica intocado.
+    fs::remove(copy);
+    write(copy, vendor);
+    for (const char *kind : {"process", "filament"}) {
+        if (!fs::is_directory(dir / kind))
+            continue;
+        for (const fs::directory_entry &entry : fs::directory_iterator(dir / kind)) {
+            if (entry.path().extension() != ".json")
+                continue;
+            nlohmann::json profile = read(entry.path());
+            if (!profile.is_object() || !profile.contains("compatible_printers") || !profile["compatible_printers"].is_array())
+                continue;
+            nlohmann::json &compatible = profile["compatible_printers"];
+            bool changed = false;
+            for (const auto &[parent, name] : added)
+                if (std::find(compatible.begin(), compatible.end(), parent) != compatible.end() &&
+                    std::find(compatible.begin(), compatible.end(), name) == compatible.end()) {
+                    compatible.push_back(name);
+                    changed = true;
+                }
+            if (changed)
+                write(entry.path(), profile);
+        }
+    }
 }
 
 // Copia os perfis de um fatiador do fabricante (Creality Print...) para dst, ajustando as
@@ -3757,6 +3868,10 @@ void Engine::set_option(PresetKind kind, const std::string &key, const std::stri
     } catch (const BadOptionValueException &) {
         throw std::invalid_argument(format(_u8L("Invalid value provided for parameter %1%: %2%"), i18n::translate(def->label), value));
     }
+    // O time-lapse suave só gera a torre com a torre de purga ligada; a GUI do Orca oferece ligá-la
+    // ao escolher o modo suave (Tab::on_value_change). Aqui ela liga junto, sem perguntar.
+    if (key == "timelapse_type" && config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth)
+        config.set_key_value("enable_prime_tower", new ConfigOptionBool(true));
     collection.get_edited_preset().config = std::move(config);
     if (key == "layer_height")
         m->wanted_layer_height.reset();

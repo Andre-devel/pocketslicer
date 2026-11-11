@@ -39,16 +39,17 @@ class OrbitCamera {
 
     /**
      * Enquadra uma esfera de raio [radius] centrada em [center] pelo ângulo de [view], na parte
-     * do viewport acima de [bottomInset] (fração da altura coberta). Até o usuário mexer na
+     * do viewport acima de [bottomInset] (fração da altura coberta); [yaw] e [pitch] trocam os
+     * ângulos da vista quando ela é enquadrada de outro jeito (slider de câmera). Até o usuário mexer na
      * câmera, o enquadramento acompanha mudanças de proporção do viewport.
      */
-    fun frame(center: FloatArray, radius: Float, view: CameraView = CameraView.HOME, bottomInset: Float = 0f) {
+    fun frame(center: FloatArray, radius: Float, view: CameraView = CameraView.HOME, bottomInset: Float = 0f, yaw: Float = view.yaw, pitch: Float = view.pitch) {
         center.copyInto(target)
         framedRadius = radius
         this.bottomInset = bottomInset.coerceIn(0f, 0.9f)
         cameraView = view
-        yaw = view.yaw
-        pitch = view.pitch
+        this.yaw = yaw
+        this.pitch = pitch
         fitFramedRadius()
     }
 
