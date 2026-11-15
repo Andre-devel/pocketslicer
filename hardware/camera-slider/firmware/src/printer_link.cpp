@@ -14,11 +14,12 @@ PrinterLink *active = nullptr;
 
 }  // namespace
 
-void PrinterLink::begin(const String &host, uint16_t port, ShotCallback onShot, StateCallback onState) {
+void PrinterLink::begin(const String &host, uint16_t port, ShotCallback onShot, StateCallback onState, LayerCallback onLayer) {
   if (started_) socket.disconnect();
   host_ = host;
   onShot_ = std::move(onShot);
   onState_ = std::move(onState);
+  onLayer_ = std::move(onLayer);
   printState_ = "";
   duration_ = 0;
   connected_ = subscribed_ = haveShots_ = false;
@@ -73,6 +74,7 @@ void PrinterLink::subscribe() {
   doc["params"]["objects"][kMacroObject].add("shots");
   doc["params"]["objects"][kStatsObject].add("state");
   doc["params"]["objects"][kStatsObject].add("total_duration");
+  doc["params"]["objects"][kStatsObject].add("info");
   doc["id"] = subscribeId_;
   String text;
   serializeJson(doc, text);
@@ -89,6 +91,7 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
   filter["result"]["status"][kMacroObject]["shots"] = true;
   filter["result"]["status"][kStatsObject]["state"] = true;
   filter["result"]["status"][kStatsObject]["total_duration"] = true;
+  filter["result"]["status"][kStatsObject]["info"]["current_layer"] = true;
   filter["params"][0][kMacroObject]["shots"] = true;
   filter["params"][0][kStatsObject]["state"] = true;
   filter["params"][0][kStatsObject]["total_duration"] = true;
@@ -125,6 +128,9 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
     if (!duration.isNull()) updateDuration(duration.as<float>(), true);
     const char *state = doc["result"]["status"][kStatsObject]["state"];
     if (state) updateState(state, true);
+    // Depois do estado: o time-lapse já sabe se há impressão em andamento.
+    JsonVariant layer = doc["result"]["status"][kStatsObject]["info"]["current_layer"];
+    if (layer.is<int>() && onLayer_) onLayer_(layer.as<int>());
     JsonVariant shots = doc["result"]["status"][kMacroObject]["shots"];
     subscribed_ = !shots.isNull();
     if (subscribed_) {

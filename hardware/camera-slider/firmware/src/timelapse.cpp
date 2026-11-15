@@ -18,11 +18,11 @@ int sign(float v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
 
 }  // namespace
 
-float TimelapsePlan::fraction(int layer) const { return sliderFraction(layer, layers, passes, dwellLayers); }
+float TimelapsePlan::fraction(float layer) const { return sliderFraction(layer, layers, passes, dwellLayers); }
 
-float TimelapsePlan::carriage(int layer) const { return start + (end - start) * fraction(layer); }
+float TimelapsePlan::carriage(float layer) const { return start + (end - start) * fraction(layer); }
 
-float TimelapsePlan::pan(int layer) const {
+float TimelapsePlan::pan(float layer) const {
   float f = fraction(layer);
   switch (panMode) {
     case PanMode::Follow: return degrees(atan2f(targetX - carriage(layer), targetDistance));
@@ -92,6 +92,8 @@ void Timelapse::begin(Motion &motion, PhotoFn takePhoto) {
   takePhoto_ = std::move(takePhoto);
 }
 
+float Timelapse::planLayer(int layer) const { return resumedLayer(layer, plan_.layers, planFrom_, realFrom_); }
+
 void Timelapse::goToLayer(int layer) {
   if (plan_.layers <= 0) return;
   // Chega no sentido em que vai seguir depois desta camada: a folga da redução só aparece na
@@ -102,9 +104,10 @@ void Timelapse::goToLayer(int layer) {
     if (ahead != 0) return ahead;
     return layer > 0 ? sign(value(layer) - value(layer - 1)) : 0;
   };
-  int dirSlider = direction([&](int l) { return plan_.carriage(l); });
-  int dirPan = direction([&](int l) { return plan_.pan(l); });
-  motion_->moveTo(plan_.carriage(layer), plan_.pan(layer), dirSlider, dirPan);
+  int dirSlider = direction([&](int l) { return plan_.carriage(planLayer(l)); });
+  int dirPan = direction([&](int l) { return plan_.pan(planLayer(l)); });
+  float at = planLayer(layer);
+  motion_->moveTo(plan_.carriage(at), plan_.pan(at), dirSlider, dirPan);
 }
 
 void Timelapse::onPrintState(const String &state, bool initial) {
@@ -117,6 +120,8 @@ void Timelapse::onPrintState(const String &state, bool initial) {
   if (state == "printing" && previous != "printing" && previous != "paused") {
     printing_ = true;
     nextLayer_ = 0;
+    planFrom_ = 0;
+    realFrom_ = 0;
     photoPending_ = false;
     moveAtMs_ = 0;
     Serial.printf("[time-lapse] impressão começou; plano com %d camadas\n", plan_.layers);
@@ -128,6 +133,61 @@ void Timelapse::onPrintState(const String &state, bool initial) {
     moveAtMs_ = 0;
     photoPending_ = false;
     Serial.printf("[time-lapse] impressão terminou (%s)\n", state.c_str());
+  }
+}
+
+void Timelapse::resync(int currentLayer) {
+  if (state_ != "printing" && state_ != "paused") return;
+  if (plan_.layers <= 0 || currentLayer <= 0) return;
+  // A foto da camada N sai na troca para a N+1: com current_layer = N, a próxima é a de índice
+  // N - 1. Um a mais ou a menos não aparece no vídeo; dezenas de camadas perdidas aparecem.
+  int target = constrain(currentLayer - 1, 0, plan_.layers - 1);
+  if (printing_ && abs(target - nextLayer_) <= 1) return;
+  if (printing_) {
+    // Queda de rede com a placa ligada: o carrinho está na posição de nextLayer_ e fica lá.
+    float planFrom = planLayer(nextLayer_);
+    Serial.printf("[time-lapse] %d camada(s) sem foto (impressora na %d); carrinho continua da camada %.1f do plano, "
+                  "resto esticado\n", target - nextLayer_, currentLayer, planFrom);
+    nextLayer_ = target;
+    stretchFrom(planFrom);
+    return;
+  }
+  // Placa religada no meio: a posição do plano em que estava se perdeu; vai à camada da
+  // impressora (GET /retomar?camada=N volta para onde parou).
+  Serial.printf("[time-lapse] impressão em andamento na camada %d; indo à posição dela "
+                "(GET /retomar?camada=N continua de onde parou)\n", currentLayer);
+  printing_ = true;
+  nextLayer_ = target;
+  planFrom_ = 0;
+  realFrom_ = 0;
+  moveAtMs_ = 0;
+  photoPending_ = false;
+  if (motion_->homing() || !motion_->homed()) {
+    startPositioning();  // ao terminar o homing, loop() vai a nextLayer_
+  } else if (!motion_->busy()) {
+    goToLayer(nextLayer_);
+  }
+}
+
+bool Timelapse::resumeFrom(int layer) {
+  if (!printing_ || plan_.layers <= 0 || layer < 0 || layer >= plan_.layers) return false;
+  Serial.printf("[time-lapse] retomada: camada real %d na camada %d do plano, resto esticado\n", nextLayer_, layer);
+  stretchFrom(layer);
+  return true;
+}
+
+void Timelapse::stretchFrom(float planFrom) {
+  planFrom_ = planFrom;
+  realFrom_ = nextLayer_;
+  moveAtMs_ = 0;
+  photoPending_ = false;
+  if (motion_->homing() || !motion_->homed()) {
+    startPositioning();
+  } else {
+    // Mesmo lugar depois de uma queda (não anda); outro com /retomar.
+    positioning_ = false;
+    motion_->stop();
+    goToLayer(nextLayer_);
   }
 }
 
@@ -187,8 +247,9 @@ void Timelapse::shootAndSchedule() {
 void Timelapse::loop() {
   if (positioning_ && !motion_->busy()) {
     positioning_ = false;
-    // Homing falhou: segue só com as fotos (motion.error() aparece na página).
-    if (motion_->homed()) goToLayer(0);
+    // Homing falhou: segue só com as fotos (motion.error() aparece na página). nextLayer_ é 0 no
+    // começo da impressão e a camada da impressora depois de resync().
+    if (motion_->homed()) goToLayer(nextLayer_);
   }
   if (photoPending_ && !motion_->busy()) {
     photoPending_ = false;

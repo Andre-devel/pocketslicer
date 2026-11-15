@@ -7,7 +7,8 @@
 // Pela rede: http://slider-cam.local/ (ou o IP mostrado na serial), GET /foto, GET /status,
 // GET /impressora?host=<IP> (vazio desliga; fica salvo na placa), GET|POST /plano (JSON do
 // app; fica salvo na placa), GET /home, GET /mover?x=<mm>&pan=<graus> (faz o homing antes se preciso), GET /parar,
-// GET /pan-zero (posição atual do pan vira 0).
+// GET /pan-zero (posição atual do pan vira 0), GET /retomar?camada=<N> (carrinho volta à camada N
+// do plano e o resto é esticado; para a placa religada no meio da impressão, ver ../retomada.md).
 
 #include <Arduino.h>
 #include <BleKeyboard.h>
@@ -172,7 +173,8 @@ bool takePhoto() {
 void startPrinter(const String &host) {
   printer.begin(
       host, kMoonrakerPort, [](uint32_t shots) { timelapse.onShot(shots); },
-      [](const String &state, bool initial) { timelapse.onPrintState(state, initial); });
+      [](const String &state, bool initial) { timelapse.onPrintState(state, initial); },
+      [](int layer) { timelapse.resync(layer); });
 }
 
 void sendOk(bool ok, const char *error = "") {
@@ -274,6 +276,11 @@ void startServer() {
   server.on("/parar", HTTP_GET, [] {
     moveAfterHoming = false;
     motion.stop();
+    sendOk(true);
+  });
+  server.on("/retomar", HTTP_GET, [] {
+    if (!server.hasArg("camada")) return sendOk(false, "falta camada");
+    if (!timelapse.resumeFrom(server.arg("camada").toInt())) return sendOk(false, "sem impressão ou camada fora do plano");
     sendOk(true);
   });
   server.on("/pan-zero", HTTP_GET, [] {

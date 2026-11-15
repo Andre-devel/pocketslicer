@@ -14,9 +14,13 @@ class PrinterLink {
   // print_stats.state do Klipper: standby, printing, paused, complete, cancelled, error.
   // [initial]: valor lido ao (re)conectar, não uma mudança vista acontecer.
   using StateCallback = std::function<void(const String &state, bool initial)>;
+  // print_stats.info.current_layer (1 = primeira) lido ao (re)conectar, depois do estado. Só vem
+  // quando o G-code usa SET_PRINT_STATS_INFO (perfil da Q2); serve para recuperar as camadas
+  // perdidas com a conexão fora.
+  using LayerCallback = std::function<void(int currentLayer)>;
 
   // host vazio = desligado. Pode ser chamado de novo para trocar de impressora.
-  void begin(const String &host, uint16_t port, ShotCallback onShot, StateCallback onState);
+  void begin(const String &host, uint16_t port, ShotCallback onShot, StateCallback onState, LayerCallback onLayer);
   void loop();
 
   const String &host() const { return host_; }
@@ -37,6 +41,7 @@ class PrinterLink {
   String host_;
   ShotCallback onShot_;
   StateCallback onState_;
+  LayerCallback onLayer_;
   String printState_;
   float duration_ = 0;
   // Snapshot da reconexão com a duração menor que a última vista: outra impressão começou
