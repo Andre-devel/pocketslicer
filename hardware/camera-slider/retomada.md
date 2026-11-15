@@ -24,6 +24,24 @@ de mensagem. Com o Wi-Fi da Q2 lento depois da queda, mensagens chegavam picadas
 fechava com código 1002 a cada reconexão (visto no `moonraker.log`: "Close Code: 1002" do
 `arduino-WebSocket-Client` a cada 5–15 s). Agora é 2000 ms.
 
+## Pausa automática sem o slider
+
+Com o `klipper/slider_cam.cfg` novo na impressora, ela pausa sozinha quando o slider para de
+responder: a cada foto disparada o ESP32 grava o número dela na variável `ack` da macro, e se uma
+foto fica `ack_timeout` (10 s) sem confirmação, `TIMELAPSE_FOTO_CHECK` dá `PAUSE` com a mensagem
+"slider sem resposta" no console. Perde-se uma foto em vez de dezenas. Vale para rede caída, placa
+desligada e celular desconectado do Bluetooth. Ao voltar, `RESUME`; o slider continua de onde parou.
+
+- Só pausa se o slider já respondeu nesta impressão: imprimir com o perfil do slider e a placa
+  desligada desde o início não pausa.
+- `variable_pause_on_miss: 0` desliga; `variable_ack_timeout` muda o tempo.
+- Firmware novo com o `.cfg` antigo não confirma (não existe `ack`); o `.cfg` antigo não pausa.
+
+**Instalar na impressora só entre impressões:** copiar `klipper/slider_cam.cfg` (e o
+`slider_cam_q2.cfg`, sem mudanças) para a pasta de configuração (Fluidd/Mainsail → Configuração,
+ou `http://<IP>:7125` pelo upload de arquivos) e dar `FIRMWARE_RESTART`. **O restart cancela a
+impressão em andamento.**
+
 ## Gravar a placa pelo notebook
 
 1. Atualizar o repositório:

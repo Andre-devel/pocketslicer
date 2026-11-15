@@ -309,7 +309,12 @@ void setup() {
   prefs.begin("slider", false);
   motion.begin();
   motion.setSwitchRight(prefs.getBool("switchRight", false));
-  timelapse.begin(motion, takePhoto);
+  // Fotos da impressora: confirmadas para ela não pausar (printer_link.h, ack).
+  timelapse.begin(motion, [] {
+    bool ok = takePhoto();
+    if (ok) printer.ack();
+    return ok;
+  });
   if (prefs.isKey("plan")) {
     TimelapsePlan plan;
     String error;

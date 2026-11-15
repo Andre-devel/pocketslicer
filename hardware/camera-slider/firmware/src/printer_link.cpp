@@ -66,12 +66,26 @@ void PrinterLink::loop() {
   if (started_) socket.loop();
 }
 
+void PrinterLink::ack() {
+  if (!connected_ || !subscribed_ || !macroHasAck_) return;
+  JsonDocument doc;
+  doc["jsonrpc"] = "2.0";
+  doc["method"] = "printer.gcode.script";
+  doc["params"]["script"] = String("SET_GCODE_VARIABLE MACRO=TIMELAPSE_FOTO VARIABLE=ack VALUE=") + shots_;
+  // A resposta só chega quando o Klipper roda o comando (depois da macro); não é esperada.
+  doc["id"] = nextId_++;
+  String text;
+  serializeJson(doc, text);
+  socket.sendTXT(text);
+}
+
 void PrinterLink::subscribe() {
   subscribeId_ = nextId_++;
   JsonDocument doc;
   doc["jsonrpc"] = "2.0";
   doc["method"] = "printer.objects.subscribe";
   doc["params"]["objects"][kMacroObject].add("shots");
+  doc["params"]["objects"][kMacroObject].add("ack");
   doc["params"]["objects"][kStatsObject].add("state");
   doc["params"]["objects"][kStatsObject].add("total_duration");
   doc["params"]["objects"][kStatsObject].add("info");
@@ -89,6 +103,7 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
   filter["method"] = true;
   filter["error"]["message"] = true;
   filter["result"]["status"][kMacroObject]["shots"] = true;
+  filter["result"]["status"][kMacroObject]["ack"] = true;
   filter["result"]["status"][kStatsObject]["state"] = true;
   filter["result"]["status"][kStatsObject]["total_duration"] = true;
   filter["result"]["status"][kStatsObject]["info"]["current_layer"] = true;
@@ -133,6 +148,8 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
     if (layer.is<int>() && onLayer_) onLayer_(layer.as<int>());
     JsonVariant shots = doc["result"]["status"][kMacroObject]["shots"];
     subscribed_ = !shots.isNull();
+    // Macro antiga (sem "ack"): sem confirmação, senão cada foto vira erro no console.
+    macroHasAck_ = !doc["result"]["status"][kMacroObject]["ack"].isNull();
     if (subscribed_) {
       updateShots(shots.as<uint32_t>(), true);
       Serial.printf("[impressora] macro TIMELAPSE_FOTO encontrada (shots=%u)\n", shots_);

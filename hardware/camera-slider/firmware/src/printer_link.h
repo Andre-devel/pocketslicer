@@ -22,6 +22,9 @@ class PrinterLink {
   // host vazio = desligado. Pode ser chamado de novo para trocar de impressora.
   void begin(const String &host, uint16_t port, ShotCallback onShot, StateCallback onState, LayerCallback onLayer);
   void loop();
+  // Foto disparada: grava "ack" na macro para a impressora não pausar (slider_cam.cfg, "Pausa
+  // sem o slider"). Sem conexão não faz nada; a impressora pausa.
+  void ack();
 
   const String &host() const { return host_; }
   bool connected() const { return connected_; }
@@ -51,6 +54,8 @@ class PrinterLink {
   bool connected_ = false;
   bool subscribed_ = false;
   bool haveShots_ = false;
+  // A macro tem a variável "ack" (slider_cam.cfg com a pausa sem o slider).
+  bool macroHasAck_ = false;
   uint32_t shots_ = 0;
   uint32_t nextId_ = 1;
   uint32_t subscribeId_ = 0;
