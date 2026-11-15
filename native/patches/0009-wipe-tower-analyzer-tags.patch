@@ -1,0 +1,32 @@
+diff --git a/src/libslic3r/GCode/WipeTower.cpp b/src/libslic3r/GCode/WipeTower.cpp
+index 21f1101..003ba3a 100644
+--- a/src/libslic3r/GCode/WipeTower.cpp
++++ b/src/libslic3r/GCode/WipeTower.cpp
+@@ -530,9 +530,9 @@ public:
+     m_gcode_flavor(flavor),
+     m_filpar(filament_parameters)
+     {
+-            // ORCA: This class is only used by BBL printers, so set the parameter appropriately.
+-            // This fixes an issue where the wipe tower was using BBL tags resulting in statistics for purging in the purge tower not being displayed.
+-            GCodeProcessor::s_IsBBLPrinter = true;
++            // As tags seguem a impressora (Print::_make_wipe_tower ajusta s_IsBBLPrinter): esta torre
++            // também é usada em impressoras que não são Bambu (Qidi, Creality), cujo G-code e
++            // GCodeProcessor usam as tags compatíveis (;TYPE:, ;WIDTH:, ;HEIGHT:).
+             // adds tag for analyzer:
+             std::ostringstream str;
+             str << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << std::to_string(m_layer_height) << "\n"; // don't rely on GCodeAnalyzer knowing the layer height - it knows nothing at priming
+diff --git a/src/libslic3r/Print.cpp b/src/libslic3r/Print.cpp
+index e25ef7d..0a4194b 100644
+--- a/src/libslic3r/Print.cpp
++++ b/src/libslic3r/Print.cpp
+@@ -3440,6 +3440,10 @@ void Print::_make_wipe_tower()
+     }
+     this->throw_if_canceled();
+ 
++    // As tags de análise da torre (tipo, largura, altura) usam o mesmo formato que o resto do
++    // G-code desta impressora (GCode::do_export ajusta a mesma flag, mas só depois da torre).
++    GCodeProcessor::s_IsBBLPrinter = is_BBL_printer();
++
+     if (!is_wipe_tower_type2) {
+         // in BBL machine, wipe tower is only use to prime extruder. So just use a global wipe volume.
+         WipeTower wipe_tower(m_config, m_plate_index, m_origin, m_wipe_tower_data.tool_ordering.first_extruder(),
