@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "engine.hpp"
 
@@ -80,6 +81,27 @@ int main(int argc, char **argv)
             engine.select(PresetKind::Process, argv[4]);
             engine.select(PresetKind::Filament, argv[5]);
             engine.load_model(argv[6]);
+        }
+        // SLICE_SCALE=f multiplica a escala de cada objeto; SLICE_PROCESS="chave=valor;..." muda
+        // opções do processo (Engine::set_option, como a tela de parâmetros).
+        if (const char *scale = std::getenv("SLICE_SCALE")) {
+            const double f = std::strtod(scale, nullptr);
+            const std::vector<slicer::Placement> placements = engine.placements();
+            for (size_t i = 0; i < placements.size(); ++i) {
+                const slicer::Placement &p = placements[i];
+                engine.set_placement(i, p.offset, p.rotation, {p.scale[0] * f, p.scale[1] * f, p.scale[2] * f});
+            }
+        }
+        if (const char *options = std::getenv("SLICE_PROCESS")) {
+            std::string rest = options;
+            while (!rest.empty()) {
+                const size_t end = rest.find(';');
+                const std::string item = rest.substr(0, end);
+                rest = end == std::string::npos ? "" : rest.substr(end + 1);
+                const size_t eq = item.find('=');
+                if (eq != std::string::npos)
+                    engine.set_option(PresetKind::Process, item.substr(0, eq), item.substr(eq + 1));
+            }
         }
         slicer::SliceStats stats = engine.slice(gcode, [](int percent, const std::string &text) {
             std::fprintf(stderr, "[%3d%%] %s\n", percent, text.c_str());
