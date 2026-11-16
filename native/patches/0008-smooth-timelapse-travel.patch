@@ -1,7 +1,16 @@
 diff --git a/src/libslic3r/GCode.cpp b/src/libslic3r/GCode.cpp
 --- a/src/libslic3r/GCode.cpp
 +++ b/src/libslic3r/GCode.cpp
-@@ -4699,6 +4699,11 @@
+@@ -4696,9 +4696,20 @@ LayerResult GCode::process_layer(
+         config.set_key_value("layer_num", new ConfigOptionInt(m_layer_index));
+         config.set_key_value("layer_z", new ConfigOptionFloat(print_z));
+         config.set_key_value("max_layer_z", new ConfigOptionFloat(m_max_layer_z));
++        // No time-lapse suave o cabeçote fica parado (estacionado para a foto) e vai direto para a
++        // torre: com só a retração normal o bico escorre e a gota bate na parede da torre. Retrai
++        // até 2 mm antes de estacionar e devolve tudo na
++        // torre, já na altura da camada (unretract depois da viagem).
++        if (has_wipe_tower && m_wipe_tower->enable_timelapse_print())
++            gcode += m_writer.retract(false, 2.);
          gcode += this->placeholder_parser_process("timelapse_gcode",
               print.config().time_lapse_gcode.value, m_writer.filament()->id(), &config)
               + "\n";
