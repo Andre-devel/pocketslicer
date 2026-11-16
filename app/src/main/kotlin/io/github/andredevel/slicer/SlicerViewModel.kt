@@ -392,6 +392,47 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         _state.update { it.copy(sliderConfig = config) }
     }
 
+    private val sliderRediscovery = Mutex()
+    private var lastSliderRediscovery = 0L
+
+    /** [rediscoverSlider] sem esperar: o painel do slider chama quando o ESP32 não responde. */
+    fun findSlider() {
+        viewModelScope.launch { rediscoverSlider() }
+    }
+
+    /**
+     * Varre a rede atrás do ESP32 do slider ([PrinterScanner.scanSliders]), no máximo a cada
+     * [REDISCOVERY_INTERVAL_MS], como [rediscover] faz com as impressoras: achado um só, em outro
+     * endereço, ele passa a valer. Devolve o endereço novo, ou null se nada mudou (sem endereço
+     * configurado, nenhum ou mais de um achado, ou varredura recente).
+     */
+    private suspend fun rediscoverSlider(): String? {
+        val current = _state.value.sliderConfig.espHost.trim()
+        if (current.isEmpty() || !sliderRediscovery.tryLock()) return null
+        try {
+            val now = System.currentTimeMillis()
+            if (now - lastSliderRediscovery < REDISCOVERY_INTERVAL_MS) return null
+            lastSliderRediscovery = now
+            val found = PrinterScanner.scanSliders(app).singleOrNull() ?: return null
+            val config = _state.value.sliderConfig
+            if (found == config.espHost.trim()) return null
+            setSliderConfig(config.copy(espHost = found))
+            Log.i(TAG, "slider moved to $found")
+            _state.update { it.copy(message = UserMessage(app.getString(R.string.slider_moved, found), success = true)) }
+            return found
+        } finally {
+            sliderRediscovery.unlock()
+        }
+    }
+
+    /** [block] no ESP32 em [host]; sem resposta, procura o slider na rede e tenta de novo no endereço novo. */
+    private suspend fun <T> withSliderHost(host: String, block: suspend (String) -> T): T = try {
+        block(host)
+    } catch (e: SendException) {
+        if (e.text != R.string.send_error_unreachable) throw e
+        block(rediscoverSlider() ?: throw e)
+    }
+
     fun setCurrency(currency: String?) {
         settings.currency = currency
         _state.update { it.copy(currency = currency) }
@@ -1557,7 +1598,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val scene = state.scene ?: return false
         val plan = sliderPlan(state, withContext(Dispatchers.Default) { sliderTargets(scene.meshes, scene.placements) }) ?: return false
         return try {
-            sendSliderPlan(host, plan)
+            withSliderHost(host) { sendSliderPlan(it, plan) }
             true
         } catch (e: SendException) {
             Log.w(TAG, "slider plan to $host: ${app.getString(e.text, *e.args)}", e.cause)
@@ -1575,7 +1616,7 @@ class SlicerViewModel(application: Application) : AndroidViewModel(application) 
         val printerHost = printer.hostName ?: return
         if (host.isEmpty() || state.presets[PresetKind.PRINTER]?.isSliderPrinter != true) return
         try {
-            prepareSlider(host, printerHost)
+            withSliderHost(host) { prepareSlider(it, printerHost) }
         } catch (e: SendException) {
             Log.w(TAG, "slider printer $host -> $printerHost: ${app.getString(e.text, *e.args)}", e.cause)
         }

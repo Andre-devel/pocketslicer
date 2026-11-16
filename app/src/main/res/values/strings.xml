@@ -714,9 +714,10 @@
     <string name="slider_mount">Mounting</string>
     <string name="slider_mount_hint">Where the rail sits relative to the bed. Measure once.</string>
     <string name="slider_esp_host">ESP32 address</string>
-    <string name="slider_esp_host_hint">IP shown on the slider\'s page, e.g. 192.168.1.60. The plan goes there when you start the print.</string>
+    <string name="slider_esp_host_hint">IP shown on the slider\'s page, e.g. 192.168.1.60. The plan goes there when you start the print. If the slider\'s IP changes, the app finds it on the network and updates it.</string>
     <string name="slider_esp_no_host">Set the ESP32 address under Mounting so the plan goes to the slider.</string>
     <string name="slider_esp_checking">Looking for the slider at %1$s…</string>
+    <string name="slider_moved">Slider found at a new address: %1$s</string>
     <string name="slider_esp_unreachable">Slider not found at %1$s. Check the IP on the slider\'s page and that it is on the same Wi-Fi.</string>
     <string name="slider_esp_ok">Slider connected (phone paired, printer ready). %1$s</string>
     <string name="slider_esp_problems">Slider connected, but: %1$s. %2$s</string>

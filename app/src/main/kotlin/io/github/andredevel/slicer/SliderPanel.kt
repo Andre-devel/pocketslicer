@@ -75,13 +75,14 @@ fun SliderPanel(
     onConfig: (SliderConfig) -> Unit,
     parkMs: Int,
     onParkMs: (Int) -> Unit,
+    onSliderUnreachable: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val config = plan.config
     val travel = SliderGeometry.TRAVEL
     val range = SliderGeometry.PAN_RANGE
     Column(modifier, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        SliderEspStatus(config.espHost)
+        SliderEspStatus(config.espHost, onSliderUnreachable)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionLabel(stringResource(R.string.slider_carriage))
             RailBar(plan, layer)
@@ -224,9 +225,13 @@ private sealed interface EspProbe {
     data object Failed : EspProbe
 }
 
-/** Faixa do topo com o estado do ESP32 em [host], consultado a cada 5 s enquanto o painel está aberto. */
+/**
+ * Faixa do topo com o estado do ESP32 em [host], consultado a cada 5 s enquanto o painel está
+ * aberto; sem resposta, chama [onUnreachable] (que procura o slider na rede).
+ */
 @Composable
-private fun SliderEspStatus(host: String) {
+private fun SliderEspStatus(host: String, onUnreachable: () -> Unit) {
+    val unreachable by rememberUpdatedState(onUnreachable)
     val probe by produceState<EspProbe>(EspProbe.Waiting, host) {
         if (host.isBlank()) return@produceState
         while (true) {
@@ -235,6 +240,7 @@ private fun SliderEspStatus(host: String) {
             } catch (e: SendException) {
                 // O texto do erro fala de impressora; aqui basta dizer que o slider não respondeu.
                 Log.d("SliderPanel", "status $host", e.cause)
+                if (e.text == R.string.send_error_unreachable) unreachable()
                 EspProbe.Failed
             }
             delay(5_000)

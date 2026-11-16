@@ -336,7 +336,7 @@ private fun Workspace(
             val printer = state.presets[PresetKind.PRINTER] ?: PresetChoice()
             SliderPanel(sliderPlan, sliderTargets, sliderLayer, viewModel::setSliderConfig, printer.sliderParkMs, { ms ->
                 printer.values.values["time_lapse_gcode"]?.let { viewModel.setOption(PresetKind.PRINTER, "time_lapse_gcode", sliderGcodeWithPark(it, ms)) }
-            })
+            }, viewModel::findSlider)
         }
     } else null
 

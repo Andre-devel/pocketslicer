@@ -38,6 +38,7 @@ object PrinterScanner {
     private const val TAG = "PrinterScanner"
     private const val MOONRAKER_PORT = 7125
     private const val BAMBU_SSDP_PORT = 2021
+    private const val HTTP_PORT = 80
     private const val CONNECT_TIMEOUT_MS = 500
     private const val PARALLEL = 64
     /** As Bambu anunciam a cada poucos segundos; a varredura das portas cabe nesse tempo. */
@@ -85,6 +86,26 @@ object PrinterScanner {
         val found = probed.associateBy { it.address }.toMutableMap()
         for (printer in bambu.await()) found.putIfAbsent(printer.address, printer)
         found.values.sortedBy { address -> address.address.substringAfterLast('.').toIntOrNull() ?: 0 }
+    }
+
+    /**
+     * IPs dos ESP32 de slider na sub-rede do Wi-Fi: porta 80 aberta e GET /status com os objetos
+     * `motion` e `printer` que só o firmware do slider manda. Vazio sem Wi-Fi.
+     */
+    suspend fun scanSliders(context: Context): List<String> = coroutineScope {
+        val gate = Semaphore(PARALLEL)
+        subnetHosts(context).map { ip ->
+            async(Dispatchers.IO) { ip.takeIf { gate.withPermit { isOpen(ip, HTTP_PORT) } && isSlider(ip) } }
+        }.awaitAll().filterNotNull()
+    }
+
+    private suspend fun isSlider(ip: String): Boolean = try {
+        val json = JSONObject(Http.get(Http.baseUrl(ip).resolve("/status"), emptyMap(), readTimeoutMs = CREALITY_READ_MS).body)
+        json.optJSONObject("motion") != null && json.optJSONObject("printer") != null
+    } catch (e: SendException) {
+        false
+    } catch (e: JSONException) {
+        false
     }
 
     /** Sub-rede que [scan] varre, como "192.168.1.0/24"; null sem Wi-Fi. */
