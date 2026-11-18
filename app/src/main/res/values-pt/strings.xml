@@ -720,7 +720,7 @@
     <string name="slider_esp_problems">Slider conectado, mas: %1$s. %2$s</string>
     <string name="slider_esp_no_ble">celular não pareado pelo Bluetooth</string>
     <string name="slider_esp_no_printer">nenhuma impressora configurada no slider</string>
-    <string name="slider_esp_printer_down">sem TIMELAPSE_FOTO em %1$s</string>
+    <string name="slider_esp_printer_down">Klipper de %1$s não está pronto</string>
     <string name="slider_esp_motor_error">motor: %1$s</string>
     <string name="slider_esp_plan">Plano salvo: %1$d camadas.</string>
     <string name="slider_esp_no_plan">Nenhum plano salvo ainda.</string>

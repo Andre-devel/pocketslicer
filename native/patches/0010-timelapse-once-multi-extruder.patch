@@ -1,0 +1,15 @@
+diff --git a/src/libslic3r/GCode.cpp b/src/libslic3r/GCode.cpp
+--- a/src/libslic3r/GCode.cpp
++++ b/src/libslic3r/GCode.cpp
+@@ -4691,7 +4691,10 @@
+     m_layer = &layer;
+     m_object_layer_over_raft = false;
+ 
+-    if (!m_config.time_lapse_gcode.value.empty() && !is_BBL_Printer()) {
++    // Com várias extrusoras (Snapmaker U1...), o time-lapse tradicional já entra mais adiante, no
++    // ponto escolhido por m_timelapse_pos_picker (insert_timelapse_gcode): aqui sairia uma segunda
++    // vez por camada.
++    if (!m_config.time_lapse_gcode.value.empty() && !is_BBL_Printer() && !need_insert_timelapse_gcode_for_traditional) {
+         DynamicConfig config;
+         config.set_key_value("layer_num", new ConfigOptionInt(m_layer_index));
+         config.set_key_value("layer_z", new ConfigOptionFloat(print_z));

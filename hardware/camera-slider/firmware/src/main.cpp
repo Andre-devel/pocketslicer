@@ -93,8 +93,8 @@ async function st(){
       '<br>Rede: '+j.wifi+' ('+j.ip+')<br>Fotos: '+j.photos+'<br>Ligado há '+j.uptime_s+' s'+
       '<br>Impressora: '+(!j.printer.host?'nenhuma':j.printer.host+' — '+
         (!j.printer.connected?'<span class=bad>sem conexão</span>':
-         j.printer.subscribed?'<span class=ok>macro TIMELAPSE_FOTO ok</span> (shots '+j.printer.shots+')':
-         '<span class=bad>conectada, sem a macro TIMELAPSE_FOTO</span>'));
+         !j.printer.subscribed?'<span class=bad>conectada, Klipper não está pronto</span>':
+         '<span class=ok>'+(j.printer.macro?'macro TIMELAPSE_FOTO ok':'pronta, fotos pelo RESPOND do G-code')+'</span> (fotos '+j.printer.shots+')'));
     const h=document.getElementById('h');if(document.activeElement!==h)h.value=j.printer.host;
     const m=j.motion;document.getElementById('m').innerHTML=
       'Carrinho: '+(m.homed?m.x.toFixed(1)+' mm':'<span class=bad>sem homing</span>')+(m.homing?' (homing…)':m.busy?' (andando)':'')+
@@ -138,6 +138,8 @@ String statusJson() {
   json += printer.connected() ? "true" : "false";
   json += ",\"subscribed\":";
   json += printer.subscribed() ? "true" : "false";
+  json += ",\"macro\":";
+  json += printer.hasMacro() ? "true" : "false";
   json += ",\"shots\":" + String(printer.shots()) + ",\"state\":\"" + printer.printState() + "\"}";
   json += ",\"motion\":{\"homed\":";
   json += motion.homed() ? "true" : "false";

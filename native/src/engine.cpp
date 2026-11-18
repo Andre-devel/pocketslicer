@@ -1010,6 +1010,10 @@ struct AppPrinter
     const char *index; // <app>/<fabricante>.json em vendors_dir
     const char *parent, *name, *time_lapse_gcode;
     const char *layer_change_gcode = nullptr; // quando o do pai já tira a foto da própria câmera
+    const char *before_layer_change_gcode = nullptr; // idem, no G-code de antes da troca de camada
+    // "type1" (torre da Bambu) quando o pai usa a da Prusa (type2), que no time-lapse suave só sai
+    // nas camadas com troca de filamento: sem ela o bico volta da foto à peça sem limpar.
+    const char *wipe_tower_type = nullptr;
 };
 const AppPrinter APP_PRINTERS[] = {
     {"CrealityPrint/Creality.json", "Creality K2 0.4 nozzle", "Creality K2 0.4 nozzle (time-lapse slider)",
@@ -1021,6 +1025,27 @@ const AppPrinter APP_PRINTERS[] = {
      "; Slider de camera: requer slider_cam.cfg na impressora. WAIT = ms parado para a foto\n"
      "{if timelapse_type == 1}TIMELAPSE_FOTO MODE=SMOOTH WAIT=1500{else}TIMELAPSE_FOTO WAIT=1500{endif}",
      "G92 E0\nSET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}"},
+    // A U1 de fábrica não deixa incluir slider_cam.cfg (a pasta config é só leitura no Moonraker):
+    // o próprio G-code estaciona como a macro (X260 Y260, sobe 1 mm, retrai 1,5 mm no tradicional)
+    // e avisa o ESP32 com RESPOND, que ele lê no websocket. Sem a pausa quando o slider não
+    // responde. "G4 P<ms> ; TIMELAPSE_FOTO" é o tempo parado que o app troca (sliderGcodeWithPark).
+    // A foto da câmera da própria U1 (TIMELAPSE_TAKE_FRAME) sai do G-code de antes da troca de camada.
+    {"SnapmakerOrca/Snapmaker.json", "Snapmaker U1 (0.4 nozzle)", "Snapmaker U1 (0.4 nozzle) (time-lapse slider)",
+     "; Slider de camera sem macro: estaciona, avisa o ESP32 (RESPOND) e espera a foto\n"
+     "SAVE_GCODE_STATE NAME=slider_foto\n"
+     "M83\n"
+     "{if timelapse_type != 1}G1 E-1.5 F1800\n{endif}"
+     "G91\nG1 Z1 F600\nG90\n"
+     "SAVE_GCODE_STATE NAME=slider_volta\n"
+     "G1 X260 Y260 F15000\n"
+     "M400\n"
+     "RESPOND PREFIX=TIMELAPSE_FOTO MSG={layer_num + 1}\n"
+     "G4 P1500 ; TIMELAPSE_FOTO\n"
+     // No suave o fatiador vai direto à próxima coisa pelo alto (ver slider_cam.cfg, MODE=SMOOTH).
+     "{if timelapse_type != 1}RESTORE_GCODE_STATE NAME=slider_volta MOVE=1 MOVE_SPEED=250\n"
+     "G91\nG1 Z-1 F600\nG90\nG1 E1.5 F1800\n{endif}"
+     "RESTORE_GCODE_STATE NAME=slider_foto",
+     nullptr, ";BEFORE_LAYER_CHANGE\n;[layer_z]\nG92 E0\nDEFECT_DETECTION_DETECT", "type1"},
 };
 
 // Grava as APP_PRINTERS do fabricante [index] na cópia dele em system_dir (feita por
@@ -1061,6 +1086,10 @@ void add_app_printers(const fs::path &index, const fs::path &system_dir)
                                {"from", "system"}, {"instantiation", "true"}, {"time_lapse_gcode", printer.time_lapse_gcode}};
         if (printer.layer_change_gcode != nullptr)
             machine["layer_change_gcode"] = printer.layer_change_gcode;
+        if (printer.before_layer_change_gcode != nullptr)
+            machine["before_layer_change_gcode"] = printer.before_layer_change_gcode;
+        if (printer.wipe_tower_type != nullptr)
+            machine["wipe_tower_type"] = printer.wipe_tower_type;
         write(dir / sub_path, machine);
         added.emplace(printer.parent, printer.name);
     }

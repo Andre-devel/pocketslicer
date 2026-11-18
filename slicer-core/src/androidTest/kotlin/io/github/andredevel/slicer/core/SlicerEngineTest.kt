@@ -769,6 +769,76 @@ class SlicerEngineTest {
         assertTrue(gcode.any { it.startsWith("SET_PRINT_STATS_INFO CURRENT_LAYER=") })
     }
 
+    // A U1 de fábrica não aceita slider_cam.cfg: o próprio G-code estaciona e avisa o ESP32 com RESPOND.
+    @Test
+    fun snapmakerU1TimelapseSliderPrinter() = runBlocking {
+        val printer = "Snapmaker U1 (0.4 nozzle)"
+        engine.loadVendor("SnapmakerOrca/Snapmaker")
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.select(PresetKind.PRINTER, printer)
+        val processes = engine.presets(PresetKind.PROCESS)
+        engine.select(PresetKind.PRINTER, "$printer (time-lapse slider)")
+        assertEquals(processes, engine.presets(PresetKind.PROCESS))
+        val traditional = File(work, "u1-traditional.gcode")
+        engine.slice(traditional) { _, _ -> }
+        val lines = traditional.readLines()
+        // Uma foto por camada, numerada pela camada; a câmera da própria U1 sai.
+        val shots = lines.filter { it.startsWith("RESPOND PREFIX=TIMELAPSE_FOTO MSG=") }
+        assertTrue(shots.size > 10)
+        val numbers = shots.map { it.substringAfter("MSG=").toInt() }
+        assertEquals((numbers.first()..numbers.last()).toList(), numbers)
+        assertTrue(lines.none { it.startsWith("TIMELAPSE_TAKE_FRAME") })
+        assertTrue(lines.any { it.startsWith("DEFECT_DETECTION_DETECT") })
+        // Tradicional: retrai, sobe, estaciona, espera; volta ao lugar, desce e desfaz a retração.
+        val at = lines.indexOf(shots[1])
+        assertEquals(listOf("G1 X260 Y260 F15000", "M400"), lines.subList(at - 2, at))
+        assertEquals("G4 P1500 ; TIMELAPSE_FOTO", lines[at + 1])
+        assertEquals("RESTORE_GCODE_STATE NAME=slider_volta MOVE=1 MOVE_SPEED=250", lines[at + 2])
+        val photo = lines.subList(lines.lastIndexOf("SAVE_GCODE_STATE NAME=slider_foto"), lines.size)
+        assertEquals("G1 E-1.5 F1800", photo[2])
+        assertTrue("G1 E1.5 F1800" in photo.subList(0, photo.indexOf("RESTORE_GCODE_STATE NAME=slider_foto")))
+
+        // Suave: fica no alto, sem voltar nem retrair (o fatiador já retraiu e vai pelo alto).
+        engine.setOption(PresetKind.PROCESS, "timelapse_type", "1")
+        val smooth = File(work, "u1-smooth.gcode")
+        engine.slice(smooth) { _, _ -> }
+        val smoothLines = smooth.readLines()
+        val smoothAt = smoothLines.indexOf(shots[1])
+        assertEquals("RESTORE_GCODE_STATE NAME=slider_foto", smoothLines[smoothAt + 2])
+        val smoothPhoto = smoothLines.subList(smoothLines.subList(0, smoothAt).lastIndexOf("SAVE_GCODE_STATE NAME=slider_foto"), smoothAt + 3)
+        assertTrue(smoothPhoto.none { it.startsWith("G1 E") || it.startsWith("RESTORE_GCODE_STATE NAME=slider_volta") })
+        // Torre em toda camada, logo depois da foto, para limpar o bico antes da peça.
+        val towers = smoothLines.count { it == ";TYPE:Prime tower" }
+        assertTrue("$towers torres", towers >= shots.size)
+        val after = smoothLines.subList(smoothAt, smoothLines.size)
+        assertEquals(";TYPE:Prime tower", after.first { it.startsWith(";TYPE:") })
+        val moves = after.filter { it.startsWith("G1 ") }
+        val firstXy = moves.indexOfFirst { " X" in it || " Y" in it }
+        assertTrue(moves.take(firstXy).none { " Z" in it })
+    }
+
+    // A U1 do slider usa a torre da Bambu (a da Prusa não faz o time-lapse suave): com duas cores,
+    // as trocas de cabeça continuam as mesmas da U1 normal.
+    @Test
+    fun snapmakerU1TimelapseSliderPrinterTwoColors() = runBlocking {
+        val printer = "Snapmaker U1 (0.4 nozzle)"
+        engine.loadVendor("SnapmakerOrca/Snapmaker")
+        engine.loadModel(testAsset("cube20.stl"))
+        engine.addModel(testAsset("cube20.stl"))
+        suspend fun toolChanges(name: String): List<String> {
+            engine.select(PresetKind.PRINTER, name)
+            if (engine.filamentColors().size < 2) engine.addFilament()
+            engine.setObjectFilament(1, 1)
+            val gcode = File(work, "$name.gcode")
+            engine.slice(gcode) { _, _ -> }
+            return gcode.readLines().filter { it == "T0" || it == "T1" }
+        }
+        val plain = toolChanges(printer)
+        val slider = toolChanges("$printer (time-lapse slider)")
+        assertTrue("${plain.size} trocas", plain.size > 10)
+        assertEquals(plain.size, slider.size)
+    }
+
     private suspend fun assertTimelapseSliderPrinter(vendor: String, printer: String, bedCenter: Float) {
         val slider = "$printer (time-lapse slider)"
         engine.loadVendor(vendor)

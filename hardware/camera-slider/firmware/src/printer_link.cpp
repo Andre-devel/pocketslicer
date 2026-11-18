@@ -7,6 +7,9 @@ namespace {
 
 constexpr const char *kMacroObject = "gcode_macro TIMELAPSE_FOTO";
 constexpr const char *kStatsObject = "print_stats";
+// Resposta de "RESPOND PREFIX=TIMELAPSE_FOTO MSG=<camada>" no G-code sem a macro.
+constexpr const char *kRespondPrefix = "TIMELAPSE_FOTO ";
+constexpr const char *kGcodeResponse = "\"notify_gcode_response\"";
 constexpr uint32_t kReconnectMs = 5000;
 
 WebSocketsClient socket;
@@ -22,7 +25,7 @@ void PrinterLink::begin(const String &host, uint16_t port, ShotCallback onShot, 
   onLayer_ = std::move(onLayer);
   printState_ = "";
   duration_ = 0;
-  connected_ = subscribed_ = haveShots_ = false;
+  connected_ = subscribed_ = haveShots_ = hasMacro_ = false;
   started_ = host_.length() > 0;
   if (!started_) {
     Serial.println("[impressora] sem endereço; ligação desligada");
@@ -96,6 +99,18 @@ void PrinterLink::subscribe() {
 }
 
 void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
+  // Respostas do G-code: params é uma lista de textos, que o filtro de baixo (feito para os
+  // objetos do status) descartaria.
+  if (memmem(payload, length, kGcodeResponse, strlen(kGcodeResponse))) {
+    JsonDocument doc;
+    if (deserializeJson(doc, payload, length)) return;
+    const char *line = doc["params"][0] | "";
+    if (!hasMacro_ && subscribed_ && strncmp(line, kRespondPrefix, strlen(kRespondPrefix)) == 0) {
+      Serial.printf("[impressora] %s\n", line);
+      updateShots(shots_ + 1, false);
+    }
+    return;
+  }
   // O Moonraker manda muita coisa a todos os clientes (proc_stat a cada segundo); só interessa
   // a resposta da assinatura, as mudanças da macro e o aviso de Klipper pronto.
   JsonDocument filter;
@@ -147,15 +162,18 @@ void PrinterLink::handleMessage(const uint8_t *payload, size_t length) {
     JsonVariant layer = doc["result"]["status"][kStatsObject]["info"]["current_layer"];
     if (layer.is<int>() && onLayer_) onLayer_(layer.as<int>());
     JsonVariant shots = doc["result"]["status"][kMacroObject]["shots"];
-    subscribed_ = !shots.isNull();
+    subscribed_ = true;
+    hasMacro_ = !shots.isNull();
     // Macro antiga (sem "ack"): sem confirmação, senão cada foto vira erro no console.
     macroHasAck_ = !doc["result"]["status"][kMacroObject]["ack"].isNull();
-    if (subscribed_) {
+    if (hasMacro_) {
       updateShots(shots.as<uint32_t>(), true);
       Serial.printf("[impressora] macro TIMELAPSE_FOTO encontrada (shots=%u)\n", shots_);
     } else {
-      // Sem a macro o Moonraker não devolve o objeto; ela aparece depois do include + restart.
-      Serial.println("[impressora] macro TIMELAPSE_FOTO não existe na impressora");
+      // Sem a macro o Moonraker não devolve o objeto (ela aparece depois do include + restart):
+      // as fotos vêm do RESPOND do G-code.
+      haveShots_ = true;
+      Serial.println("[impressora] sem a macro TIMELAPSE_FOTO; fotos pelo RESPOND do G-code");
     }
   }
 }

@@ -263,9 +263,9 @@ fun sliderPlan(state: SlicerUiState, targets: List<SliderTarget>): SliderPlan? {
 }
 
 /**
- * O que o ESP32 do slider diz de si (GET /status): celular pareado por Bluetooth, macro
- * TIMELAPSE_FOTO assinada na impressora dele, camadas do plano salvo (0 = nenhum) e erro do
- * último homing (vazio se nenhum).
+ * O que o ESP32 do slider diz de si (GET /status): celular pareado por Bluetooth, Klipper pronto
+ * na impressora dele (fotos pela macro TIMELAPSE_FOTO ou pelo RESPOND do G-code), camadas do plano
+ * salvo (0 = nenhum) e erro do último homing (vazio se nenhum).
  */
 data class SliderStatus(
     val ble: Boolean,
@@ -353,12 +353,16 @@ fun Bed.center(): FloatArray {
 val PresetChoice.isSliderPrinter get() = values.values["time_lapse_gcode"]?.contains("TIMELAPSE_FOTO") == true
 
 private val SLIDER_PHOTO_CALL = Regex("""TIMELAPSE_FOTO((?: MODE=\w+)?)(?: WAIT=\d+)?""")
+// Sem a macro (Snapmaker U1 de fábrica), o próprio G-code espera parado: "G4 P<ms> ; TIMELAPSE_FOTO".
+private val SLIDER_PHOTO_WAIT = Regex("""G4 P(\d+) ; TIMELAPSE_FOTO""")
 
 /** Tempo (ms) que a macro deixa o cabeçote parado no canto (WAIT=, ou wait_ms da macro: 1500). */
 val PresetChoice.sliderParkMs: Int
-    get() = values.values["time_lapse_gcode"]?.let { Regex("""TIMELAPSE_FOTO[^\n{}]* WAIT=(\d+)""").find(it) }
-        ?.groupValues?.get(1)?.toIntOrNull() ?: SliderGeometry.PARK_DEFAULT
+    get() = values.values["time_lapse_gcode"]?.let {
+        (Regex("""TIMELAPSE_FOTO[^\n{}]* WAIT=(\d+)""").find(it) ?: SLIDER_PHOTO_WAIT.find(it))
+    }?.groupValues?.get(1)?.toIntOrNull() ?: SliderGeometry.PARK_DEFAULT
 
-/** [gcode] com WAIT=[ms] em cada chamada de TIMELAPSE_FOTO. */
+/** [gcode] com WAIT=[ms] em cada chamada de TIMELAPSE_FOTO (ou na espera do G-code sem a macro). */
 fun sliderGcodeWithPark(gcode: String, ms: Int): String =
-    SLIDER_PHOTO_CALL.replace(gcode) { "TIMELAPSE_FOTO${it.groupValues[1]} WAIT=$ms" }
+    if (SLIDER_PHOTO_WAIT.containsMatchIn(gcode)) SLIDER_PHOTO_WAIT.replace(gcode, "G4 P$ms ; TIMELAPSE_FOTO")
+    else SLIDER_PHOTO_CALL.replace(gcode) { "TIMELAPSE_FOTO${it.groupValues[1]} WAIT=$ms" }

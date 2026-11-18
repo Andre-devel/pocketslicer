@@ -3,6 +3,10 @@
 // A macro TIMELAPSE_FOTO estaciona o cabeçote e soma 1 na variável "shots"; aqui assinamos essa
 // variável e chamamos o callback a cada aumento. Assim a impressora não precisa de root nem de
 // gcode_shell_command: quem procura a impressora é a placa.
+//
+// Sem a macro (Snapmaker U1 de fábrica, onde não dá para incluir slider_cam.cfg), o próprio G-code
+// estaciona e manda "RESPOND PREFIX=TIMELAPSE_FOTO MSG=<camada>"; o Moonraker repassa a resposta
+// a todos os clientes (notify_gcode_response) e cada uma conta como uma foto.
 #pragma once
 
 #include <Arduino.h>
@@ -28,8 +32,10 @@ class PrinterLink {
 
   const String &host() const { return host_; }
   bool connected() const { return connected_; }
-  // A macro existe e a assinatura foi aceita (Klipper pronto).
+  // Assinatura aceita (Klipper pronto): fotos pela macro ou por RESPOND.
   bool subscribed() const { return subscribed_; }
+  // A macro TIMELAPSE_FOTO existe na impressora.
+  bool hasMacro() const { return hasMacro_; }
   uint32_t shots() const { return shots_; }
   const String &printState() const { return printState_; }
 
@@ -54,6 +60,7 @@ class PrinterLink {
   bool connected_ = false;
   bool subscribed_ = false;
   bool haveShots_ = false;
+  bool hasMacro_ = false;
   // A macro tem a variável "ack" (slider_cam.cfg com a pausa sem o slider).
   bool macroHasAck_ = false;
   uint32_t shots_ = 0;

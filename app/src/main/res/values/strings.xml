@@ -723,7 +723,7 @@
     <string name="slider_esp_problems">Slider connected, but: %1$s. %2$s</string>
     <string name="slider_esp_no_ble">phone not paired over Bluetooth</string>
     <string name="slider_esp_no_printer">no printer set on the slider</string>
-    <string name="slider_esp_printer_down">no TIMELAPSE_FOTO from %1$s</string>
+    <string name="slider_esp_printer_down">Klipper at %1$s not ready</string>
     <string name="slider_esp_motor_error">motor: %1$s</string>
     <string name="slider_esp_plan">Saved plan: %1$d layers.</string>
     <string name="slider_esp_no_plan">No plan saved yet.</string>
